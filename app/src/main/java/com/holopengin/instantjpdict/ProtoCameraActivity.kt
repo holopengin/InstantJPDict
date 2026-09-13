@@ -247,7 +247,9 @@ class ProtoCameraActivity : AppCompatActivity() {
                         setClass(this@ProtoCameraActivity, ShareImageActivity::class.java)
                     }
                     startActivity(send)
-                    finish()
+                    // Deliberately NOT finishing: leaving this activity on the back stack is
+                    // what makes the results view return HERE rather than to the main
+                    // activity when it closes. The camera rebinds its preview on resume.
                 }
 
                 override fun onError(exception: ImageCaptureException) {
