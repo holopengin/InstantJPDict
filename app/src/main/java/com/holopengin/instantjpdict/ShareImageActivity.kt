@@ -267,10 +267,10 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             tag = "rotate_controls"
             orientation = LinearLayout.HORIZONTAL
         }
-        val clockwise = rotateButton(ROTATE_CW_GLYPH, "Rotate clockwise", size) { rotate(clockwise = true) }
         val counter = rotateButton(ROTATE_CCW_GLYPH, "Rotate counterclockwise", size) { rotate(clockwise = false) }
-        bar.addView(clockwise, LinearLayout.LayoutParams(size, size).apply { rightMargin = gap })
-        bar.addView(counter, LinearLayout.LayoutParams(size, size))
+        val clockwise = rotateButton(ROTATE_CW_GLYPH, "Rotate clockwise", size) { rotate(clockwise = true) }
+        bar.addView(counter, LinearLayout.LayoutParams(size, size).apply { rightMargin = gap })
+        bar.addView(clockwise, LinearLayout.LayoutParams(size, size))
         return bar
     }
 
@@ -294,7 +294,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     /**
      * Dark fill with the app's cyan outline: readable over a bright photo and
      * over the overlay's dark scrim alike, which the logo drawable the other
-     * buttons use is not (it is a glyph, not a text background). Values are
+     * buttons use is not (it is a glyph, not a text background).
+     *
+     * The fill and outline are deliberately semi-transparent so the image reads
+     * through the button; the glyph stays opaque so it stays legible over a
+     * bright photo. Values are
      * named so they are a one-line nudge on device.
      */
     private fun rotateButtonBackground(): Drawable = GradientDrawable().apply {
@@ -440,8 +444,8 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         private const val ROTATE_BUTTON_RADIUS_DP = 10f
         private const val ROTATE_GLYPH_TEXT_SIZE_SP = 24f
 
-        private val ROTATE_BUTTON_FILL = Color.argb(215, 25, 25, 25)
-        private val ROTATE_BUTTON_STROKE = Color.argb(220, 0, 255, 255)
+        private val ROTATE_BUTTON_FILL = Color.argb(130, 25, 25, 25)
+        private val ROTATE_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
         private val ROTATE_GLYPH_COLOR = Color.parseColor("#00FFFF")
     }
 }
