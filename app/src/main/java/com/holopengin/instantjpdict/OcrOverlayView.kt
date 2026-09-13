@@ -37,6 +37,7 @@ import com.holopengin.instantjpdict.util.InferLog
 import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -657,6 +658,12 @@ class OcrOverlayView(
                 } else {
                     postStatus(gen, "Error: OCR Engine not ready", hideProgress = true)
                 }
+            } catch (e: CancellationException) {
+                // An interrupted run is not a failed one. Rotation, closing the overlay and
+                // leaving the host all cancel this coroutine on purpose, and reporting that
+                // as "OCR Error" blamed the user's own action. Rethrow so cancellation
+                // propagates as cancellation.
+                throw e
             } catch (e: Exception) {
                 val errorMsg = e.message ?: e.toString()
                 Log.e("OcrAccessibilityService", "OCR Inference Error", e)
