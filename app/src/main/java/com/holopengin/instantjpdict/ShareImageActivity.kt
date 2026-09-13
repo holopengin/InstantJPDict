@@ -266,6 +266,14 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         val bar = LinearLayout(this).apply {
             tag = "rotate_controls"
             orientation = LinearLayout.HORIZONTAL
+            val pad = (ROTATE_BAR_TOUCH_PAD_DP * resources.displayMetrics.density).roundToInt()
+            setPadding(pad, pad, pad, pad)
+            // A near miss must not read as empty space. Without this the gap between the two
+            // buttons, and the padding around them, fall through to the surface's tap-to-close,
+            // so a thumb that lands next to ⟲ dismisses the results instead of doing nothing.
+            // Consuming here keeps the bar and a thumb's width around it inert; empty space
+            // anywhere else still closes exactly as before.
+            setOnClickListener { }
         }
         val counter = rotateButton(ROTATE_CCW_GLYPH, "Rotate counterclockwise", size) { rotate(clockwise = false) }
         val clockwise = rotateButton(ROTATE_CW_GLYPH, "Rotate clockwise", size) { rotate(clockwise = true) }
@@ -443,6 +451,9 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         private const val ROTATE_BAR_MARGIN_DP = 12
         private const val ROTATE_BUTTON_RADIUS_DP = 10f
         private const val ROTATE_GLYPH_TEXT_SIZE_SP = 24f
+
+        /** Dead zone around the rotate pair, in dp: taps here are swallowed, not treated as empty space. */
+        private const val ROTATE_BAR_TOUCH_PAD_DP = 20f
 
         private val ROTATE_BUTTON_FILL = Color.argb(130, 25, 25, 25)
         private val ROTATE_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
