@@ -74,6 +74,9 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // #57: the androidx ExifInterface, not the platform one — the platform class cannot read
+    // HEIF/WebP, which is what a photo shared from a modern phone camera often is.
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

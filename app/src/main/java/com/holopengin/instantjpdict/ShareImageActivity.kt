@@ -7,7 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -220,14 +220,16 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     }
 
     private fun readExifOrientation(uri: Uri): Int = try {
-        contentResolver.openInputStream(uri)?.use { input ->
-            ExifInterface(input).getAttributeInt(
+        // A content URI's InputStream is not seekable, and androidx's ExifInterface needs a
+        // seekable source, so go through the file descriptor rather than the stream.
+        contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+            ExifInterface(pfd.fileDescriptor).getAttributeInt(
                 ExifInterface.TAG_ORIENTATION,
                 ExifOrientation.NORMAL
             )
         } ?: ExifOrientation.NORMAL
     } catch (e: Exception) {
-        // Some providers serve streams without EXIF; treat as already upright.
+        // Some providers serve files without EXIF; treat as already upright.
         Log.w("ShareImageActivity", "EXIF orientation unreadable", e)
         ExifOrientation.NORMAL
     }
