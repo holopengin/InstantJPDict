@@ -4,25 +4,35 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * #57 (Feat — image share intent): receive a single shared image and OCR it
@@ -38,6 +48,17 @@ import kotlin.math.max
  * close button. Both reach [OcrOverlayView]'s single close path; when there is
  * no layer left to close it calls [dismissOverlay] and this activity finishes.
  *
+ * #57 rotation follow-up: two rotate buttons (⟳ / ⟲) are this activity's own
+ * chrome, but they are placed in [OcrOverlayView]'s host-chrome layer
+ * ([OcrOverlayView.addHostChrome]) rather than beside it, so they render UNDER
+ * the dictionary panel the view opens and above the image, without the
+ * activity reaching into the view's children — and the accessibility service,
+ * the view's other host, is unchanged. Each press turns the image a quarter
+ * turn clockwise or counterclockwise and re-runs OCR on the rotated composite.
+ * The geometry that keeps the boxes and tap targets aligned lives in
+ * [ImageRotation], which is plain Kotlin and unit-tested; the
+ * presses-into-one-pass bookkeeping lives in [RotationQueue], likewise.
+ *
  * ACTION_SEND_MULTIPLE is a deliberate later follow-up — only ACTION_SEND is
  * handled here.
  */
@@ -48,8 +69,67 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     private val overlayScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private lateinit var engine: OcrEngine
     private val overlayState = OcrOverlayStateController()
+
+    /**
+     * The decoded, EXIF-upright image, kept UNROTATED for as long as the
+     * activity lives: every rotate press re-derives the composite from this one
+     * bitmap, so quarter turns never compound resampling, and a fourth press
+     * returns to the original pixels.
+     */
+    private var baseImage: Bitmap? = null
+
+    /** The composed image, exactly the size of the overlay view (OCR input and
+     *  what the view displays). Replaced by the rotate pump once the pass that
+     *  was reading the previous one has finished; the replaced bitmap is
+     *  deliberately NOT recycled (see [RotationQueue] and [onDestroy]). */
     private var image: Bitmap? = null
+
+    /** Every rotate press, coalesced: what is on screen plus what is queued
+     *  behind the pass in flight. Four presses still return to the original
+     *  orientation, and N presses while a pass runs cost ONE pass. */
+    private var rotations = RotationQueue.State.IDLE
+
+    /** Quarter turns actually composed into [image] and on screen. The pump's
+     *  work test: a press from rest sets `turns` directly, a press during a pass
+     *  accumulates in `queued` and `passFinished` folds those into `turns`, so
+     *  comparing `turns` with what has been composed covers both. `running`
+     *  alone does not — a press from rest leaves `queued` at zero.
+     *
+     *  `turns` wrapping means a burst of four from rest is correctly a no-op:
+     *  the orientation it asks for is the one already composed. */
+    private var composedTurns = 0
+
+    /** The one pump that walks [rotations]; null when no rotation is pending.
+     *  At most one detect/recognise pass is in flight at any time, which is
+     *  what keeps a burst of presses from stacking multi-megabyte allocations. */
+    private var rotatePump: Job? = null
+
+    /** The detect/recognise pass the view is running, if any. A rotation waits
+     *  for this to finish rather than cancelling it: cancellation is
+     *  cooperative and the detect call is native, so a "cancelled" pass would
+     *  keep reading the composite it was given. */
+    private var currentPass: Job? = null
+
+    /** The display pump: turns the image on press, independent of the OCR. Null
+     *  when no turn is pending. */
+    private var rotateDisplayJob: Job? = null
+
+    /** Quarter turns the last OCR pass actually read. The pass's own work test:
+     *  re-OCR only when the display has moved to an orientation it has not read
+     *  yet. Wraps at 4, so four turns correctly need no pass. */
+    private var lastOcrTurns = 0
+
+    /** The container size the composite is built at — the same pixels the
+     *  overlay view's box coordinates are expressed in. */
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
+
     private var overlayView: OcrOverlayView? = null
+
+    /** The activity's own rotate pair, placed in the overlay view's chrome
+     *  layer once the view exists (see [OcrOverlayView.addHostChrome]), so it
+     *  renders under the dictionary panel but stays tappable when none is up. */
+    private var rotateBar: View? = null
 
     // ---- OcrOverlayView.Host ----
 
@@ -68,7 +148,8 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
-    /** No floating button to sit under; a fixed corner is all the button needs. */
+    /** No floating button to sit under; a fixed corner is all the button needs.
+     *  Top-left — which is why the rotate pair goes bottom-left. */
     override fun closeButtonOrigin(): Pair<Int, Int> = 100 to 100
 
     /** No floating button to keep in step. */
@@ -101,13 +182,65 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             return
         }
 
+        // Bottom-left: the view's draggable close button starts in the top-left
+        // (`closeButtonOrigin`), the status strip owns the top edge, and the
+        // confidence controls run down the left at vertical centre — so this is
+        // the one corner where the pair collides with nothing. It is added to
+        // this container first so it is visible while the image decodes, then
+        // moved into the overlay view's chrome layer once the view exists: that
+        // layer renders under the dictionary panel but above the image, which a
+        // sibling here could never do (it would sit above the whole surface,
+        // panel included).
+        rotateBar = buildRotateBar()
+        val barMargin = (ROTATE_BAR_MARGIN_DP * resources.displayMetrics.density).roundToInt()
+        container.addView(
+            rotateBar,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.START
+                // Until the window insets land, keep the pair off the very edge.
+                leftMargin = barMargin
+                bottomMargin = barMargin
+            }
+        )
+        // The window lays out under the system bars (FLAG_LAYOUT_NO_LIMITS), so
+        // keep the pair clear of the navigation bar whatever its shape.
+        ViewCompat.setOnApplyWindowInsetsListener(rotateBar!!) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val base = (ROTATE_BAR_MARGIN_DP * resources.displayMetrics.density).roundToInt()
+            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
+                leftMargin = base + bars.left
+                bottomMargin = base + bars.bottom
+                rightMargin = base
+                topMargin = base + bars.top
+            }
+            insets
+        }
+
         // Compose at the container's own size, so the image the view receives is
         // exactly the size of the view.
         container.post {
             val width = container.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
             val height = container.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+            surfaceWidth = width
+            surfaceHeight = height
             overlayScope.launch {
-                val composed = withContext(Dispatchers.IO) { composeForScreen(uri, width, height) }
+                val base = withContext(Dispatchers.IO) { decodeOriented(uri, width, height) }
+                if (isFinishing || isDestroyed) {
+                    base?.recycle()
+                    return@launch
+                }
+                if (base == null) {
+                    Toast.makeText(this@ShareImageActivity, "Could not read image", Toast.LENGTH_SHORT).show()
+                    finish()
+                    return@launch
+                }
+                baseImage = base
+                val composed = withContext(Dispatchers.IO) {
+                    composeForScreen(base, width, height, rotations.turns)
+                }
                 if (isFinishing || isDestroyed) {
                     composed?.recycle()
                     return@launch
@@ -127,7 +260,19 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                         FrameLayout.LayoutParams.MATCH_PARENT
                     )
                 )
-                view.startOcr()
+                // The rotate pair moves into the view's chrome layer, keeping
+                // its own gravity and margins: under the dictionary panel, above
+                // the image, and — because the layer hit-tests its children —
+                // still taking its own presses.
+                rotateBar?.let { bar ->
+                    (bar.parent as? ViewGroup)?.removeView(bar)
+                    view.addHostChrome(bar)
+                }
+                // The first pass is a pass too: a press while it runs queues
+                // behind it instead of starting a second, overlapping one.
+                currentPass = view.startOcr()
+                rotations = RotationQueue.passStarted(rotations)
+                rotatePump = overlayScope.launch { runRotations() }
             }
         }
     }
@@ -153,11 +298,178 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         overlayView = null
         overlayScope.cancel()
         if (::engine.isInitialized) engine.close()
-        val bmp = image
-        image = null
         super.onDestroy()
-        // The views are gone by now; nothing is drawing this bitmap any more.
-        if (bmp != null && !bmp.isRecycled) bmp.recycle()
+        // The composed and base bitmaps are deliberately neither recycled nor
+        // nulled — here or as the rotate pump replaces them.
+        //
+        // `cancel()` stops a coroutine, not a native detect: a pass can still be
+        // reading the composite it was handed, and the display ImageView may
+        // hold that very bitmap (the strip treatment copies it in only some
+        // modes). An eager recycle under a live pass is exactly what raised
+        // "Bitmap is recycled", and nulling `image` would be no better: it is
+        // the reference a live pass reads `host.bitmap` through, so it would
+        // turn a finishing pass into a thrown error instead of letting it end.
+        // Left alone, both die with this activity, which is unreachable once
+        // its cancelled coroutines complete.
+    }
+
+    // ---- rotate chrome ----
+
+    /**
+     * The two rotate buttons, in this activity's chrome rather than the shared
+     * surface. One helper builds both, so the pair cannot drift apart.
+     */
+    private fun buildRotateBar(): View {
+        val size = (ROTATE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        val gap = (ROTATE_BUTTON_GAP_DP * resources.displayMetrics.density).roundToInt()
+        val bar = LinearLayout(this).apply {
+            tag = "rotate_controls"
+            orientation = LinearLayout.HORIZONTAL
+            val pad = (ROTATE_BAR_TOUCH_PAD_DP * resources.displayMetrics.density).roundToInt()
+            setPadding(pad, pad, pad, pad)
+            // A near miss must not read as empty space. Without this the gap between the two
+            // buttons, and the padding around them, fall through to the surface's tap-to-close,
+            // so a thumb that lands next to ⟲ dismisses the results instead of doing nothing.
+            // Consuming here keeps the bar and a thumb's width around it inert; empty space
+            // anywhere else still closes exactly as before.
+            setOnClickListener { }
+        }
+        val counter = rotateButton(ROTATE_CCW_GLYPH, "Rotate counterclockwise", size) { rotate(clockwise = false) }
+        val clockwise = rotateButton(ROTATE_CW_GLYPH, "Rotate clockwise", size) { rotate(clockwise = true) }
+        bar.addView(counter, LinearLayout.LayoutParams(size, size).apply { rightMargin = gap })
+        bar.addView(clockwise, LinearLayout.LayoutParams(size, size))
+        return bar
+    }
+
+    private fun rotateButton(label: String, description: String, sizePx: Int, onClick: () -> Unit): CenteredButton =
+        CenteredButton(this).apply {
+            tag = "rotate_button_$label"
+            text = label
+            contentDescription = description
+            setTextColor(ROTATE_GLYPH_COLOR)
+            textSize = ROTATE_GLYPH_TEXT_SIZE_SP
+            includeFontPadding = false
+            isAllCaps = false
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
+            gravity = Gravity.CENTER
+            background = rotateButtonBackground()
+            setOnClickListener { onClick() }
+        }
+
+    /**
+     * Dark fill with the app's cyan outline: readable over a bright photo and
+     * over the overlay's dark scrim alike, which the logo drawable the other
+     * buttons use is not (it is a glyph, not a text background).
+     *
+     * The fill and outline are deliberately semi-transparent so the image reads
+     * through the button; the glyph stays opaque so it stays legible over a
+     * bright photo. Values are
+     * named so they are a one-line nudge on device.
+     */
+    private fun rotateButtonBackground(): Drawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = ROTATE_BUTTON_RADIUS_DP * resources.displayMetrics.density
+        setColor(ROTATE_BUTTON_FILL)
+        setStroke((1.5f * resources.displayMetrics.density).roundToInt(), ROTATE_BUTTON_STROKE)
+    }
+
+    /**
+     * One press. It never starts a pass of its own: with a pass in flight the
+     * press only records the turn, and [runRotations] applies what accumulated
+     * in ONE pass when that pass ends. N presses therefore cost one pass, not
+     * N — which is what stops a burst from stacking view-sized composites
+     * (≈10 MB each at 1080×2400) plus the detector's buffers faster than they
+     * are released. That stacking was the OutOfMemoryError; recycling a
+     * composite while the previous pass still read it was the "Bitmap is
+     * recycled" error, and neither can happen while a pass is never overlapped.
+     */
+    private fun rotate(clockwise: Boolean) {
+        rotations = RotationQueue.press(rotations, clockwise)
+        // The turn is cheap and the user asked for it now, so show it now whatever the
+        // OCR is doing — waiting for the pass in flight is what made a second press feel
+        // stuck. The pass for the new orientation follows from runRotations.
+        if (rotateDisplayJob?.isActive != true) {
+            rotateDisplayJob = overlayScope.launch { runDisplayTurns() }
+        }
+        if (rotatePump?.isActive != true) {
+            rotatePump = overlayScope.launch { runRotations() }
+        }
+    }
+
+    /**
+     * The display pump: compose the requested orientation and put it on screen as
+     * soon as the user asks, with no OCR in the way. Coalesced like the pass pump —
+     * a press while a compose is running only moves the target and the loop
+     * re-checks, so a burst costs one compose per settled orientation.
+     *
+     * The previous run's results go with the old image ([showImageWithoutResults]);
+     * boxes for the previous orientation would otherwise sit off their glyphs while
+     * the new pass runs.
+     */
+    private suspend fun runDisplayTurns() {
+        while (rotations.turns != composedTurns) {
+            val view = overlayView ?: break
+            val base = baseImage ?: break
+            val width = surfaceWidth
+            val height = surfaceHeight
+            if (width <= 0 || height <= 0) break
+
+            val turns = rotations.turns
+            val recomposed = withContext(Dispatchers.IO) {
+                composeForScreen(base, width, height, turns)
+            }
+            if (recomposed == null) {
+                // Nothing was composed, so nothing on screen changed: park the queue at
+                // what is displayed rather than leaving a turn marked in flight that
+                // nothing will ever finish. A later press still starts a turn.
+                rotations = RotationQueue.passAbandoned(rotations)
+                break
+            }
+            if (isFinishing || isDestroyed) {
+                recomposed.recycle()
+                rotations = RotationQueue.passAbandoned(rotations)
+                break
+            }
+            image = recomposed
+            composedTurns = turns
+            view.showImageWithoutResults()
+        }
+        rotateDisplayJob = null
+    }
+
+    /**
+     * The single pump that walks [rotations]: wait for the pass in flight,
+     * apply the accumulated turns in one pass, repeat while presses keep
+     * arriving, then idle.
+     *
+     * Waiting — never cancelling — is the point. Cancellation is cooperative and
+     * the detect call is native, so a "cancelled" pass would keep reading the
+     * composite it was handed; only joining it proves the bitmap is free. Every
+     * mutation here happens on the main dispatcher, so a press cannot interleave
+     * between the state check and the loop's exit and be left stranded.
+     *
+     * The composite that is replaced is deliberately not recycled (see
+     * [onDestroy]): it dies with the activity rather than under a live pass.
+     */
+    private suspend fun runRotations() {
+        while (true) {
+            currentPass?.join()
+            // Let the display settle first: the pass must read the image that is
+            // actually on screen, not one that is about to be replaced.
+            rotateDisplayJob?.join()
+            rotations = RotationQueue.passFinished(rotations)
+            // Work exists when the orientation the queue asks for is not the one the last
+            // pass read — see [lastOcrTurns]. `turns` wraps, so four turns need no pass.
+            if (rotations.turns == lastOcrTurns) break
+
+            val view = overlayView ?: break
+            if (surfaceWidth <= 0 || surfaceHeight <= 0) break
+            lastOcrTurns = rotations.turns
+            currentPass = view.startOcr()
+        }
+        rotatePump = null
     }
 
     // ---- image input ----
@@ -169,24 +481,37 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     }
 
     /**
-     * Decode the shared image, apply its EXIF orientation, and draw it
-     * fit-centred onto a [targetW] x [targetH] black canvas. The result is the
-     * exact size of the overlay view, so OCR boxes and hit rects line up with
-     * what is on screen.
+     * Draw [base] turned by [turns] quarter turns clockwise, fit-centred onto a
+     * [targetW] x [targetH] black canvas. The result is the exact size of the
+     * overlay view, so OCR boxes and hit rects line up with what is on screen
+     * whatever the orientation.
      */
-    private fun composeForScreen(uri: Uri, targetW: Int, targetH: Int): Bitmap? {
-        val decoded = decodeOriented(uri, targetW, targetH) ?: return null
+    private fun composeForScreen(base: Bitmap, targetW: Int, targetH: Int, turns: Int): Bitmap? {
+        val rotated = rotateBitmap(base, turns)
         val out = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-        val fit = ImageShareFit.fitCenter(decoded.width, decoded.height, targetW, targetH)
+        // Recomputed from the ROTATED dimensions, not the base ones: this is the
+        // whole point of ImageRotation.fitRotated. Reusing the pre-rotation fit
+        // would place the turned image at the wrong scale/offset and every box
+        // drawn over it would sit off the glyph it belongs to.
+        val fit = ImageRotation.fitRotated(base.width, base.height, targetW, targetH, turns)
         val dst = RectF(
             fit.left.toFloat(), fit.top.toFloat(),
             (fit.left + fit.width).toFloat(), (fit.top + fit.height).toFloat()
         )
-        canvas.drawBitmap(decoded, null, dst, paint)
-        decoded.recycle()
+        canvas.drawBitmap(rotated, null, dst, paint)
+        if (rotated !== base) rotated.recycle()
         return out
+    }
+
+    /** Clockwise quarter turns of [base]; [base] itself when there is nothing to
+     *  do, so the caller can tell whether it owns a second bitmap. */
+    private fun rotateBitmap(base: Bitmap, turns: Int): Bitmap {
+        val degrees = ImageRotation.degrees(turns)
+        if (degrees == 0f) return base
+        val matrix = Matrix().apply { postRotate(degrees) }
+        return Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrix, true)
     }
 
     /** Stream-decode via [android.content.ContentResolver]; the shared URI is a
@@ -232,5 +557,25 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // Some providers serve files without EXIF; treat as already upright.
         Log.w("ShareImageActivity", "EXIF orientation unreadable", e)
         ExifOrientation.NORMAL
+    }
+
+    companion object {
+        /** The button texts, exactly as the issue asks for them. */
+        private const val ROTATE_CW_GLYPH = "⟳"
+        private const val ROTATE_CCW_GLYPH = "⟲"
+
+        /** ≥48dp touch targets (platform minimum), a step up for legibility. */
+        private const val ROTATE_BUTTON_DP = 52
+        private const val ROTATE_BUTTON_GAP_DP = 8
+        private const val ROTATE_BAR_MARGIN_DP = 12
+        private const val ROTATE_BUTTON_RADIUS_DP = 10f
+        private const val ROTATE_GLYPH_TEXT_SIZE_SP = 24f
+
+        /** Dead zone around the rotate pair, in dp: taps here are swallowed, not treated as empty space. */
+        private const val ROTATE_BAR_TOUCH_PAD_DP = 20f
+
+        private val ROTATE_BUTTON_FILL = Color.argb(130, 25, 25, 25)
+        private val ROTATE_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
+        private val ROTATE_GLYPH_COLOR = Color.parseColor("#00FFFF")
     }
 }
