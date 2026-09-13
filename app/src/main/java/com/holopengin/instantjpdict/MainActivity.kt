@@ -92,6 +92,15 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
+        // #78 PROTOTYPE (throwaway, branch proto/78-camera-viewfinder): our own
+        // viewfinder with the 1px full-frame crosshair. Capture goes into
+        // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry
+        // the system share sheet uses, so there is one OCR surface, not two.
+        // Delete this button when the prototype branch is dropped.
+        addButton(layout, "Camera (PROTOTYPE #78)") {
+            startActivity(Intent(this, ProtoCameraActivity::class.java))
+        }
+
         val accessibilityHelp = TextView(this).apply {
             text = "Note: If android displays an \"App access was denied\" popup when attempting to enable it the Accessibility Service, you may need to go to your system settings, find 'InstantJPDict' in the app list, and tap the three-dot menu to select 'Allow restricted settings'."
             textSize = 12f

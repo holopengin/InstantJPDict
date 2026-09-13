@@ -8,6 +8,17 @@
          OcrAccessibilityService.registerBackCallback), so back died on our
          window. Opting out restores legacy KEYCODE_BACK dispatch, which this
          service's key filtering does receive. -->
+    <!-- #78 PROTOTYPE — camera mode. Everything below that is marked PROTO
+         exists only for the throwaway prototype branch
+         proto/78-camera-viewfinder and must not reach main as-is. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Not required: the app installs and works on a device with no camera;
+         the prototype activity is simply unusable there. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <application
         android:enableOnBackInvokedCallback="false"
         android:allowBackup="true"
@@ -47,6 +58,30 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+
+        <!-- #78 PROTOTYPE — our own viewfinder, launched from a main-activity
+             button. Portrait-locked so the in-hand crosshair judgement happens
+             in one orientation. -->
+        <activity
+            android:name=".ProtoCameraActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.InstantJPDict" />
+
+        <!-- #78 PROTOTYPE — serves the captured JPEG to ShareImageActivity as a
+             content URI, so the capture uses the same EXTRA_STREAM entry the
+             system share sheet uses. Throwaway: a real camera feature would
+             probably hand the bitmap over in-process instead. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.protofileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/proto_file_paths" />
+        </provider>
 
         <service
             android:name=".OcrAccessibilityService"
