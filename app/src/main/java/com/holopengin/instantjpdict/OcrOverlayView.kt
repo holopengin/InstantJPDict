@@ -139,6 +139,7 @@ class OcrOverlayView(
     private var zoomAnimator: android.animation.ValueAnimator? = null
 
     private lateinit var contentContainer: FrameLayout
+    private lateinit var imageView: android.widget.ImageView
     private lateinit var debugTextView: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var gestureDetector: android.view.ScaleGestureDetector
@@ -192,7 +193,7 @@ class OcrOverlayView(
         // #64: OCR reads the pristine `bitmap`; the user sees a display
         // copy with the strip treatment baked in, at SCREENSHOT_ALPHA.
         // Same dimensions and position as before — box mapping untouched.
-        val imageView = android.widget.ImageView(context).apply {
+        imageView = android.widget.ImageView(context).apply {
             setImageBitmap(createOverlayDisplayBitmap(srcBitmap, statusStripPx))
             scaleType = android.widget.ImageView.ScaleType.FIT_XY
             alpha = OverlayBackdrop.screenshotAlpha(context)
@@ -584,7 +585,7 @@ class OcrOverlayView(
                     
                     postStatus(gen, "Recognizing...")
                     
-                    val linesBorderLayer = FrameLayout(context)
+                    val linesBorderLayer = FrameLayout(context).apply { tag = "lines_border_layer" }
                     contentContainer.addView(linesBorderLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
                     lineBoxes.forEach { box ->
@@ -663,6 +664,71 @@ class OcrOverlayView(
                 Toast.makeText(context, "OCR Error: $errorMsg", Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    /**
+     * #57 rotation: the host has just handed the view a different bitmap (the
+     * shared image turned 90°) and wants the surface rebuilt for it — a fresh
+     * display copy and a fresh detect/recognise pass, so the box borders, the
+     * per-character hit rects and the lookup table are all derived from the
+     * image now on screen.
+     *
+     * Additive by construction: the accessibility service never calls it (it
+     * builds the view and calls [startOcr] once, exactly as before), nothing it
+     * calls changed behaviour, and no existing field it touches is shared with
+     * the service's path. The service's overlay surface therefore behaves
+     * identically.
+     *
+     * Alignment note: this view composes its display copy at the bitmap's own
+     * pixel size and OCR box coordinates are in that same space, so the host
+     * must hand over a bitmap already fitted to the view for the new
+     * orientation — see `ShareImageActivity.composeForScreen`, which re-fits
+     * from the ROTATED dimensions. Nothing here re-fits or rescales: swapping
+     * the bitmap without that host-side refit is precisely what would leave
+     * every box off its glyph.
+     */
+    fun refreshImage() {
+        if (closed) return
+        clearOcrRun()
+        imageView.setImageBitmap(createOverlayDisplayBitmap(srcBitmap, statusStripPx))
+        startOcr()
+    }
+
+    /**
+     * Discard everything the previous run left on screen, so the next one
+     * cannot stack on top of it: the box borders, the click layers (which carry
+     * the per-character hit rects), the cursor, and any open lookup panel.
+     * Zoom/pan/lookup state belongs to the image that was on screen, so it is
+     * reset too.
+     *
+     * Removed by tag, so nothing that predates a run is ever touched — the
+     * scrim, the display bitmap, the status line, the confidence strip and the
+     * close button all survive, which is why the exit affordances (empty-space
+     * tap, close button) keep working across a rotation.
+     */
+    private fun clearOcrRun() {
+        ocrJob?.cancel()
+        ocrJob = null
+        lookupJob?.cancel()
+        lookupJob = null
+        // A cached dictionary panel belongs to the run being discarded; reused
+        // verbatim it would show the previous orientation's content.
+        dictionaryViewCache.clear()
+        cursorView = null
+        listOf(
+            "clicks_layer",
+            "lines_border_layer",
+            "cursor_view",
+            "correction_ui_root",
+            "manual_input_blocker",
+        ).forEach { tag ->
+            findViewWithTag<View>(tag)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) }
+        }
+        controller.resetState()
+        contentContainer.scaleX = 1f
+        contentContainer.scaleY = 1f
+        contentContainer.translationX = 0f
+        contentContainer.translationY = 0f
     }
 
     private fun addLineToResults(rootLayout: FrameLayout, clicksLayer: FrameLayout, lineIdx: Int, lineIn: LineResult) {
