@@ -57,13 +57,17 @@ An in-app status strip always names the active preview framing.
 
 ### Artifact 1 — a captured photo flows through the pipeline and renders in an activity
 
-**Code complete; NOT observed on a device. Open.**
+**The handoff is verified on the device from the system log; the boxes-on-glyphs
+rendering is not. See the addendum at the end of this note.**
 
-It was built and installed once (`adb install -r` → `Success`,
-`lastUpdateTime=2026-09-13 23:01:11`, `CAMERA` granted), but the phone was on a
-fingerprint lock screen with the display dozing and adb was disconnected before
-the run could be driven, so no capture was ever taken and no result screen was
-ever seen. Nothing here is a measurement.
+Built and installed once (`adb install -r` → `Success`,
+`lastUpdateTime=2026-09-13 23:01:11`, `CAMERA` granted). I could not drive it:
+the phone was on a fingerprint lock screen with the display dozing, and the
+instructions then were to stop touching the device. The maintainer used it
+themselves at 23:08 — two captures, both handed to `ShareImageActivity`; that
+session is recorded in the addendum below. What no one has is a picture of the
+result screen: whether the boxes landed on the glyphs is still the open
+question, and the reticle's hand-feel likewise.
 
 To capture it (phone unlocked, adb up):
 
@@ -202,3 +206,89 @@ Two things that *would* break it, worth a line in the handoff spec:
   so a build can be pulled apart for evidence.
 - A `#78 PROTOTYPE` marker on every touched production file, so `git grep`
   finds all of it when the branch is dropped.
+
+---
+
+## Addendum — the maintainer's own session, 2026-09-13 23:08 JST
+
+Found while packing up: the app's cache held two captures, and the device's
+system log held the rest of the story. This is the first device evidence, and
+it is evidence about the *handoff*, not about how anything looked.
+
+**The sequence, from `adb logcat -d -b system`:**
+
+```
+23:08:16.377 I/ActivityTaskManager: START u0 {xflg=0x4 cmp=.../.ProtoCameraActivity}
+23:08:26.419 I/ActivityTaskManager: START u0 {act=android.intent.action.SEND typ=image/jpeg
+             flg=0x1 xflg=0x4 cmp=.../.ShareImageActivity clip={image/jpeg {U(content)}}
+             (has extras)} with LAUNCH_MULTIPLE from uid 11186 (com.holopengin.instantjpdict)
+23:08:42.540 I/ActivityTaskManager: START u0 {xflg=0x4 cmp=.../.ProtoCameraActivity}
+23:08:54.446 I/ActivityTaskManager: START u0 {act=android.intent.action.SEND ... }   # as above
+23:09:28.449 D/CoreBackPreview: startBackNavigation ... topRunningActivity=.../.ShareImageActivity
+```
+
+**What that establishes:**
+
+- The `ACTION_SEND` + `image/jpeg` + **content URI** + `FLAG_GRANT_READ_URI_PERMISSION`
+  (`flg=0x1`) start comes from `uid 11186` — the app itself — and targets
+  `ShareImageActivity` explicitly. That is the prototype's capture handoff,
+  unmodified, and it happened twice. The `clip={image/jpeg {U(content)}}` is the
+  URI the OS carried; a `file://` path would not read that way.
+- Both captures are real camera files: `cache/proto-camera/capture-1789308506138.jpg`
+  (1,487,457 bytes) and `capture-1789308534266.jpg` (1,502,426 bytes), pulled off
+  the phone — 4032×3024 JPEG, **EXIF orientation 6** on both. So the photo was
+  stored sideways with the turn in EXIF, and `ShareImageActivity`'s EXIF branch
+  (`ExifOrientation.correction`, the part written for exactly this and never
+  needed by the screenshot path) was exercised for real.
+- The results activity did not take its failure exit. It was the top, visible
+  activity from the send until the back press at 23:09:28 — ~16 s on the first
+  capture and ~34 s on the second. `ShareImageActivity` finishes immediately with
+  "Could not read image" if the decode or the compose fails, so the decode,
+  the EXIF correction, `composeForScreen` and the `OcrOverlayView` construction
+  all ran; it left the screen the way the shared close semantics intend.
+- What the photos were pointed at: a wall-mounted Panasonic bidet control panel,
+  full of short Japanese labels — i.e. the maintainer reached for a real
+  Japanese-text object, not a test image.
+
+**Geometry arithmetic for these two captures** (derived, not measured — the
+decode path is `ShareImageActivity.composeForScreen` + `ImageRotation.fitRotated`):
+
+| | |
+|---|---|
+| stored pixels | 4032 × 3024, EXIF orientation 6 |
+| after EXIF correction | 3024 × 4032 (portrait) |
+| composed into the 1080 × 2400 container | `scale = min(1080/3024, 2400/4032) = 0.357` → 1079 × 1440 |
+| on screen | a portrait panel spanning y ≈ 480…1920, with 480 px of black above and below |
+| glyph size in the OCR input | ~36% of the captured scale |
+
+That last row is the one worth a look when the results screen is finally
+pictured: the accessibility path feeds the detector a 1:1 screenshot, while the
+camera path hands it a photo whose text has been shrunk to about a third before
+the detector ever sees it. Whether the labels on that panel were still readable
+to the detector is exactly the kind of thing only the screen can say.
+
+**What it does not establish:** whether the boxes landed on the glyphs, how the
+reticle read in the hand, or whether any text was recognised. No screenshot of
+that session exists (the newest file in `/sdcard/Pictures/Screenshots/` is
+22:26) and the app's own log lines had already rotated out of `logcat` by the
+time I looked. Both remain the maintainer's call.
+
+The build exercised was the **debug** APK installed at 23:01 — everything in
+this branch except the preview-framing toggle, whose default framing
+(`FIT_CENTER`) is what it shipped with anyway. The benchmark APK below has the
+toggle.
+
+## Artifacts
+
+| | |
+|---|---|
+| `app/build/outputs/apk/benchmark/app-benchmark.apk` (in the worktree `/tmp/ijpd-camera`) | 70,406,417 bytes, `sha256 05250b84071404494218def4c7a69e2e38ac8dd32c04305211816e4f0892f261`, `md5 0470526766fd836201890bdf5b38d64b` |
+| copy on the phone | `/sdcard/Download/IJPD-6ee833f-proto78-camera.apk`, same bytes (md5 matched on device) |
+| debug APK (debuggable — needed for `run-as`) | `app/build/outputs/apk/debug/app-debug.apk`, 75,765,987 bytes |
+| evidence kept off the repo | `/tmp/proto-evidence/` — the maintainer's two pulled captures, the screenshots taken while blocked by the lock screen, and the system-log extracts |
+
+Both APKs are signed with the Android debug key
+(`a59d1005…` SHA-256) — the same key as the build already on the phone, so
+`adb install -r` replaces it without an uninstall.
+
+
