@@ -146,6 +146,10 @@ class OcrOverlayView(
     private lateinit var gestureDetector: android.view.ScaleGestureDetector
     private lateinit var tapDetector: android.view.GestureDetector
 
+    /** #57: where the host's own controls live (see [addHostChrome]). Under the
+     *  dictionary panel by construction; empty and non-clickable otherwise. */
+    private lateinit var hostChromeLayer: FrameLayout
+
     /** #64: status-strip metrics shared by the scrim fade, the display bitmap
      *  fade and the swipe-dismiss zone. Display-only: OCR box coordinates are
      *  never shifted, so hit-testing cannot desync. */
@@ -388,6 +392,34 @@ class OcrOverlayView(
         addView(controlsRoot, controlsParams)
 
         addCloseButton()
+
+        // #57 rotation chrome: a layer for the host's own controls (the share
+        // activity's rotate pair). Added last, so it sits above the image, the
+        // scrim and this view's own chrome — but BELOW the dictionary panel,
+        // which is added on demand and brought to front (showResultsUi). Its
+        // full-screen surface is not clickable, so an empty layer consumes
+        // nothing and a tap outside the host's controls still falls through to
+        // the root's close path. A host that never adds anything (the
+        // accessibility service) is therefore unaffected.
+        hostChromeLayer = FrameLayout(context).apply { tag = "host_chrome" }
+        addView(hostChromeLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    /**
+     * #57 rotation chrome: hand the view a control of the host's own, so it
+     * renders UNDER the dictionary panel (the panel is brought to front over
+     * it) while still taking presses when no panel is up — a sibling of the
+     * view cannot be under the panel without also being under the image, and
+     * above the view it would swallow the panel's own presses.
+     *
+     * The control keeps its own [FrameLayout.LayoutParams] (gravity, margins),
+     * so the host owns its placement; the layer only owns the z-order.
+     *
+     * Additive: the accessibility service never calls this and its surface is
+     * unchanged, right down to an empty layer that consumes nothing.
+     */
+    fun addHostChrome(chrome: View) {
+        hostChromeLayer.addView(chrome)
     }
 
     /**
@@ -483,6 +515,7 @@ class OcrOverlayView(
         // children that never reach the root touch listener.
         tapDetector.onTouchEvent(ev)
         if (listOf("correction_ui_root", "manual_input_blocker", "close_button").any { isTouchOnView(it, ev) }) return false
+        if (isTouchOnHostChrome(ev)) return false
         updateFocusState(ev)
         if (ev.actionMasked == MotionEvent.ACTION_MOVE) {
             if (ev.pointerCount > 1 || abs(ev.x - initialTouchX) > 10 || abs(ev.y - initialTouchY) > 10) return true
@@ -503,6 +536,21 @@ class OcrOverlayView(
     private fun isTouchOnView(tag: String, ev: MotionEvent): Boolean {
         val v = findViewWithTag<View>(tag) ?: return false
         return v.isVisible && Rect().also { v.getGlobalVisibleRect(it) }.contains(ev.rawX.toInt(), ev.rawY.toInt())
+    }
+
+    /**
+     * True when [ev] landed on one of the host's own controls (the rotate
+     * pair). Those presses belong to the chrome, never to a pan: the pan
+     * distance test below fires at 10px, so without this a slightly wobbly
+     * button tap would be intercepted into a drag and never reach the button.
+     */
+    private fun isTouchOnHostChrome(ev: MotionEvent): Boolean {
+        for (i in 0 until hostChromeLayer.childCount) {
+            val child = hostChromeLayer.getChildAt(i)
+            if (!child.isVisible) continue
+            if (Rect().also { child.getGlobalVisibleRect(it) }.contains(ev.rawX.toInt(), ev.rawY.toInt())) return true
+        }
+        return false
     }
 
     private fun updateFocusState(ev: MotionEvent) {
@@ -572,9 +620,16 @@ class OcrOverlayView(
      * #57: detect + recognise + render. The share activity and the
      * accessibility service both call this, so the boxes / lookup /
      * popup behaviour is one implementation.
+     *
+     * Returns the run, so a host that can re-enter (the share activity's rotate
+     * buttons) can serialise behind it. A native detect cannot be interrupted,
+     * so waiting for this Job to complete — not cancelling it — is the only way
+     * to know the bitmap it was given has stopped being read. Hosts that never
+     * re-enter (the accessibility service) ignore the return value and behave
+     * exactly as before.
      */
-    fun startOcr() {
-        ocrJob = scope.launch {
+    fun startOcr(): Job {
+        val run = scope.launch {
             val gen = ++statusGen
             try {
                 if (ocrEngine.isReady()) {
@@ -671,20 +726,20 @@ class OcrOverlayView(
                 Toast.makeText(context, "OCR Error: $errorMsg", Toast.LENGTH_LONG).show()
             }
         }
+        ocrJob = run
+        return run
     }
 
     /**
      * #57 rotation: the host has just handed the view a different bitmap (the
-     * shared image turned 90°) and wants the surface rebuilt for it — a fresh
-     * display copy and a fresh detect/recognise pass, so the box borders, the
-     * per-character hit rects and the lookup table are all derived from the
-     * image now on screen.
+     * shared image turned 90°) and wants the display switched to it *now*. The
+     * previous run's results are dropped with it — boxes drawn for the previous
+     * orientation would sit off their glyphs — but no pass is started, because
+     * the host runs the OCR for it separately (it may want the next turn on
+     * screen first, which is what makes a second press feel instant).
      *
-     * Additive by construction: the accessibility service never calls it (it
-     * builds the view and calls [startOcr] once, exactly as before), nothing it
-     * calls changed behaviour, and no existing field it touches is shared with
-     * the service's path. The service's overlay surface therefore behaves
-     * identically.
+     * Additive by construction: the accessibility service never calls it, and
+     * nothing it calls changed behaviour.
      *
      * Alignment note: this view composes its display copy at the bitmap's own
      * pixel size and OCR box coordinates are in that same space, so the host
@@ -694,11 +749,10 @@ class OcrOverlayView(
      * the bitmap without that host-side refit is precisely what would leave
      * every box off its glyph.
      */
-    fun refreshImage() {
+    fun showImageWithoutResults() {
         if (closed) return
         clearOcrRun()
         imageView.setImageBitmap(createOverlayDisplayBitmap(srcBitmap, statusStripPx))
-        startOcr()
     }
 
     /**
