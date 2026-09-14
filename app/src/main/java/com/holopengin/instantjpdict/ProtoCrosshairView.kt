@@ -50,12 +50,15 @@ class ProtoCrosshairView(context: Context) : View(context) {
         // The offsets are taken in whole pixels for the same reason.
         val cx = width / 2f
         val cy = height / 2f
-        val dx = (width * CROSSHAIR_GAP_FRACTION).toInt().toFloat()
-        val dy = (height * CROSSHAIR_GAP_FRACTION).toInt().toFloat()
-        canvas.drawLine(0f, cy - dy, width.toFloat(), cy - dy, linePaint)
-        canvas.drawLine(0f, cy + dy, width.toFloat(), cy + dy, linePaint)
-        canvas.drawLine(cx - dx, 0f, cx - dx, height.toFloat(), linePaint)
-        canvas.drawLine(cx + dx, 0f, cx + dx, height.toFloat(), linePaint)
+        // ONE half-gap for both axes, measured from the SHORT side, so the box the four
+        // lines enclose is square. Scaling each axis by its own dimension makes the gap
+        // 5% of 1080 across but 5% of 2400 down — a tall rectangle on a portrait screen,
+        // which is not what the reticle means.
+        val gap = (minOf(width, height) * CROSSHAIR_GAP_FRACTION).toInt().toFloat()
+        canvas.drawLine(0f, cy - gap, width.toFloat(), cy - gap, linePaint)
+        canvas.drawLine(0f, cy + gap, width.toFloat(), cy + gap, linePaint)
+        canvas.drawLine(cx - gap, 0f, cx - gap, height.toFloat(), linePaint)
+        canvas.drawLine(cx + gap, 0f, cx + gap, height.toFloat(), linePaint)
     }
 
     companion object {
@@ -63,11 +66,11 @@ class ProtoCrosshairView(context: Context) : View(context) {
         val CROSSHAIR_COLOR: Int = Color.parseColor("#00FFFF")
 
         /**
-         * Half-distance between the two lines of a pair, as a fraction of the
-         * view's width (for the vertical pair) or height (for the horizontal
-         * pair). A text line at the captured scale is roughly 50-100 px tall, so
-         * 0.05 is a band that brackets it: wide enough to see the line's angle,
-         * narrow enough to see it is being straddled. One constant to nudge.
+         * Half-distance between the two lines of a pair, as a fraction of the view's
+         * SHORT side — the same distance on both axes, so the box the four lines
+         * enclose is square. A text line at the captured scale is roughly 50-100 px
+         * tall, so 0.05 is a band that brackets it: wide enough to see the line's
+         * angle, narrow enough to see it is being straddled. One constant to nudge.
          */
         const val CROSSHAIR_GAP_FRACTION = 0.05f
     }
