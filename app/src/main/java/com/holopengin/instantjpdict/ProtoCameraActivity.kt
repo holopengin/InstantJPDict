@@ -167,7 +167,9 @@ import java.util.concurrent.Executors
  *    than losing the capture.
  *  - COPIES_FORWARD: never taken; the captured file — and, in FILL_CENTER, the
  *    cropped one beside it — is left in the cache dir (see [CAPTURE_DIR_NAME])
- *    so it can be pulled off the device for evidence.
+ *    so it can be pulled off the device for evidence. The directory is BOUNDED
+ *    rather than left to grow: the newest [CAPTURE_KEEP] files stay and older
+ *    ones are pruned as the next capture starts ([pruneCaptures]).
  */
 class ProtoCameraActivity : AppCompatActivity() {
 
@@ -1252,6 +1254,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         Log.i(TAG, "capturing")
         val framingWasFill = previewFill
         val dir = File(cacheDir, CAPTURE_DIR_NAME).apply { mkdirs() }
+        pruneCaptures(dir)
         val stamp = System.currentTimeMillis()
         val file = File(dir, "capture-$stamp.jpg")
         val options = ImageCapture.OutputFileOptions.Builder(file).build()
@@ -1280,6 +1283,38 @@ class ProtoCameraActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    /**
+     * Keep the capture directory bounded: the newest [CAPTURE_KEEP] files stay, the
+     * rest go.
+     *
+     * Every press writes a capture and a FILL_CENTER press writes its cropped copy
+     * beside it — ~1.5 MB each — and nothing in the app ever reads them again, so
+     * without this the directory grew for the life of the install. Bounding it keeps
+     * what the evidence is actually pulled for (the last few shots, and the `-zoom`
+     * copies with them) without an unbounded cache.
+     *
+     * Run at the START of a capture, before the camera is asked to write: the file
+     * about to be written cannot be in the list yet, and the previous capture's files
+     * are no longer in use — [ShareImageActivity] has decoded its image long before
+     * this activity is on screen and pressable again, and it keeps the decoded bitmap
+     * rather than the file.
+     *
+     * Order is by last-modified time, i.e. the write order, which keeps a crop
+     * written a moment after its capture with it in practice. A file that will not
+     * delete is logged and left: the next press tries again.
+     */
+    private fun pruneCaptures(dir: File) {
+        val files = dir.listFiles()?.filter { it.isFile } ?: return
+        if (files.size <= CAPTURE_KEEP) return
+        for (stale in files.sortedByDescending { it.lastModified() }.drop(CAPTURE_KEEP)) {
+            if (stale.delete()) {
+                Log.i(TAG, "pruned ${stale.name}, keeping the newest $CAPTURE_KEEP captures")
+            } else {
+                Log.w(TAG, "could not prune ${stale.absolutePath}")
+            }
+        }
     }
 
     /**
@@ -1509,6 +1544,16 @@ class ProtoCameraActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ProtoCamera"
         private const val CAPTURE_DIR_NAME = "proto-camera"
+
+        /**
+         * How many files [CAPTURE_DIR_NAME] keeps: the newest this many, older ones
+         * pruned as the next capture starts ([pruneCaptures]). A FILL_CENTER press
+         * leaves TWO (the capture and the cropped copy the recogniser was handed), so
+         * this is about three shots' worth — enough to pull evidence for, and a few
+         * megabytes rather than a directory that grows for the life of the install.
+         */
+        private const val CAPTURE_KEEP = 6
+
         /** Side of the square shutter button, in dp. One knob for its size — and the
          *  square it is a side of is the footprint of the OCR-button graphic. */
         private const val CAPTURE_BUTTON_DP = 84f
