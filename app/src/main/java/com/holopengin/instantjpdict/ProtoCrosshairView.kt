@@ -69,9 +69,9 @@ class ProtoCrosshairView(context: Context) : View(context) {
          * Half-distance between the two lines of a pair, as a fraction of the view's
          * SHORT side — the same distance on both axes, so the box the four lines
          * enclose is square. A text line at the captured scale is roughly 50-100 px
-         * tall, so 0.05 is a band that brackets it: wide enough to see the line's
+         * tall, so 0.04 is a band that brackets it: wide enough to see the line's
          * angle, narrow enough to see it is being straddled. One constant to nudge.
          */
-        const val CROSSHAIR_GAP_FRACTION = 0.05f
+        const val CROSSHAIR_GAP_FRACTION = 0.04f
     }
 }
