@@ -112,6 +112,10 @@ class LineOverlayView(
         val refChar = "あ"
         paint.getTextBounds(refChar, 0, 1, refBounds)
 
+        // #53: a rotated Line's glyphs turn about their own (AABB) box centre.
+        // Tilt 0 takes every branch exactly as before.
+        val tilt = line.tiltDeg
+
         for (i in line.charBoxes.indices) {
             val box = line.charBoxes[i]
             val charStr = line.text.getOrNull(i)?.toString() ?: continue
@@ -169,6 +173,10 @@ class LineOverlayView(
             // ASCII ~10% next to kanji — scale about the box center (centering
             // untouched) on top of any box-fit shrink.
             val drawScale = scale * (if (isHalf) ASCII_GLYPH_SCALE else 1f)
+            if (tilt != 0f) {
+                canvas.save()
+                canvas.rotate(tilt, viewCenterX, viewCenterY)
+            }
             if (drawScale < 0.99f) {
                 canvas.save()
                 canvas.translate(viewCenterX, viewCenterY)
@@ -179,6 +187,7 @@ class LineOverlayView(
             } else {
                 canvas.drawText(charStr, x, y, paint)
             }
+            if (tilt != 0f) canvas.restore()
         }
     }
 

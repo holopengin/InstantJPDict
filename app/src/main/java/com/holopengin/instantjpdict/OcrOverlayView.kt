@@ -4,7 +4,11 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.CornerPathEffect
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -659,7 +663,7 @@ class OcrOverlayView(
                 if (ocrEngine.isReady()) {
                     postStatus(gen, "Detecting...")
                     val tDet = System.currentTimeMillis()
-                    val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detect(srcBitmap) }
+                    val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detectLines(srcBitmap) }
                     val detMs = System.currentTimeMillis() - tDet
                     controller.activeLineBoxes = lineBoxes
                     
@@ -822,20 +826,36 @@ class OcrOverlayView(
      * Extracted verbatim from [startOcr] so the re-fit path builds the same layers
      * rather than a second copy of them: [refitContent] has no pass to run, only
      * kept boxes to draw.
+     *
+     * #53: an axis-aligned Line is the same tinted View as before; a rotated one
+     * draws its quad as a filled path, so the border follows the source rotation.
      */
-    private fun buildBoxLayers(lineBoxes: List<JpDictRect>): FrameLayout {
+    private fun buildBoxLayers(lineBoxes: List<LineBox>): FrameLayout {
         val linesBorderLayer = FrameLayout(context).apply { tag = "lines_border_layer" }
         contentContainer.addView(linesBorderLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         lineBoxes.forEach { box ->
-            val lineView = View(context).apply {
-                background = borderDrawable
+            if (box.quad != null) {
+                val quad = box.quad
+                val aabb = quad.toRect()
+                val pad = QUAD_BORDER_PAD
+                val view = QuadBorderView(context, quad, aabb)
+                linesBorderLayer.addView(view, FrameLayout.LayoutParams(
+                    aabb.width() + 2 * pad, aabb.height() + 2 * pad
+                ).apply {
+                    leftMargin = aabb.left - pad
+                    topMargin = aabb.top - pad
+                })
+            } else {
+                val lineView = View(context).apply {
+                    background = borderDrawable
+                }
+                val lineParams = FrameLayout.LayoutParams(box.rect.width(), box.rect.height()).apply {
+                    leftMargin = box.rect.left
+                    topMargin = box.rect.top
+                }
+                linesBorderLayer.addView(lineView, lineParams)
             }
-            val lineParams = FrameLayout.LayoutParams(box.width(), box.height()).apply {
-                leftMargin = box.left
-                topMargin = box.top
-            }
-            linesBorderLayer.addView(lineView, lineParams)
         }
 
         val clicksLayer = FrameLayout(context).apply { tag = "clicks_layer" }
@@ -909,11 +929,10 @@ class OcrOverlayView(
         val lineContainer = clicksLayer.findViewWithTag<FrameLayout>("line_clicks_$lineIdx") ?: clicksLayer
         lineContainer.removeAllViews() // Clear existing character views for refresh
 
-        val fixedSize = if (line.isVertical) {
-            line.charBoxes.map { it.height() }.maxOrNull() ?: 0
-        } else {
-            line.charBoxes.map { it.height() }.maxOrNull() ?: 0
-        }
+        // #53: the rotated path measures its glyphs in the Line's own upright
+        // frame (its char boxes are AABBs of rotated cells); the default path
+        // returns the same max-height expression as before.
+        val fixedSize = line.glyphSizePx()
         Log.d("OcrAccessibilityService", "addLineToResults line=$lineIdx text='${line.text}' boxes=${line.charBoxes.size} fixedSize=$fixedSize isVertical=${line.isVertical}")
         if (fixedSize == 0) return
 
@@ -2535,3 +2554,42 @@ class OcrOverlayView(
  *  overlay's close button, so the two never drift apart. */
 internal fun logoButtonBackground(context: Context): Drawable =
     ContextCompat.getDrawable(context, R.drawable.logo)!!
+
+/** #53: side padding of a rotated Line's border View, in source pixels: the
+ *  pad keeps the rounded fill corners inside the quad's AABB. */
+private const val QUAD_BORDER_PAD = 4
+
+/**
+ * #53: one rotated Line's border, drawn as the quad itself (an axis-aligned
+ * Line keeps its existing tinted rect View, untouched). The quad is drawn in
+ * source-image coordinates translated into the AABB-sized view, so the border
+ * follows the source rotation — including the slight shear a non-uniform
+ * container re-fit (#78) can leave in the frame.
+ */
+private class QuadBorderView(
+    context: Context,
+    private val quad: JpDictQuad,
+    private val aabb: JpDictRect,
+) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(100, 0, 0, 0)
+        pathEffect = CornerPathEffect(4f)
+    }
+    private val path = Path()
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.save()
+        canvas.translate(
+            (-(aabb.left - QUAD_BORDER_PAD)).toFloat(),
+            (-(aabb.top - QUAD_BORDER_PAD)).toFloat(),
+        )
+        path.rewind()
+        path.moveTo(quad.c0.x, quad.c0.y)
+        path.lineTo(quad.c1.x, quad.c1.y)
+        path.lineTo(quad.c2.x, quad.c2.y)
+        path.lineTo(quad.c3.x, quad.c3.y)
+        path.close()
+        canvas.drawPath(path, paint)
+        canvas.restore()
+    }
+}

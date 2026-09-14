@@ -22,6 +22,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
 import kotlin.coroutines.coroutineContext
+import kotlin.jvm.JvmName
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -49,7 +50,7 @@ class OcrEngine(private val context: Context) {
     private var recDynNcnn: RecNcnn? = null
 
     // One line awaiting recognition; results stay keyed by idx.
-    private data class Job(val idx: Int, val bbox: JpDictRect, val isVertical: Boolean)
+    private data class Job(val idx: Int, val box: LineBox, val isVertical: Boolean)
 
     companion object {
         private const val TAG = "PPOCREngine"
@@ -60,6 +61,10 @@ class OcrEngine(private val context: Context) {
         const val PREF_DET_UNCLIP = "ppocr_det_unclip_ratio"
         const val PREF_X_OVERLAP = "x_overlap_thresh"
         const val PREF_REC_SQUISH = "rec_squish_factor"
+        /** #53: opt-in rotated-rect detection (minAreaRect fit + unrotate before
+         *  rec). Off = the axis-aligned path, bit-for-bit the pre-#53 pipeline. */
+        const val PREF_DET_ROTATED = "ppocr_det_rotated"
+        const val DEF_DET_ROTATED = false
 
         // Defaults (previous hard constants)
         const val DEF_DET_LONG_SIDE = 960
@@ -130,6 +135,14 @@ class OcrEngine(private val context: Context) {
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_X_OVERLAP, DEF_X_OVERLAP)
         fun getRecSquish(ctx: Context): Float =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_REC_SQUISH, DEF_REC_SQUISH)
+        /** #53: the rotated-rect opt-in. Read per detection run, like the tunables. */
+        fun isDetRotated(ctx: Context): Boolean =
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_DET_ROTATED, DEF_DET_ROTATED)
+        fun setDetRotated(ctx: Context, enabled: Boolean) {
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PREF_DET_ROTATED, enabled).apply()
+        }
 
         /** Furigana (ruby) filter thresholds (#28) — conservative: better to
          * recognize ruby than to drop real small text. Matching runs on RAW
@@ -150,7 +163,8 @@ class OcrEngine(private val context: Context) {
                                                        // lines (か？」) and short columns survive this
         private const val FURIGANA_GAP_RATIO = 0.5f     // gap <= 50% of large short-side
         private const val FURIGANA_OVERLAP_RATIO = 0.5f // overlap >= 50% of small long-side
-        private const val VERTICAL_MIN_ASPECT = 1.25f   // h >= 1.25w → vertical; squarer → horizontal
+        /** #28 orientation rule, shared with the rotated fit so both paths agree. */
+        private const val VERTICAL_MIN_ASPECT = RotatedGeometry.VERTICAL_MIN_ASPECT
         // Absolute ceiling: real short columns (e.g. 458px) dwarf ruby runs even when the
         // ratio matches — ruby longer than 12% of the image side is not ruby. #28
         private const val FURIGANA_MAX_FRAC = 0.12f
@@ -314,8 +328,31 @@ class OcrEngine(private val context: Context) {
     //  Detect — DB segmentation → contours → boxes (#28 furigana, unclip)
     // ═════════════════════════════════════════════════════════════════════════
 
-    fun detect(bitmap: Bitmap): List<JpDictRect> {
-        val det = detNcnn ?: return emptyList()
+    /** Det mask in model space plus the letterbox geometry that maps it back to
+     *  source pixels. Shared by [detect] and [detectRotated] so the two geometry
+     *  paths cannot drift apart in preprocessing. */
+    private class DetMask(
+        val prob: FloatArray,
+        val outW: Int,
+        val outH: Int,
+        val modelSize: Int,
+        val resizeW: Int,
+        val resizeH: Int,
+        val origW: Int,
+        val origH: Int,
+    ) {
+        val imgLeft: Float get() = (modelSize - resizeW) / 2f
+        val imgTop: Float get() = (modelSize - resizeH) / 2f
+        val scaleX: Float get() = origW / resizeW.toFloat()
+        val scaleY: Float get() = origH / resizeH.toFloat()
+    }
+
+    /** Letterbox, det infer and prob-map stats — the part of detection that is
+     *  identical for the axis-aligned and rotated geometry paths. Returns null
+     *  when the net is not loaded or inference fails, the same bail-outs
+     *  [detect] has always had. */
+    private fun runDetMask(bitmap: Bitmap): DetMask? {
+        val det = detNcnn ?: return null
         val origW = bitmap.width.toFloat()
         val origH = bitmap.height.toFloat()
 
@@ -367,7 +404,7 @@ class OcrEngine(private val context: Context) {
         }
 
         // 3. Run detection via ncnn.
-        val probArr = det.infer(imgData, modelSize, modelSize) ?: return emptyList()
+        val probArr = det.infer(imgData, modelSize, modelSize) ?: return null
         // probArr should be S×S float prob map; upsample a downsampled
         // square output (e.g. 240×240) via nearest.
         val outH: Int
@@ -422,11 +459,63 @@ class OcrEngine(private val context: Context) {
         }
         Log.d(TAG, "prob_map: min=$pMin max=$pMax mean=${if (pCount > 0) pSum / pCount else 0f}")
 
-        // Scale factors from model output to original image (accounting for letterbox)
-        val scaleWOut = origW / (modelSize.toFloat())
-        val scaleHOut = origH / (modelSize.toFloat())
+        return DetMask(probArrNorm, outW, outH, modelSize, resizeW, resizeH, bitmap.width, bitmap.height)
+    }
 
-        // 6. Connected components (contours) via flat flood-fill.
+    /** Flood-fill one 8-connected component of the det prob map over
+     *  `prob > thresh` into [q], starting at [start] (already known to pass the
+     *  threshold; marked visited here). Returns the pixel count; `q[0, count)`
+     *  holds the component's pixels as `y * outW + x`. Shared by [detect] and
+     *  [detectRotated] so their fills cannot drift apart. */
+    private fun floodFillComponent(
+        prob: FloatArray,
+        visited: ByteArray,
+        q: IntArray,
+        start: Int,
+        outW: Int,
+        outH: Int,
+        thresh: Float,
+    ): Int {
+        var qHead = 0
+        var qTail = 0
+        q[qTail++] = start
+        visited[start] = 1
+        while (qHead < qTail) {
+            val cur = q[qHead++]
+            val cx = cur % outW
+            val cy = cur / outW
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = cx + dx
+                    val ny = cy + dy
+                    if (nx in 0 until outW && ny in 0 until outH) {
+                        val nIdx = ny * outW + nx
+                        if (visited[nIdx].toInt() == 0 && prob[nIdx] > thresh) {
+                            visited[nIdx] = 1
+                            q[qTail++] = nIdx
+                        }
+                    }
+                }
+            }
+        }
+        return qTail
+    }
+
+    fun detect(bitmap: Bitmap): List<JpDictRect> {
+        val mask = runDetMask(bitmap) ?: return emptyList()
+        val probArrFinal = mask.prob
+        val outW = mask.outW
+        val outH = mask.outH
+        val modelSize = mask.modelSize
+        val resizeW = mask.resizeW
+        val resizeH = mask.resizeH
+        val origW = mask.origW.toFloat()
+        val origH = mask.origH.toFloat()
+
+        // 6. Connected components (contours) via flat flood-fill. The axis-aligned
+        // path keeps only min/max X/Y from each component; detectRotated fits
+        // those same component pixels instead (#53).
         val visited = ByteArray(outH * outW)
         val rawBoxes = mutableListOf<JpDictRect>()
         // Pre-unclip contour boxes, parallel to rawBoxes — furigana matching runs on these
@@ -439,40 +528,23 @@ class OcrEngine(private val context: Context) {
                 val idx = y * outW + x
                 if (visited[idx].toInt() != 0 || probArrFinal[idx] <= detThresh) continue
 
-                // Flood-fill via Int queue (y*W+x).
-                var qHead = 0
-                var qTail = 0
-                q[qTail++] = idx
-                visited[idx] = 1
+                val pixelCount = floodFillComponent(probArrFinal, visited, q, idx, outW, outH, detThresh)
+                if (pixelCount < 3) continue // noise filter
 
-                var minX = x; var maxX = x
-                var minY = y; var maxY = y
-                var pixelCount = 0
-
-                while (qHead < qTail) {
-                    val cur = q[qHead++]
+                // Bounds of the filled component (y*W+x sits in q[0, pixelCount)).
+                var minX = Int.MAX_VALUE
+                var maxX = Int.MIN_VALUE
+                var minY = Int.MAX_VALUE
+                var maxY = Int.MIN_VALUE
+                for (i in 0 until pixelCount) {
+                    val cur = q[i]
                     val cx = cur % outW
                     val cy = cur / outW
-                    pixelCount++
-                    minX = minOf(minX, cx); maxX = maxOf(maxX, cx)
-                    minY = minOf(minY, cy); maxY = maxOf(maxY, cy)
-
-                    for (dy in -1..1) {
-                        for (dx in -1..1) {
-                            if (dx == 0 && dy == 0) continue
-                            val nx = cx + dx; val ny = cy + dy
-                            if (nx in 0 until outW && ny in 0 until outH) {
-                                val nIdx = ny * outW + nx
-                                if (visited[nIdx].toInt() == 0 && probArrFinal[nIdx] > detThresh) {
-                                    visited[nIdx] = 1
-                                    q[qTail++] = nIdx
-                                }
-                            }
-                        }
-                    }
+                    if (cx < minX) minX = cx
+                    if (cx > maxX) maxX = cx
+                    if (cy < minY) minY = cy
+                    if (cy > maxY) maxY = cy
                 }
-
-                if (pixelCount < 3) continue // noise filter
 
                 // Convert from output coords to original image coords
                 // (output space is letterbox image centered in modelSize×modelSize)
@@ -578,6 +650,140 @@ class OcrEngine(private val context: Context) {
         val sorted = sortDetectedBoxes(splitBoxes)
         Log.d(TAG, "detect: final ${sorted.size} boxes")
         InferLog.add("detect final=${sorted.size} boxes")
+        return sorted
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Rotated detect (opt-in, #53) — same mask, minAreaRect per component
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** #53: the detection geometry for the caller, honouring the opt-in pref.
+     *  With the opt-in off this is exactly [detect], one [LineBox.of] per rect,
+     *  so nothing on the default path changes. */
+    fun detectLines(bitmap: Bitmap): List<LineBox> =
+        if (isDetRotated(context)) detectRotated(bitmap)
+        else detect(bitmap).map { LineBox.of(it) }
+
+    /**
+     * #53: the opt-in rotated path. Same DB mask and flood-fill as [detect], but
+     * each component's boundary pixels are fitted with a minimum-area rectangle
+     * ([RotatedGeometry.fitQuad]) instead of being reduced to min/max X/Y — the
+     * same pixels PaddleOCR's default `quad` postprocess fits. The fit is done on
+     * the pixels' outer corners in source space, so an axis-aligned component
+     * reproduces the default path's `maxX + 1` box convention.
+     *
+     * A fit within [RotatedGeometry.AXIS_ALIGNED_TOL_DEG] of the upright axes is
+     * returned as a plain [LineBox.rect] with no quad: upright content keeps the
+     * exact recognition path it had, even with the opt-in on. Only genuinely
+     * rotated Lines carry a quad and get unrotated before recognition.
+     *
+     * Deliberately narrower than the default pipeline for now: furigana filtering
+     * runs on AABB geometry, but box merging/splitting, the ruby-gutter trim and
+     * the axis-aligned furigana geometry rules do not apply to rotated Lines.
+     * The default path is untouched; this is the opt-in.
+     */
+    fun detectRotated(bitmap: Bitmap): List<LineBox> {
+        val mask = runDetMask(bitmap) ?: return emptyList()
+        val prob = mask.prob
+        val outW = mask.outW
+        val outH = mask.outH
+        val imgLeft = mask.imgLeft
+        val imgTop = mask.imgTop
+        val scaleX = mask.scaleX
+        val scaleY = mask.scaleY
+
+        val visited = ByteArray(outH * outW)
+        val q = IntArray(outH * outW)
+        // Component boundary pixel corners in source pixels, reused per component.
+        var points = FloatArray(1024)
+        var pointCount = 0
+        fun addPoint(px: Float, py: Float) {
+            if ((pointCount + 1) * 2 > points.size) points = points.copyOf(points.size * 2)
+            points[pointCount * 2] = px
+            points[pointCount * 2 + 1] = py
+            pointCount++
+        }
+
+        val preQuads = mutableListOf<JpDictQuad>()
+        val quads = mutableListOf<JpDictQuad>()
+        for (y in 0 until outH) {
+            for (x in 0 until outW) {
+                val idx = y * outW + x
+                if (visited[idx].toInt() != 0 || prob[idx] <= detThresh) continue
+
+                val pixelCount = floodFillComponent(prob, visited, q, idx, outW, outH, detThresh)
+                if (pixelCount < 3) continue
+
+                // Boundary pixels: any of the 8 neighbours outside the mask. The
+                // hull of the component is the hull of its boundary, and the outer
+                // corners of those pixels enclose exactly the same pixels the
+                // axis-aligned min/max box covers.
+                pointCount = 0
+                for (i in 0 until pixelCount) {
+                    val cur = q[i]
+                    val cx = cur % outW
+                    val cy = cur / outW
+                    var boundary = false
+                    for (dy in -1..1) {
+                        if (boundary) break
+                        for (dx in -1..1) {
+                            if (dx == 0 && dy == 0) continue
+                            val nx = cx + dx
+                            val ny = cy + dy
+                            if (nx !in 0 until outW || ny !in 0 until outH ||
+                                prob[ny * outW + nx] <= detThresh
+                            ) {
+                                boundary = true
+                                break
+                            }
+                        }
+                    }
+                    if (!boundary) continue
+                    val mx = (cx - imgLeft) * scaleX
+                    val my = (cy - imgTop) * scaleY
+                    addPoint(mx - 0.5f * scaleX, my - 0.5f * scaleY)
+                    addPoint(mx + 0.5f * scaleX, my - 0.5f * scaleY)
+                    addPoint(mx + 0.5f * scaleX, my + 0.5f * scaleY)
+                    addPoint(mx - 0.5f * scaleX, my + 0.5f * scaleY)
+                }
+
+                val preQuad = RotatedGeometry.fitQuad(points, pointCount) ?: continue
+                val quad = RotatedGeometry.unclip(preQuad, detUnclip)
+                if (quad.localWidth < 4f || quad.localHeight < 4f) continue
+                preQuads.add(preQuad)
+                quads.add(quad)
+            }
+        }
+
+        // 6b. Furigana filter (#28) on AABB geometry: the same rule and the same
+        // raw-vs-unclipped pair as the default path, so ruby is not promoted to a
+        // Line just because the fit rotated it.
+        val keep = filterFurigana(
+            preQuads.map { it.toRect() },
+            quads.map { it.toRect() },
+            bitmap.width,
+            bitmap.height,
+        )
+
+        // 7-9. Min-size filter and the centred vertical-width shrink; merging,
+        // splitting and the ruby-gutter trim are default-path stages (#53 note).
+        val result = mutableListOf<LineBox>()
+        for (i in quads.indices) {
+            if (!keep.getOrElse(i) { true }) continue
+            var quad = quads[i]
+            val w = quad.localWidth
+            val h = quad.localHeight
+            if (w < 10f || h < 10f) continue
+            if (RotatedGeometry.isVertical(quad)) {
+                quad = RotatedGeometry.inset(quad, w * 0.05f, 0f)
+            }
+            val rect = quad.toRect()
+            // Upright fits stay on the exact axis-aligned path.
+            result.add(if (quad.isAxisAligned()) LineBox(rect) else LineBox(rect, quad))
+        }
+        val sorted = sortDetectedLineBoxes(result)
+        Log.d(TAG, "detectRotated: ${quads.size} fitted, final ${sorted.size} boxes, rotated=${sorted.count { it.isRotated }}")
+        InferLog.add("detectRotated fitted=${quads.size} final=${sorted.size} rotated=${sorted.count { it.isRotated }}")
         return sorted
     }
 
@@ -809,6 +1015,22 @@ class OcrEngine(private val context: Context) {
         return horizontal + vertical
     }
 
+    /** #53: the same reading-order rule on [LineBox]es (a rotated Line sorts by
+     *  its AABB — page-level orientation recovery is deliberately out of scope
+     *  for this increment). */
+    private fun sortDetectedLineBoxes(boxes: List<LineBox>): List<LineBox> {
+        val horizontal = boxes.filter { !isVerticalLineBox(it) }
+            .sortedWith(compareBy({ it.rect.top }, { it.rect.left }))
+        val vertical = boxes.filter { isVerticalLineBox(it) }
+            .sortedWith(compareByDescending<LineBox> { it.rect.right }.thenBy { it.rect.top })
+        return horizontal + vertical
+    }
+
+    /** Vertical-Line rule for a [LineBox]: the frame's own sizes decide for a
+     *  rotated Line, the AABB for an axis-aligned one (same rule either way). */
+    private fun isVerticalLineBox(box: LineBox): Boolean =
+        box.quad?.let { RotatedGeometry.isVertical(it) } ?: isVerticalBox(box.rect)
+
     // ═════════════════════════════════════════════════════════════════════════
     //  Rec — single-pass batch + streaming + CTC + char boxes
     // ═════════════════════════════════════════════════════════════════════════
@@ -942,19 +1164,27 @@ class OcrEngine(private val context: Context) {
     ) {
         coroutineContext.ensureActive()
         val tBatch = System.nanoTime()
-        // Create crops per batch (4 bitmaps pinned at a time).
+        // Create crops per batch (4 bitmaps pinned at a time). Rotated Lines
+        // (#53) come from the unrotate warp; axis-aligned ones from the same
+        // clamped rect crop as before.
         val cropsWithJobs = batch.mapNotNull { job ->
-            val cropX = maxOf(job.bbox.left, 0)
-            val cropY = maxOf(job.bbox.top, 0)
-            val cropW = minOf(bitmap.width - cropX, job.bbox.width()).coerceAtLeast(1)
-            val cropH = minOf(bitmap.height - cropY, job.bbox.height()).coerceAtLeast(1)
-            if (cropW < 4 || cropH < 4) return@mapNotNull null
-            val crop = try {
-                Bitmap.createBitmap(bitmap, cropX, cropY, cropW, cropH)
-            } catch (e: Exception) {
-                Log.e(TAG, "createBitmap failed for $job", e)
-                return@mapNotNull null
+            val crop = if (job.box.isRotated) {
+                warpRotatedCrop(bitmap, job.box.quad!!)
+            } else {
+                val rect = job.box.rect
+                val cropX = maxOf(rect.left, 0)
+                val cropY = maxOf(rect.top, 0)
+                val cropW = minOf(bitmap.width - cropX, rect.width()).coerceAtLeast(1)
+                val cropH = minOf(bitmap.height - cropY, rect.height()).coerceAtLeast(1)
+                if (cropW < 4 || cropH < 4) null
+                else try {
+                    Bitmap.createBitmap(bitmap, cropX, cropY, cropW, cropH)
+                } catch (e: Exception) {
+                    Log.e(TAG, "createBitmap failed for $job", e)
+                    null
+                }
             }
+            if (crop == null) return@mapNotNull null
             if (crop.width < 4 || crop.height < 4) { crop.recycle(); return@mapNotNull null }
             job to crop
         }
@@ -972,7 +1202,11 @@ class OcrEngine(private val context: Context) {
             // result. Results stay keyed by job idx. #21
             var doneLines = 0
             val emitLine = emit@{ index: Int, result: PPOcrResult ->
-                val job = batch.getOrNull(index) ?: return@emit
+                // Aligned with `crops`: a crop that could not be created is not
+                // in the list, so the batch's own order cannot address it. (The
+                // unused `batch` lookup this replaces mis-keyed every result
+                // after a dropped crop.)
+                val job = batchJobs.getOrNull(index) ?: return@emit
                 if (result.text.isEmpty()) return@emit
 
                 // Crop pixels for idea-4 snapping (crop alive until batch
@@ -1014,13 +1248,41 @@ class OcrEngine(private val context: Context) {
                 } else {
                     result.rawAlternatives.map { it.toList() }
                 }
-                val charBoxes = computeCharBoxes(
-                    recText, result.charCols, result.seqLenTotal,
-                    job.bbox.left, job.bbox.top,
-                    job.bbox.width(), job.bbox.height(),
-                    job.isVertical,
-                    snapPx, snapW, snapH,
-                )
+                val box = job.box
+                val quad = box.quad
+                val cropW: Int
+                val cropH: Int
+                val cropX: Int
+                val cropY: Int
+                val charBoxes: List<JpDictRect>
+                if (quad != null) {
+                    // #53: char boxes are computed in the Line's own upright
+                    // frame (localCropW/H, the same size the warp produced),
+                    // then placed back into source pixels as AABBs. The
+                    // renderer rotates the glyphs by the frame's tilt.
+                    cropW = localCropW(quad)
+                    cropH = localCropH(quad)
+                    cropX = 0
+                    cropY = 0
+                    val local = computeCharBoxes(
+                        recText, result.charCols, result.seqLenTotal,
+                        cropX, cropY, cropW, cropH,
+                        job.isVertical,
+                        snapPx, snapW, snapH,
+                    )
+                    charBoxes = local.map { quad.mapLocalRect(it) }
+                } else {
+                    cropW = box.rect.width()
+                    cropH = box.rect.height()
+                    cropX = box.rect.left
+                    cropY = box.rect.top
+                    charBoxes = computeCharBoxes(
+                        recText, result.charCols, result.seqLenTotal,
+                        cropX, cropY, cropW, cropH,
+                        job.isVertical,
+                        snapPx, snapW, snapH,
+                    )
+                }
 
                 // Vertical lines keep horizontal chars end-to-end (#47): the
                 // overlay renderer applies the font's vert subs at draw time.
@@ -1034,11 +1296,12 @@ class OcrEngine(private val context: Context) {
                     isVertical = job.isVertical,
                     rawAlternatives = recRaw,
                     seqLenTotal = result.seqLenTotal,
-                    cropW = job.bbox.width(),
-                    cropH = job.bbox.height(),
-                    cropX = job.bbox.left,
-                    cropY = job.bbox.top,
+                    cropW = cropW,
+                    cropH = cropH,
+                    cropX = cropX,
+                    cropY = cropY,
                     charCols = result.charCols,
+                    quad = quad,
                 )
                 doneLines++
                 InferLog.add("line idx=${job.idx} len=${lineResult.text.length} vert=${lineResult.isVertical}")
@@ -1054,6 +1317,40 @@ class OcrEngine(private val context: Context) {
             Log.e(TAG, "Batch $batchIdx failed", e)
             // Ensure crops recycled even on failure
             try { crops.forEach { it.recycle() } } catch (_: Exception) {}
+        }
+    }
+
+    /** #53: the upright crop size in whole pixels for [quad]. The warp bitmap
+     *  and the char-box frame must agree, so both go through here. */
+    private fun localCropW(quad: JpDictQuad): Int =
+        quad.localWidth.roundToInt().coerceAtLeast(4)
+
+    private fun localCropH(quad: JpDictQuad): Int =
+        quad.localHeight.roundToInt().coerceAtLeast(4)
+
+    /** #53: the unrotate — draw the source through the frame's inverse into an
+     *  upright `localW × localH` bitmap. `setPolyToPoly` maps the frame's four
+     *  corners to the upright rect, so the same seam already accepts a
+     *  perspective fit later (a quad, not just a rotated rect). Returns null on
+     *  a degenerate mapping or an allocation failure; the caller drops the Line
+     *  rather than recognising a mis-framed crop. */
+    private fun warpRotatedCrop(src: Bitmap, quad: JpDictQuad): Bitmap? {
+        val w = localCropW(quad)
+        val h = localCropH(quad)
+        val matrix = android.graphics.Matrix()
+        val dst = floatArrayOf(0f, 0f, w.toFloat(), 0f, w.toFloat(), h.toFloat(), 0f, h.toFloat())
+        if (!matrix.setPolyToPoly(quad.corners(), 0, dst, 0, 4)) return null
+        return try {
+            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(out)
+            canvas.drawBitmap(
+                src, matrix,
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+            )
+            out
+        } catch (e: Exception) {
+            Log.e(TAG, "warpRotatedCrop failed", e)
+            null
         }
     }
 
@@ -2099,10 +2396,15 @@ class OcrEngine(private val context: Context) {
      * batch, [recognizePpocrBatch] awaits via `select` over the deferreds so
      * each line emits as its infer completes; the callback re-posts to the main
      * thread. Cooperative cancellation (#18): overlay close cancels the job and
-     * each batch boundary checks `ensureActive()`. */
+     * each batch boundary checks `ensureActive()`.
+     *
+     * #53: [LineBox]es are accepted directly; a rotated Line's crop is the
+     * unrotate warp, an axis-aligned one's is the same clamped rect crop as
+     * before. The older [JpDictRect] overload below stays for callers that only
+     * know rects (the androidTest benchmark, tests) and behaves identically. */
     suspend fun recognizeStreaming(
         bitmap: Bitmap,
-        lineBoxes: List<JpDictRect>,
+        lineBoxes: List<LineBox>,
         onLinesRecognized: (List<Pair<Int, LineResult>>) -> Unit
     ) = coroutineScope {
         val startTime = System.currentTimeMillis()
@@ -2111,8 +2413,8 @@ class OcrEngine(private val context: Context) {
         // Build job queue — no Bitmaps yet; crops are created per batch below.
 
         val jobs = lineBoxes.mapIndexedNotNull { i, box ->
-            if (box.width() < 4 || box.height() < 4) null
-            else Job(i, box, isVerticalBox(box))
+            if (box.rect.width() < 4 || box.rect.height() < 4) null
+            else Job(i, box, isVerticalLineBox(box))
         }
         if (jobs.isEmpty()) return@coroutineScope
 
@@ -2123,9 +2425,9 @@ class OcrEngine(private val context: Context) {
         // lines top-to-bottom (same per-group comparators as sortDetectedBoxes).
         // Results stay keyed by job idx, so only arrival order changes.
         val verticals = jobs.filter { it.isVertical }
-            .sortedWith(compareByDescending<Job> { it.bbox.right }.thenBy { it.bbox.top })
+            .sortedWith(compareByDescending<Job> { it.box.rect.right }.thenBy { it.box.rect.top })
         val horizontals = jobs.filter { !it.isVertical }
-            .sortedWith(compareBy<Job> { it.bbox.top }.thenBy { it.bbox.left })
+            .sortedWith(compareBy<Job> { it.box.rect.top }.thenBy { it.box.rect.left })
         val sortedJobs = verticals + horizontals
 
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -2143,6 +2445,14 @@ class OcrEngine(private val context: Context) {
         Log.d(TAG, "Streaming recognition for ${lineBoxes.size} lines took ${elapsed}ms")
         InferLog.add("stream done lines=${lineBoxes.size} total=${elapsed}ms")
     }
+
+    /** Pre-#53 signature: every rect is an axis-aligned [LineBox]. */
+    @JvmName("recognizeStreamingRects")
+    suspend fun recognizeStreaming(
+        bitmap: Bitmap,
+        lineBoxes: List<JpDictRect>,
+        onLinesRecognized: (List<Pair<Int, LineResult>>) -> Unit
+    ) = recognizeStreaming(bitmap, lineBoxes.map { LineBox.of(it) }, onLinesRecognized)
 
     // ═════════════════════════════════════════════════════════════════════════
     //  Re-decode from cache (no re-inference)
@@ -2231,11 +2541,14 @@ class OcrEngine(private val context: Context) {
         }
 
         val newCharBoxes = if (oldLine.cropW > 0 && oldLine.cropH > 0) {
-            computeCharBoxes(
+            val local = computeCharBoxes(
                 vertText, charCols.toFloatArray(), oldLine.seqLenTotal,
                 oldLine.cropX, oldLine.cropY, oldLine.cropW, oldLine.cropH,
                 oldLine.isVertical,
             )
+            // #53: a rotated Line's char boxes live in its upright frame, so
+            // re-decode must place them back through the frame too.
+            if (oldLine.quad != null) local.map { oldLine.quad.mapLocalRect(it) } else local
         } else oldLine.charBoxes
 
         return LineResult(
@@ -2251,6 +2564,7 @@ class OcrEngine(private val context: Context) {
             cropX = oldLine.cropX,
             cropY = oldLine.cropY,
             charCols = charCols.toFloatArray(),
+            quad = oldLine.quad,
         )
     }
 
