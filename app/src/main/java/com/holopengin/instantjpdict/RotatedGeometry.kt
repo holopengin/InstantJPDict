@@ -291,6 +291,61 @@ object RotatedGeometry {
         )
     }
 
+    // ── blob filtering ──────────────────────────────────────────────────────
+
+    /** An enclosed frame counts as a smaller Line only when it is at most this
+     *  fraction of the enclosing frame's area. */
+    private const val ENCLOSED_AREA_FRACTION = 0.6f
+
+    /** ...and only when it is this elongated — detached marks (dakuten, mask
+     *  crumbs) inside a Line's frame are not Lines. */
+    private const val ENCLOSED_MIN_ASPECT = 2f
+
+    /** How many enclosed Lines make the enclosing frame a blob. */
+    private const val ENCLOSED_MIN_COUNT = 2
+
+    /**
+     * Drop fitted frames that enclose several smaller, Line-shaped frames.
+     *
+     * The DB mask can merge neighbouring Lines into one connected component
+     * (dense leading, camera blur, low contrast), and that component's
+     * minimum-area rectangle is a large blob covering the Lines inside it —
+     * while those Lines arrive as their own smaller fits. The blob is the false
+     * positive here, so remove any frame that contains the centres of at least
+     * [ENCLOSED_MIN_COUNT] other frames which are both substantially smaller
+     * ([ENCLOSED_AREA_FRACTION]) and elongated like a text Line
+     * ([ENCLOSED_MIN_ASPECT]). Upright Lines are never affected (the default
+     * path does not call this).
+     */
+    fun filterEnclosingBlobs(quads: List<JpDictQuad>): List<JpDictQuad> {
+        if (quads.size <= ENCLOSED_MIN_COUNT) return quads
+        val areas = FloatArray(quads.size) { quads[it].localWidth * quads[it].localHeight }
+        return quads.filterIndexed { i, quad ->
+            var enclosed = 0
+            for (j in quads.indices) {
+                if (i == j || areas[j] >= areas[i] * ENCLOSED_AREA_FRACTION) continue
+                val inner = quads[j]
+                val w = inner.localWidth
+                val h = inner.localHeight
+                if (maxOf(w, h) < ENCLOSED_MIN_ASPECT * minOf(w, h)) continue
+                if (!containsPoint(quad, inner.center)) continue
+                if (++enclosed >= ENCLOSED_MIN_COUNT) return@filterIndexed false
+            }
+            true
+        }
+    }
+
+    /** True when [p] lies inside the frame, tested on the frame's own axes. */
+    private fun containsPoint(quad: JpDictQuad, p: QuadPoint): Boolean {
+        val x = quad.xAxis
+        val y = quad.yAxis
+        val dx = p.x - quad.c0.x
+        val dy = p.y - quad.c0.y
+        val lx = dx * x.x + dy * x.y
+        val ly = dx * y.x + dy * y.y
+        return lx >= 0f && lx <= quad.localWidth && ly >= 0f && ly <= quad.localHeight
+    }
+
     // ── small vector helpers ────────────────────────────────────────────────
 
     internal fun distance(a: QuadPoint, b: QuadPoint): Float = hypot(b.x - a.x, b.y - a.y)
