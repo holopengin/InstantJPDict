@@ -24,5 +24,5 @@ What the model is used for
 --------------------------
 
 Deciding the small/large form of っ/つ, ゃ/や, ゅ/ゆ, ょ/よ from five characters of context on each
-side, behind the "Correct small/large kana with the size model" checkbox (issue #44). Verified
-on-device against ten published logits by KanaSizeNcnn.selfCheck.
+side, applied unconditionally to recognised text (issue #44; the settings toggle was removed).
+Verified on-device against ten published logits by KanaSizeNcnn.selfCheck.

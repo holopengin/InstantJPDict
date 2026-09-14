@@ -146,7 +146,6 @@ class OcrOverlayStateController {
      *  the main thread, and null forever if the asset is missing — either way the blank
      *  just offers the placeholder alone. */
     private var charLm: CharLm? = null
-    private var suggestionsEnabled: () -> Boolean = { false }
     var deinflector: Deinflector? = null
     var dictionaryProvider: DictionaryProvider? = null
     var gson: Gson? = null
@@ -547,10 +546,10 @@ class OcrOverlayStateController {
     }
 
     /**
-     * The popup list for one character (#44): the head's own top-15, plus — when the
-     * component table has loaded and the setting is on — component neighbours and variant
-     * forms of that character. Both the panel and keyboard navigation read this, so they
-     * can never disagree about what the list contains.
+     * The popup list for one character (#44): the head's own top-15, plus — once the
+     * component table has loaded — component neighbours and variant forms of that character.
+     * Both the panel and keyboard navigation read this, so they can never disagree about what
+     * the list contains. Unconditional: the setting this used to consult is gone.
      */
     private fun alternativeCharsFor(line: LineResult, cIdx: Int): List<AlternativeChar>? {
         val current = line.text.getOrNull(cIdx)
@@ -562,7 +561,7 @@ class OcrOverlayStateController {
         if (current == OcrEngine.GAP_CHAR) return gapCandidates(line, cIdx)
         val alts = line.alternatives.getOrNull(cIdx) ?: return null
         val head = alts.take(15).map { it.first }
-        val suggestions = if (suggestionsEnabled() && oovCandidates != null && current != null) {
+        val suggestions = if (oovCandidates != null && current != null) {
             OovSuggestions.assemble(current, head, oovCandidates)
         } else {
             head.map { OovSuggestions.Suggestion(it, OovSuggestions.Source.HEAD) }
@@ -575,15 +574,12 @@ class OcrOverlayStateController {
     /**
      * The blank's list: the placeholder itself (so the entry is selectable and carries the
      * manual IME) followed by the LM-ranked kanji the recogniser offered along this line.
+     * Unconditional, like the component suggestions it shares its loading state with.
      */
     private fun gapCandidates(line: LineResult, cIdx: Int): List<AlternativeChar> {
         val out = mutableListOf(
             AlternativeChar(OcrEngine.GAP_CHAR, isSelected = true, source = OovSuggestions.Source.HEAD))
-        val ranked = if (suggestionsEnabled()) {
-            GapCandidates.generate(line.text, line.rawAlternatives, cIdx, charLm)
-        } else {
-            emptyList()
-        }
+        val ranked = GapCandidates.generate(line.text, line.rawAlternatives, cIdx, charLm)
         // Evidence first, then the punctuation and kana a gap most often holds. A blank with
         // nothing to choose from is worse than a guess, so this list is never just the
         // placeholder; even the fallback is ordered by context when the model is loaded.
@@ -620,12 +616,11 @@ class OcrOverlayStateController {
     /**
      * Component-derived suggestions (#44). The service loads the 266 KB component table off
      * the main thread and calls this once it lands; until then the panel shows the head's
-     * own list, exactly as before. [enabled] is read per call so the setting takes effect
-     * without reinstalling.
+     * own list, exactly as before. Unconditional since the setting was removed: the table's
+     * arrival is the only thing that gates the suggestions.
      */
-    fun installOovSuggestions(candidates: OovCandidates, enabled: () -> Boolean) {
+    fun installOovSuggestions(candidates: OovCandidates) {
         oovCandidates = candidates
-        suggestionsEnabled = enabled
     }
 
     /**

@@ -30,7 +30,6 @@ import com.holopengin.instantjpdict.data.DictionaryImporter
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.InferLog
-import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -162,20 +161,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // #44: component-derived alternatives in the alternatives popup. On by default —
-        // it only adds entries to a list the user already opens, and never changes
-        // recognised text (auto-apply is parked; see docs/ocr-oov-correction-plan.md).
-        layout.addView(CheckBox(this).apply {
-            text = "Suggest similar characters in the alternatives list"
-            isChecked = OovSuggestions.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                OovSuggestions.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "oov_suggestions_enabled=$checked")
-            }
-        })
-
         // #44 Feature 2: clickable blanks where the vertical spacing says a character was
         // dropped. Vertical only (the horizontal trigger measured 13% false), and the blank
         // is filled through the alternatives panel's manual IME entry.
@@ -190,20 +175,10 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // #44 Feature 3: kana size correction. The small/large form of っ/つ, ゃ/や, ゅ/ゆ, ょ/よ
-        // is decided by a byte-CNN that reads five characters of context on each side, applied
-        // only where the orthography allows it — pre-reform text keeps its large つ. Off by
-        // default so it can be compared with and without; see KanaSizeFix.
-        layout.addView(CheckBox(this).apply {
-            text = "Correct small/large kana with the size model (っ/つ, ゃ/や …)"
-            isChecked = KanaSizeFix.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                KanaSizeFix.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "kana_size_fix_enabled=$checked")
-            }
-        })
+        // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
+        // and no preference read (see KanaSizeFix). The small/large form of っ/つ, ゃ/や, ゅ/ゆ,
+        // ょ/よ is decided by a byte-CNN that reads five characters of context on each side,
+        // applied only where the orthography allows it — pre-reform text keeps its large つ.
 
         // One tap, on the device, runs the model author's ten published vectors through this
         // phone's own encoder + JNI path and copies the result. It proves the asset bytes, the
@@ -488,6 +463,9 @@ class MainActivity : AppCompatActivity() {
                 .putFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
                 .putFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
                 .putFloat(OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA)
+                // The kana-size ε tunable belongs here too: a control the reset does not know
+                // about is a bug, so the reset lists every addTunable above.
+                .putFloat(KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON)
                 .putFloat(ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP)
                 .apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()

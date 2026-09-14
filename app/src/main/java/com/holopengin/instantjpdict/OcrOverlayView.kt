@@ -712,10 +712,10 @@ class OcrOverlayView(
                     // view is built, because the corrected page has to be complete before the
                     // layout is derived from it.
                     val orderedLines = finishedLines.sortedBy { it.first }
-                    val correctedLines = KanaSizeFix.applyIfEnabled(
+                    val correctedLines = KanaSizeFix.correctPage(
                         context, orderedLines.map { it.second })
                     // Surface the outcome: without this the correction is invisible whether or not
-                    // it fired, which makes "on vs off" impossible to judge from the outside.
+                    // it fired.
                     InferLog.add(KanaSizeFix.lastSummary)
                     if (KanaSizeFix.lastDeclined.isNotEmpty()) {
                         // Which positions the model declined, and how close they were. No
@@ -731,7 +731,7 @@ class OcrOverlayView(
                     }
                     val recMs = System.currentTimeMillis() - startTime
                     // The kana outcome is part of the status line: whether it fired is otherwise
-                    // invisible from outside the app, which makes on-vs-off impossible to judge.
+                    // invisible from outside the app.
                     val kanaNote = KanaSizeFix.lastSummary.removePrefix("kana fix: ")
                     postStatus(gen, "${finishedLines.size} ln | ${controller.activeAllChars.size} chr | Det ${detMs}ms | Rec ${recMs}ms | kana: $kanaNote", hideProgress = true)
                 } else {

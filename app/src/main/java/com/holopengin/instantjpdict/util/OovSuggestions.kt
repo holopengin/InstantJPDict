@@ -1,8 +1,5 @@
 package com.holopengin.instantjpdict.util
 
-import android.content.Context
-import com.holopengin.instantjpdict.OcrEngine
-
 /**
  * Component-derived alternatives for a recognised character (#44, step 1).
  *
@@ -17,11 +14,13 @@ import com.holopengin.instantjpdict.OcrEngine
  * **Nothing here changes recognised text.** These are extra entries in a popup the user
  * already opens, so there is no over-correction risk; the measured over-correction budget
  * governs *auto-apply*, which is parked (see `docs/ocr-oov-correction-plan.md`).
+ *
+ * **Always on.** The suggestions are assembled at every call site that builds the list, with
+ * no preference read and no gate: a stored `oov_suggestions_enabled=false` from an install
+ * that predates this is inert, and nothing consults it. The measured in-list behaviour is the
+ * feature, so there is nothing left to toggle between.
  */
 object OovSuggestions {
-    const val PREF_ENABLED = "oov_suggestions_enabled"
-    const val DEF_ENABLED = true
-
     /**
      * IDF mass a candidate must share with the emitted character (measured tier).
      */
@@ -40,15 +39,6 @@ object OovSuggestions {
     enum class Source { HEAD, COMPONENTS, VARIANT, LM }
 
     data class Suggestion(val char: Char, val source: Source)
-
-    fun isEnabled(ctx: Context): Boolean =
-        ctx.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(PREF_ENABLED, DEF_ENABLED)
-
-    fun setEnabled(ctx: Context, enabled: Boolean) {
-        ctx.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(PREF_ENABLED, enabled).apply()
-    }
 
     /**
      * The popup list for one character: the head's own ranking first and unchanged (it is
