@@ -104,9 +104,7 @@ class MainActivity : AppCompatActivity() {
         // bar.
         root.addView(Button(this).apply {
             text = "Camera"
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, ProtoCameraActivity::class.java))
-            }
+            setOnClickListener { openCamera() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -504,6 +502,59 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         ensureBundledPitchDictionary()
+
+        // #82: the app shortcut (res/xml/shortcuts.xml). Cold launches — the app
+        // was not running — arrive here with the shortcut's action, and this is
+        // where it becomes the viewfinder. Deliberately the LAST thing in
+        // onCreate: the dictionary screen below it is fully built, so Back out of
+        // the camera lands on a screen rather than a half-drawn one.
+        openCameraFrom(intent)
+    }
+
+    /**
+     * #82: the second way into this activity, for the case this activity is
+     * ALREADY the top of the task — manifest `singleTop` names this activity, so
+     * the platform reuses the instance and delivers the shortcut here instead of
+     * stacking a second dictionary screen under the camera.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openCameraFrom(intent)
+    }
+
+    /**
+     * #82: the router between the shortcut's action and the viewfinder. The
+     * static declaration can carry an action and nothing else, so the rule is
+     * equality with [CameraShortcut.ACTION_OPEN_CAMERA] — see [CameraShortcut] for
+     * why the shortcut reaches the camera through this activity rather than
+     * naming the viewfinder directly — and any other launch of this activity
+     * (the ordinary MAIN tap) is untouched.
+     *
+     * The action is CLEARED from the intent it arrived on. The client record
+     * keeps this same instance and re-delivers it when the platform re-creates
+     * the activity (a rotation, a UI-mode change, an explicit recreate()), so
+     * without the clear the next onCreate would read the shortcut again and open
+     * a second viewfinder over the one the user is looking at. Clearing it on the
+     * framework's own instance — not on a copy — is what makes the request
+     * one-shot.
+     *
+     * A passive restore after process death is deliberately NOT guarded: the
+     * system server's copy of the intent still carries the action, but a
+     * `savedInstanceState` test cannot tell that restore apart from a cold
+     * shortcut launch into a dead-but-tasked app, and refusing the camera on a
+     * real activation would be the worse failure.
+     */
+    private fun openCameraFrom(intent: Intent) {
+        if (!CameraShortcut.opensCamera(intent.action)) return
+        intent.action = null
+        Log.d("MainActivity", "camera shortcut: opening the viewfinder")
+        openCamera()
+    }
+
+    /** The one way into the viewfinder: the pinned control and the shortcut both land here. */
+    private fun openCamera() {
+        startActivity(Intent(this, ProtoCameraActivity::class.java))
     }
 
     private fun addButton(parent: android.view.ViewGroup, text: String, onClick: () -> Unit) {
