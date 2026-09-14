@@ -8,7 +8,6 @@ import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.KanaOrthography
 import com.holopengin.instantjpdict.util.KanjiVariants
 import com.holopengin.instantjpdict.util.OovCandidates
-import com.holopengin.instantjpdict.util.OovSuggestions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,9 +48,7 @@ object OverlayEnvironment {
                 // in either host so the share activity normalises exactly like the overlay.
                 runCatching { KanaOrthography.install(context) }
             }
-            controller.installOovSuggestions(OovCandidates(table)) {
-                OovSuggestions.isEnabled(context)
-            }
+            controller.installOovSuggestions(OovCandidates(table))
             // The 14 MB packed model behind the blank's candidate ranking. Mapped the same
             // way and off the main thread; a failure here only narrows the blank's list.
             controller.installCharLm(

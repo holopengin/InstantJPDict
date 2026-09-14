@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #78 — the FileProvider root for the captured photo. Only the camera's own
+     cache subdirectory is exposed; nothing else on the app's storage is
+     reachable through this authority. -->
+<paths>
+    <cache-path
+        name="proto_camera"
+        path="proto-camera/" />
+</paths>

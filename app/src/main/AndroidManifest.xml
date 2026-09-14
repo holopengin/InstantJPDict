@@ -8,6 +8,17 @@
          OcrAccessibilityService.registerBackCallback), so back died on our
          window. Opting out restores legacy KEYCODE_BACK dispatch, which this
          service's key filtering does receive. -->
+    <!-- #78 — camera mode. The CAMERA permission is declared because the app ships
+         a viewfinder (ProtoCameraActivity) that opens the back camera; the activity
+         asks for it at runtime before the camera is used. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Not required: the app installs and works on a device with no camera;
+         the viewfinder is simply unavailable there. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <application
         android:enableOnBackInvokedCallback="false"
         android:allowBackup="true"
@@ -33,11 +44,41 @@
         <!-- #57 (Feat — image share intent): a single shared image goes through
              the same OCR/lookup surface as the accessibility overlay. Only
              ACTION_SEND is handled; ACTION_SEND_MULTIPLE is a later follow-up. -->
+        <!-- #78 — orientation. fullSensor, NOT a pin: like the
+             viewfinder, this window follows the device from its FIRST layout, so
+             a capture taken holding the phone sideways hands off to an OCR view
+             that is already landscape — no post-creation quarter turn. The
+             exported ACTION_SEND entry point is not pinned by it either:
+             fullSensor asks the platform to resolve the orientation from the
+             sensor, it does not freeze a family.
+
+             configChanges, deliberately. A later quarter turn used to RE-CREATE
+             this activity, which recomposed the image at the new container size
+             (the overlay's box coordinates are composite pixels, 1:1 with the
+             surface) — and threw away the detect/recognise pass, re-running it
+             on an image that had not changed. The maintainer's report: "it still
+             re-runs the inference when rotating the phone while the OCR view is
+             open". Handled in place instead: ShareImageActivity.onConfigurationChanged
+             KEEPS the run and re-fits the composite and its boxes to the new
+             container (ImageShareFit.refit owns the mapping). orientation +
+             screenSize are what a quarter turn actually reports; screenLayout,
+             smallestScreenSize and keyboardHidden are declared with them so the
+             resize/IMEs of the same window cannot re-create it either.
+
+             This replaces the RUNTIME request the camera handoff used to make:
+             ShareImageActivity asked for FULL_SENSOR in onCreate from
+             InheritedOrientation.EXTRA_CAMERA_HOLD, which resolved after the
+             first layout — the activity was laid out in the launch orientation,
+             then re-created when the request landed. That is the "starts
+             portrait, then it rotates" the maintainer saw. Declared here, the
+             orientation is part of the window the activity is created with. -->
         <activity
             android:name=".ShareImageActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:label="@string/app_name"
+            android:screenOrientation="fullSensor"
             android:theme="@style/Theme.InstantJPDict.Share">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -47,6 +88,40 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+
+        <!-- #78 — our own viewfinder, launched from a main-activity
+             button. fullSensor, NOT portrait: the whole window has to turn with
+             the phone, so the preview, the reticle and the capture turn
+             together. Rotating only the camera stream inside a portrait lock is
+             the thing to avoid — the preview would appear turned inside an
+             upright portrait window. fullSensor is also the sensor value the
+             documented rule "the sensor is used even if the user locked
+             sensor-based rotation" covers, so a locked auto-rotate still turns
+             the viewfinder. configChanges keeps the activity AND the bound
+             camera alive across the quarter turn: that was the one real thing
+             the old portrait lock bought, and it is bought back here. -->
+        <activity
+            android:name=".ProtoCameraActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:screenOrientation="fullSensor"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:theme="@style/Theme.InstantJPDict" />
+
+        <!-- #78 — serves the captured JPEG to ShareImageActivity as a content
+             URI, so the capture enters through the same EXTRA_STREAM entry the
+             system share sheet uses and there is one decode/compose/render path
+             instead of two. It is not exported, and it grants read access to the
+             camera's own cache subdirectory only (res/xml/proto_file_paths.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.protofileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/proto_file_paths" />
+        </provider>
 
         <service
             android:name=".OcrAccessibilityService"

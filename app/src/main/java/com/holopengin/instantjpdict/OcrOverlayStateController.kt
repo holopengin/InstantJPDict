@@ -146,7 +146,6 @@ class OcrOverlayStateController {
      *  the main thread, and null forever if the asset is missing — either way the blank
      *  just offers the placeholder alone. */
     private var charLm: CharLm? = null
-    private var suggestionsEnabled: () -> Boolean = { false }
     var deinflector: Deinflector? = null
     var dictionaryProvider: DictionaryProvider? = null
     var gson: Gson? = null
@@ -282,6 +281,79 @@ class OcrOverlayStateController {
         isAlternativesVisible = false
         updateGlobalData()
     }
+
+    /**
+     * #78: the container changed size with the OCR run KEPT, so the boxes have to
+     * be moved into the new composite's pixel space here rather than re-derived by
+     * a second pass. [ShareImageActivity] handles a quarter turn in place now
+     * (`configChanges` + `onConfigurationChanged`) and re-composes the composite at
+     * the new container size; this is the other half — the transform, computed from
+     * the two fit placements by [ImageShareFit.refit] and pinned by
+     * `ImageShareRefitTest`, applied to every coordinate this object holds:
+     *
+     *  - [activeLineBoxes], the detect boxes, which draw the line borders;
+     *  - every [LineResult.charBoxes] entry, which draws the per-character hit
+     *    rects, the cursor and the lookup crop, and which [lookup] reads;
+     *  - and, through [updateGlobalData], the derived [navGraph], which is built
+     *    from the character boxes and would otherwise navigate by the OLD layout.
+     *
+     * The RUN itself is untouched: the text, the alternatives, the overrides and
+     * the activity's own "turns the last pass read" bookkeeping are all kept — that
+     * is the point of the change. Nothing here calls the engine.
+     *
+     * WHAT IS DELIBERATELY DROPPED, and why:
+     *  - THE ZOOM/PAN. `currentScale`/`currentTransX`/`currentTransY` are the screen
+     *    transform of the OLD composite (`screen = box * scale + trans`, with the
+     *    content container's pivot at its origin), so a box number moved into the
+     *    new pixel space would be drawn in a different place on screen unless the
+     *    zoom were re-expressed for the new mapping too. The identity — scale 1, no
+     *    translation — is the one choice that is right BY CONSTRUCTION: with it the
+     *    composite is 1:1 with the container, which is exactly what the re-fit
+     *    composed, and the tap-to-box inversion in [isNearCharacter] and
+     *    [updateGravity] keeps agreeing with what is drawn. It is also what a
+     *    re-created activity would have shown, so nothing the user could rely on is
+     *    lost that the old behaviour did not lose; a maintained zoom would need its
+     *    own anchor choice and is not what this asks for.
+     *  - THE SELECTION AND THE OPEN PANEL: the tapped index and the
+     *    dictionary/alternatives flags. The panel is positioned from the tapped
+     *    box's screen position and the view's gravity rule, and re-deriving that
+     *    placement here would be a second implementation of it. The view re-renders
+     *    the boxes and the cursor from the kept results afterwards
+     *    ([OcrOverlayView.refitContent]), so the run is still visible and still
+     *    tappable — a tap simply starts a new lookup.
+     */
+    fun refitBoxes(refit: ImageShareFit.Refit) {
+        // A container that did not change size asks for nothing: the activity's
+        // re-fit is only run for a real size change, and this keeps the two in step.
+        if (refit.isIdentity) return
+        activeLineBoxes = activeLineBoxes.map { it.refitted(refit) }
+        activeLineResults = activeLineResults.map { line ->
+            line?.copy(charBoxes = line.charBoxes.map { it.refitted(refit) })
+        }.toMutableList()
+        currentScale = 1f
+        currentTransX = 0f
+        currentTransY = 0f
+        currentTappedIdx = -1
+        currentTappedLineIdx = -1
+        currentTappedCharIdxInLine = -1
+        isDictionaryVisible = false
+        isAlternativesVisible = false
+        lastHighlightedCoords.clear()
+        lastNeighborHighlightedLine = -1
+        lastNeighborHighlightedChar = -1
+        updateGlobalData()
+    }
+
+    /** One box through the re-fit transform: [ImageShareFit.Refit] owns the maths
+     *  (plain ints, pinned by unit tests); this is only the [JpDictRect] spelling of
+     *  it, so the object above stays free of app types and this file free of maths. */
+    private fun JpDictRect.refitted(refit: ImageShareFit.Refit): JpDictRect =
+        JpDictRect(
+            refit.x(left),
+            refit.y(top),
+            refit.x(right),
+            refit.y(bottom),
+        )
 
     fun updateCharacter(lineIdx: Int, charIdx: Int, newChar: Char) {
         val line = activeLineResults.getOrNull(lineIdx) ?: return
@@ -547,10 +619,10 @@ class OcrOverlayStateController {
     }
 
     /**
-     * The popup list for one character (#44): the head's own top-15, plus — when the
-     * component table has loaded and the setting is on — component neighbours and variant
-     * forms of that character. Both the panel and keyboard navigation read this, so they
-     * can never disagree about what the list contains.
+     * The popup list for one character (#44): the head's own top-15, plus — once the
+     * component table has loaded — component neighbours and variant forms of that character.
+     * Both the panel and keyboard navigation read this, so they can never disagree about what
+     * the list contains. Unconditional: the setting this used to consult is gone.
      */
     private fun alternativeCharsFor(line: LineResult, cIdx: Int): List<AlternativeChar>? {
         val current = line.text.getOrNull(cIdx)
@@ -562,7 +634,7 @@ class OcrOverlayStateController {
         if (current == OcrEngine.GAP_CHAR) return gapCandidates(line, cIdx)
         val alts = line.alternatives.getOrNull(cIdx) ?: return null
         val head = alts.take(15).map { it.first }
-        val suggestions = if (suggestionsEnabled() && oovCandidates != null && current != null) {
+        val suggestions = if (oovCandidates != null && current != null) {
             OovSuggestions.assemble(current, head, oovCandidates)
         } else {
             head.map { OovSuggestions.Suggestion(it, OovSuggestions.Source.HEAD) }
@@ -575,15 +647,12 @@ class OcrOverlayStateController {
     /**
      * The blank's list: the placeholder itself (so the entry is selectable and carries the
      * manual IME) followed by the LM-ranked kanji the recogniser offered along this line.
+     * Unconditional, like the component suggestions it shares its loading state with.
      */
     private fun gapCandidates(line: LineResult, cIdx: Int): List<AlternativeChar> {
         val out = mutableListOf(
             AlternativeChar(OcrEngine.GAP_CHAR, isSelected = true, source = OovSuggestions.Source.HEAD))
-        val ranked = if (suggestionsEnabled()) {
-            GapCandidates.generate(line.text, line.rawAlternatives, cIdx, charLm)
-        } else {
-            emptyList()
-        }
+        val ranked = GapCandidates.generate(line.text, line.rawAlternatives, cIdx, charLm)
         // Evidence first, then the punctuation and kana a gap most often holds. A blank with
         // nothing to choose from is worse than a guess, so this list is never just the
         // placeholder; even the fallback is ordered by context when the model is loaded.
@@ -620,12 +689,11 @@ class OcrOverlayStateController {
     /**
      * Component-derived suggestions (#44). The service loads the 266 KB component table off
      * the main thread and calls this once it lands; until then the panel shows the head's
-     * own list, exactly as before. [enabled] is read per call so the setting takes effect
-     * without reinstalling.
+     * own list, exactly as before. Unconditional since the setting was removed: the table's
+     * arrival is the only thing that gates the suggestions.
      */
-    fun installOovSuggestions(candidates: OovCandidates, enabled: () -> Boolean) {
+    fun installOovSuggestions(candidates: OovCandidates) {
         oovCandidates = candidates
-        suggestionsEnabled = enabled
     }
 
     /**

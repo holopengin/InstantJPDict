@@ -77,6 +77,14 @@ dependencies {
     // #57: the androidx ExifInterface, not the platform one — the platform class cannot read
     // HEIF/WebP, which is what a photo shared from a modern phone camera often is.
     implementation("androidx.exifinterface:exifinterface:1.4.2")
+    // #78: the camera viewfinder's stack (ProtoCameraActivity). camera-view carries
+    // the PreviewView the activity draws the reticle over, and pulls
+    // camera-core/-camera2/-lifecycle in transitively — all four are named explicitly
+    // so the camera stack the app ships is legible at a glance.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

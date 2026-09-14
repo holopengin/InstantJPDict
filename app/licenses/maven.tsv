@@ -21,6 +21,9 @@
 # occur), jna declares a dual licence, and com.google.guava:listenablefuture
 # declares nothing at all in its own POM, which is why its row cites its parent.
 androidx.*	Apache-2.0	licenses/texts/apache-2.0.txt	-	POM <licenses> of each resolved androidx module on Google Maven (dl.google.com/dl/android/maven2/.../*.pom) — "The Apache Software License, Version 2.0", checked 2026-09-13
+# #78 PROTOTYPE: pulled in transitively by androidx.camera:camera-core 1.4.2 (the
+# throwaway viewfinder). Remove with the prototype dependency.
+com.google.auto.value:auto-value-annotations	Apache-2.0	licenses/texts/apache-2.0.txt	-	Its own POM and its parent auto-value-parent:1.6.3 declare no licence; grandparent com.google.auto:auto-parent:7 declares "Apache 2.0" with the apache.org URL (Maven Central), checked 2026-09-13
 com.google.android.material:*	Apache-2.0	licenses/texts/apache-2.0.txt	-	POM <licenses> on Google Maven — "The Apache Software License, Version 2.0", checked 2026-09-13
 com.google.code.gson:gson	Apache-2.0	licenses/texts/apache-2.0.txt	-	POM <licenses> on Maven Central — "Apache-2.0", checked 2026-09-13
 com.google.errorprone:error_prone_annotations	Apache-2.0	licenses/texts/apache-2.0.txt	-	POM <licenses> on Maven Central — "Apache 2.0", checked 2026-09-13

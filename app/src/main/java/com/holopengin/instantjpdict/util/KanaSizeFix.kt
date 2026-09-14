@@ -10,6 +10,10 @@ import com.holopengin.instantjpdict.OcrEngine
  * Kana size correction (#44): let the byte-CNN decide the small/big form of a confusable
  * position, but only where the orthography allows it.
  *
+ * **Always on.** The correction is applied to every page, with no preference read and no gate,
+ * so a stored `kana_size_fix_enabled=false` from an install that predates this is inert. The
+ * ε tunable below is the only setting left.
+ *
  * ## The rule
  *
  * For each position whose character is a member of a size pair, the model emits p(big):
@@ -44,14 +48,6 @@ import com.holopengin.instantjpdict.OcrEngine
  * the text and undoable exactly like any other correction.
  */
 object KanaSizeFix {
-    const val PREF_ENABLED = "kana_size_fix_enabled"
-
-    /**
-     * Active by default, tuned for modern Japanese. It rewrites recognised text, so the setting
-     * exists to compare with and without rather than to be opt-in.
-     */
-    const val DEF_ENABLED = true
-
     /** Certainty required to flip; the middle band is deliberately left untouched. */
     const val EPSILON = 0.01f
 
@@ -83,24 +79,12 @@ object KanaSizeFix {
     var lastDeclined: String = ""
         private set
 
-    fun isEnabled(ctx: Context): Boolean =
-        ctx.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(PREF_ENABLED, DEF_ENABLED)
-
-    fun setEnabled(ctx: Context, enabled: Boolean) {
-        ctx.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(PREF_ENABLED, enabled).apply()
-    }
-
-    /** Apply the correction to a whole page when the setting is on, else return it unchanged. */
-    fun applyIfEnabled(ctx: Context, lines: List<LineResult>): List<LineResult> {
-        if (!isEnabled(ctx)) {
-            // Recorded rather than left stale, so the diagnostics can say "off" instead of
-            // showing the result of some earlier run.
-            lastSummary = "kana fix: off"
-            return lines
-        }
-        return try {
+    /**
+     * Apply the correction to a whole page. Unconditional: no preference is read, so a stored
+     * `kana_size_fix_enabled=false` from an install that predates this cannot suppress it.
+     */
+    fun correctPage(ctx: Context, lines: List<LineResult>): List<LineResult> =
+        try {
             val model = KanaSizeNcnn.load(ctx)
             if (model == null) {
                 lastSummary = "kana fix: model unavailable"
@@ -120,7 +104,6 @@ object KanaSizeFix {
             lastSummary = "kana fix: failed (${t.javaClass.simpleName}: ${t.message})"
             lines
         }
-    }
 
     /**
      * The policy, with scoring injected so it is testable on the JVM without the native layer.
@@ -129,7 +112,7 @@ object KanaSizeFix {
     internal fun apply(
         lines: List<LineResult>,
         score: (IntArray, IntArray) -> FloatArray?,
-        /** Certainty required to flip; [epsilon] from the settings, or the measured default. */
+        /** Certainty required to flip; the ε tunable, or the measured default. */
         epsilon: Float = EPSILON,
     ): List<LineResult> {
         data class Cand(val line: Int, val index: Int, val char: Char, val base: Int)

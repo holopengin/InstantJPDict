@@ -24,13 +24,15 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryImporter
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.InferLog
-import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,29 +52,66 @@ class MainActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences(OcrEngine.PREFS_NAME, MODE_PRIVATE)
 
-        // ScrollView wrapper so tuning controls don't overflow
-        val scrollView = ScrollView(this).apply {
+        // The window is edge-to-edge — targetSdk 35 forces it on Android 15+, and
+        // the share and camera activities already draw full-bleed — so every edge
+        // of the screen is ours to pay for. Ask for it explicitly rather than
+        // inheriting it, so the insets the listener below spends are the bars on
+        // every API level and not only where the platform hands us a cut window.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Root is a column, not a scrolling page: the list takes the space above,
+        // and the camera control is its last child, so it is pinned to the bottom
+        // and cannot scroll away. The ScrollView is given "all that is left"
+        // (0dp + weight 1) instead of the full height, so no row of the list can
+        // ever end up underneath the pinned control.
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        // The system bars, spent once, on the root: the bars as padding plus the
+        // 32px the root used to carry as margins. Paid on the root rather than on
+        // the list because the pinned camera control has to clear the bars too.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(32 + bars.left, 32 + bars.top, 32 + bars.right, 32 + bars.bottom)
+            insets
+        }
+
+        // ScrollView wrapper so tuning controls don't overflow
+        val scrollView = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
             )
             isFillViewport = true
         }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
-            fitsSystemWindows = true
         }
         scrollView.addView(layout)
-        val root = android.widget.FrameLayout(this).apply {
-            layoutParams = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                setMargins(32, 32, 32, 32)
-            }
-        }
         root.addView(scrollView)
+
+        // #78: the camera viewfinder, and the only way into it. Capture goes into
+        // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry the
+        // system share sheet uses, so there is one OCR surface, not two. PINNED to
+        // the bottom of the screen: a sibling of the ScrollView, so it stays put
+        // while the list above scrolls, and the bars keep it clear of the navigation
+        // bar.
+        root.addView(Button(this).apply {
+            text = "Camera"
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, ProtoCameraActivity::class.java))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 16 }
+        })
 
         val title = TextView(this).apply {
             text = "Instant JP Dict"
@@ -82,8 +121,13 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(title)
 
+        // The status line, still here for import and pitch-install progress, but no
+        // longer seeded with anything: the "DB contains N entries in M dictionaries"
+        // readout that used to fill it on launch is gone (it was a debug readout on a
+        // user-facing screen, and it cost two database queries on every open). Empty
+        // until there is something real to say.
         tvStatus = TextView(this).apply {
-            text = "Status: Loading..."
+            text = ""
             setPadding(0, 0, 0, 32)
         }
         layout.addView(tvStatus)
@@ -111,6 +155,10 @@ class MainActivity : AppCompatActivity() {
             DictionaryManagerDialog.show(this)
         }
 
+        addButton(layout, "Gamepad Controls") {
+            GamepadSettingsDialog.show(this)
+        }
+
         // #70: licences and attribution for everything the APK bundles — the app
         // itself, every dependency, the native libraries, the models and the
         // derived dictionary data. Read from assets/licenses/INDEX.txt, so it works
@@ -121,109 +169,18 @@ class MainActivity : AppCompatActivity() {
             LicenseDialog.show(this)
         }
 
-        addButton(layout, "Gamepad Controls") {
-            GamepadSettingsDialog.show(this)
-        }
-
-        // #43: pitch-accent display. Off by default; needs a pitch dictionary
-        // installed (see the button below) or the rows simply never appear.
-        // Read at popup build time, so the next lookup picks it up.
-        layout.addView(CheckBox(this).apply {
-            text = "Show pitch accent in dictionary popup"
-            isChecked = PitchAccent.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                PitchAccent.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "pitch_accent_enabled=$checked")
-            }
-        })
-
-        // #72: double-tap zoom is opt-in. While it is on, a tap on empty space
-        // must wait out the double-tap window before closing, so the default
-        // trades zoom for an instant close.
-        layout.addView(CheckBox(this).apply {
-            text = "Double-tap to zoom (makes tap-to-close wait)"
-            isChecked = DoubleTapZoom.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                DoubleTapZoom.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "double_tap_zoom_enabled=$checked")
-            }
-        })
-
-        // #44: component-derived alternatives in the alternatives popup. On by default —
-        // it only adds entries to a list the user already opens, and never changes
-        // recognised text (auto-apply is parked; see docs/ocr-oov-correction-plan.md).
-        layout.addView(CheckBox(this).apply {
-            text = "Suggest similar characters in the alternatives list"
-            isChecked = OovSuggestions.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                OovSuggestions.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "oov_suggestions_enabled=$checked")
-            }
-        })
-
-        // #44 Feature 2: clickable blanks where the vertical spacing says a character was
-        // dropped. Vertical only (the horizontal trigger measured 13% false), and the blank
-        // is filled through the alternatives panel's manual IME entry.
-        layout.addView(CheckBox(this).apply {
-            text = "Clickable blanks where a character looks missing (vertical text)"
-            isChecked = BlankGaps.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                BlankGaps.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "blank_gaps_enabled=$checked")
-            }
-        })
-
-        // #44 Feature 3: kana size correction. The small/large form of っ/つ, ゃ/や, ゅ/ゆ, ょ/よ
-        // is decided by a byte-CNN that reads five characters of context on each side, applied
-        // only where the orthography allows it — pre-reform text keeps its large つ. Off by
-        // default so it can be compared with and without; see KanaSizeFix.
-        layout.addView(CheckBox(this).apply {
-            text = "Correct small/large kana with the size model (っ/つ, ゃ/や …)"
-            isChecked = KanaSizeFix.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                KanaSizeFix.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "kana_size_fix_enabled=$checked")
-            }
-        })
-
-        // One tap, on the device, runs the model author's ten published vectors through this
-        // phone's own encoder + JNI path and copies the result. It proves the asset bytes, the
-        // marshalling and the ARM float behaviour without adb — and it is the same gate that was
-        // passed on the host, so a pass here means the shipped path is the verified one.
-        addButton(layout, "Check kana size model") {
-            // Guarded end to end. Every step is traced to a file *before* it runs, so if the
-            // process dies inside a native call the trace still shows which one - readable on
-            // the next launch, since the file accumulates across attempts.
-            val verdict = try {
-                KanaSizeNcnn.probeWithTrace(this)
-            } catch (t: Throwable) {
-                "kana model FAILED: ${t.javaClass.simpleName}: ${t.message}"
-            }
-            val logFile = java.io.File(filesDir, "kana_probe.log")
-            val full = try {
-                if (logFile.exists()) logFile.readText() else verdict
-            } catch (t: Throwable) {
-                verdict
-            }
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("kana-size-check", full))
-            Toast.makeText(this, verdict, Toast.LENGTH_LONG).show()
-            Log.d("MainActivity", "kana size probe: $verdict")
-        }
-
-        addButton(layout, "Refresh Status") {
-            refreshStatus()
-        }
+        // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
+        // and no preference read (see KanaSizeFix). The small/large form of っ/つ, ゃ/や, ゅ/ゆ,
+        // ょ/よ is decided by a byte-CNN that reads five characters of context on each side,
+        // applied only where the orthography allows it — pre-reform text keeps its large つ.
+        //
+        // Feature 3 also used to carry a "Check kana size model" button: one tap on the
+        // device ran the model author's ten published vectors through this phone's own
+        // encoder + JNI path and copied the verdict, proving the asset bytes, the
+        // marshalling and the ARM float behaviour without adb. The BUTTON is gone — this
+        // is a user-facing screen — but the diagnostic it drove is not: it stays in
+        // [KanaSizeNcnn.probeWithTrace], which is where the check belongs and where a
+        // future debug entry point can call it again.
 
         // ————— PP-OCR parameter tuning — debug controls — #14 —————
         // Hidden behind Debug settings checkbox — keeps main screen clean
@@ -238,7 +195,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val debugToggle = CheckBox(this).apply {
-            text = "Debug settings (PP-OCR Tuning)"
+            text = "Debug Settings"
             isChecked = prefs.getBoolean(debugPrefsKey, false)
             textSize = 14f
             setPadding(0, 24, 0, 8)
@@ -250,6 +207,55 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(debugToggle)
         layout.addView(tuningContainer)
+
+        // The three feature switches the main screen used to carry, moved in here so the
+        // screen a user actually reads is not a wall of checkboxes. Each is a plain boolean
+        // preference — not a float tunable — read once to seed the box and written back on
+        // change, and each is read again at its own point of use; where the row is drawn
+        // changes nothing about that. They sit ABOVE the tuning header so the tunables
+        // below stay the one block the reset-to-defaults button owns.
+        //
+        // #43: pitch-accent display. Off by default; needs a pitch dictionary installed
+        // or the rows simply never appear. Read at popup build time, so the next lookup
+        // picks it up.
+        tuningContainer.addView(CheckBox(this).apply {
+            text = "Show pitch accent in dictionary popup"
+            isChecked = PitchAccent.isEnabled(this@MainActivity)
+            textSize = 14f
+            setPadding(0, 20, 0, 8)
+            setOnCheckedChangeListener { _, checked ->
+                PitchAccent.setEnabled(this@MainActivity, checked)
+                Log.d("MainActivity", "pitch_accent_enabled=$checked")
+            }
+        })
+
+        // #72: double-tap zoom is opt-in. While it is on, a tap on empty space
+        // must wait out the double-tap window before closing, so the default
+        // trades zoom for an instant close.
+        tuningContainer.addView(CheckBox(this).apply {
+            text = "Double-tap to zoom (makes tap-to-close wait)"
+            isChecked = DoubleTapZoom.isEnabled(this@MainActivity)
+            textSize = 14f
+            setPadding(0, 20, 0, 8)
+            setOnCheckedChangeListener { _, checked ->
+                DoubleTapZoom.setEnabled(this@MainActivity, checked)
+                Log.d("MainActivity", "double_tap_zoom_enabled=$checked")
+            }
+        })
+
+        // #44 Feature 2: clickable blanks where the vertical spacing says a character was
+        // dropped. Vertical only (the horizontal trigger measured 13% false), and the blank
+        // is filled through the alternatives panel's manual IME entry.
+        tuningContainer.addView(CheckBox(this).apply {
+            text = "Clickable blanks where a character looks missing (vertical text)"
+            isChecked = BlankGaps.isEnabled(this@MainActivity)
+            textSize = 14f
+            setPadding(0, 20, 0, 8)
+            setOnCheckedChangeListener { _, checked ->
+                BlankGaps.setEnabled(this@MainActivity, checked)
+                Log.d("MainActivity", "blank_gaps_enabled=$checked")
+            }
+        })
 
         val tuningHeader = TextView(this).apply {
             text = "PP-OCR Tuning (Debug)"
@@ -462,6 +468,7 @@ class MainActivity : AppCompatActivity() {
         // tradeoff over 7,620 confusable bench positions: 0.01 -> 12 fixed / 4 broken,
         // 0.03 -> 22/12, 0.10 -> 29/24.
         addTunable("KANA_SIZE_EPSILON", KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON, 0.005f, 0.50f, 0.005f, false)
+        addTunable("CROSSHAIR_GAP", ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP, 0.005f, 0.10f, 0.005f, false)
 
         addButton(tuningContainer, "Copy inference log") {
             val text = InferLog.dump()
@@ -478,23 +485,24 @@ class MainActivity : AppCompatActivity() {
                 .putFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
                 .putFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
                 .putFloat(OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA)
+                // The kana-size ε tunable belongs here too: a control the reset does not know
+                // about is a bug, so the reset lists every addTunable above.
+                .putFloat(KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON)
+                .putFloat(ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP)
+                // The three feature switches moved into this block with the tunables, so the
+                // reset owns them now as well: a control the reset does not know about is a
+                // bug here. They are booleans with their own defaults, not addTunable rows.
+                .putBoolean(PitchAccent.PREF_PITCH_ENABLED, PitchAccent.DEF_PITCH_ENABLED)
+                .putBoolean(DoubleTapZoom.PREF_ENABLED, DoubleTapZoom.DEF_ENABLED)
+                .putBoolean(BlankGaps.PREF_ENABLED, BlankGaps.DEF_ENABLED)
                 .apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
             Log.d("MainActivity", "all tuning reset to defaults")
-            // Recreate to refresh SeekBars
+            // Recreate to refresh SeekBars and the feature checkboxes
             recreate()
         }
 
-        val tuningFooter = TextView(this).apply {
-            text = "ncnn only — onnxruntime removed (12s→7s proven). DET/REC both ncnn 960×960 / 48×W."
-            textSize = 10f
-            setPadding(0, 16, 0, 0)
-            setTextColor(android.graphics.Color.DKGRAY)
-        }
-        tuningContainer.addView(tuningFooter)
-
         setContentView(root)
-        refreshStatus()
         ensureBundledPitchDictionary()
     }
 
@@ -510,17 +518,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         parent.addView(button)
-    }
-
-    private fun refreshStatus() {
-        lifecycleScope.launch {
-            val db = AppDatabase.getDatabase(applicationContext)
-            val entryCount = withContext(Dispatchers.IO) { db.dictionaryDao().getCount() }
-            val dictCount = withContext(Dispatchers.IO) { db.dictionaryDao().getAllDictionaries().size }
-            withContext(Dispatchers.Main) {
-                tvStatus.text = "DB contains $entryCount entries in $dictCount dictionaries"
-            }
-        }
     }
 
     /**

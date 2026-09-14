@@ -16,15 +16,30 @@ import android.content.Context
 object DoubleTapZoom {
     /** Zoomed level toggled to from rest (ticket open question: fixed 2.5x for v1). */
     const val ZOOMED_SCALE = 2.5f
-    const val MIN_SCALE = 1f
+
+    /**
+     * The pinch's floor. Deliberately below [REST_SCALE]: the maintainer wants to
+     * shrink the shot until a long line fits the strip above the dictionary panel,
+     * which needs less than a fit-to-view. The tap mapping is scale-agnostic
+     * (`box * scale + trans` both ways), so a sub-1 scale maps taps correctly.
+     */
+    const val MIN_SCALE = 0.5f
+
+    /**
+     * Where "un-zoomed" is: the fit-to-view the overlay opens at and the level a
+     * double-tap returns to. Distinct from [MIN_SCALE] — using the floor as the rest
+     * target would make a double-tap reset to 0.5x instead of to the fit.
+     */
+    const val REST_SCALE = 1f
     const val MAX_SCALE = 5f
     /** Double-tap zoom transition length (both directions). */
     const val ANIM_DURATION_MS = 200L
 
     /**
      * Scales at or below this count as "at rest" → double-tap zooms in.
-     * Anything above → double-tap resets to 1x. Rests are exactly 1f
-     * (pinch clamps to 1f..5f), so the epsilon only absorbs float drift.
+     * Anything above → double-tap resets to [REST_SCALE]. The pinch now clamps to
+     * [MIN_SCALE]..[MAX_SCALE], so "rest" spans that whole range; the epsilon only
+     * absorbs float drift.
      */
     const val REST_THRESHOLD = 1.05f
 
@@ -59,7 +74,7 @@ object DoubleTapZoom {
         zoomedScale: Float = ZOOMED_SCALE,
     ): ZoomState {
         if (currentScale > REST_THRESHOLD) {
-            return ZoomState(MIN_SCALE, 0f, 0f)
+            return ZoomState(REST_SCALE, 0f, 0f)
         }
         val target = zoomedScale.coerceIn(MIN_SCALE, MAX_SCALE)
         val safeScale = currentScale.coerceAtLeast(0.01f)

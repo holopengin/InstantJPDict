@@ -5,6 +5,8 @@ import android.animation.ObjectAnimator
 import android.view.animation.DecelerateInterpolator
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.Activity
+import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,6 +19,7 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Bundle
 import android.util.Log
 import android.view.Display
 import android.view.Gravity
@@ -72,6 +75,14 @@ class OcrAccessibilityService : AccessibilityService() {
     private var ocrButton: Button? = null
     /** Set in onDestroy so restore paths never re-add windows during teardown. (#60) */
     private var isDestroyed = false
+    /**
+     * #78: what the floating button's own paths (screen off/on, a capture in
+     * flight, the gamepad shortcut) last asked for. Latched rather than written
+     * straight to the view, so [applyFloatingButtonVisibility] can recombine it
+     * with whether one of the app's own views is in front: two independent writers
+     * on one `visibility` field would each silently undo the other.
+     */
+    private var floatingButtonRequested = true
     /** #57: the shared OCR overlay surface; null when no overlay is showing. */
     private var overlayView: OcrOverlayView? = null
     private lateinit var ocrEngine: OcrEngine
@@ -86,7 +97,7 @@ class OcrAccessibilityService : AccessibilityService() {
                 Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> {
                     hideScreenshotOverlay()
                     if (intent.action == Intent.ACTION_SCREEN_OFF) {
-                        floatingView?.visibility = View.GONE
+                        hideFloatingButton()
                     }
                 }
                 Intent.ACTION_SCREEN_ON -> {
@@ -96,11 +107,11 @@ class OcrAccessibilityService : AccessibilityService() {
                     // Stay hidden on the keyguard itself; USER_PRESENT shows it.
                     ensureFloatingButton()
                     val km = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
-                    if (!km.isKeyguardLocked) floatingView?.visibility = View.VISIBLE
+                    if (!km.isKeyguardLocked) showFloatingButton()
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     ensureFloatingButton()
-                    floatingView?.visibility = View.VISIBLE
+                    showFloatingButton()
                 }
             }
         }
@@ -131,6 +142,15 @@ class OcrAccessibilityService : AccessibilityService() {
             filter,
             ContextCompat.RECEIVER_EXPORTED
         )
+
+        // #78: watch the app's own views so the floating button can step out of their
+        // way. Any previous registration is released first: onDestroy is not guaranteed
+        // to run (a force-stop, a crash), and two live copies of the callback would both
+        // write the same state. The state itself is the process-wide [ownViewsStarted],
+        // so a restart here does not lose a view that is already in front.
+        ownViewCallbacks?.let { application.unregisterActivityLifecycleCallbacks(it) }
+        application.registerActivityLifecycleCallbacks(ownViewLifecycle)
+        ownViewCallbacks = ownViewLifecycle
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -238,7 +258,7 @@ class OcrAccessibilityService : AccessibilityService() {
                 return@setOnClickListener
             }
             
-            floatingView?.visibility = View.GONE
+            hideFloatingButton()
             it.postDelayed({
                 triggerCapture { bitmap ->
                     showScreenshotOverlay(bitmap)
@@ -248,6 +268,10 @@ class OcrAccessibilityService : AccessibilityService() {
         
         floatingView = frameLayout
         windowManager?.addView(floatingView, floatingParams)
+        // #78: the button is created visible, but a view of ours may already be in
+        // front (this service starting while the camera is up), so the decision is
+        // taken once here too rather than left to the next lifecycle event.
+        applyFloatingButtonVisibility()
     }
 
     /**
@@ -269,11 +293,97 @@ class OcrAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ---- #78: the floating button over the app's own views ----
+
+    /**
+     * #78: the app's own full-screen views get out of the floating button's way.
+     * While [ProtoCameraActivity] (the viewfinder) or [ShareImageActivity] (the
+     * image-share / camera-to-OCR view) is in front, the trigger is hidden: both
+     * run the same OCR surface from inside the app, and floating a second trigger
+     * over them is noise — in the camera view it is a button drawn with the very
+     * graphic the shutter now uses.
+     *
+     * The SCREENSHOT OVERLAY is deliberately not in that set. It is the button's
+     * own home — the button is the overlay's trigger and the visible half of the
+     * close button that takes its position — so its behaviour there is unchanged,
+     * down to staying visible over it.
+     *
+     * Mechanism: [Application.registerActivityLifecycleCallbacks], not a flag the
+     * activities set. Every component here is in one process (the manifest
+     * declares no `android:process`), so no IPC is needed either way; what the
+     * callbacks buy is that the state lives on the Application, which outlives this
+     * service — a service restarted mid-flow (or one that never saw onDestroy)
+     * finds the camera still in [ownViewsStarted] and keeps the button hidden,
+     * where a flag the activities set would have to be re-set by a lifecycle event
+     * that already happened. The callback is also idempotent on visibility: it
+     * re-runs [applyFloatingButtonVisibility] on every entry and exit path, so a
+     * path that forgot to restore the button cannot leave the overlay flow
+     * inheriting a hidden one.
+     *
+     * STARTED, not RESUMED, and that is what keeps a handoff from flashing: the
+     * documented order for A → B in one task is A.onPause, B.onCreate/onStart/
+     * onResume, A.onStop — so the incoming view is already in the set before the
+     * outgoing one leaves it. With resumed/paused the camera's pause would empty
+     * the set for the moment before the share activity resumed.
+     *
+     * That same ordering is why [ownViewsStarted] counts instances and is not a set
+     * of names: for an A → B handoff between two instances of one class, B's onStart
+     * precedes A's onStop, so a set keyed by class name would have B's own entry
+     * removed by A's exit and the trigger would reappear over B. The count takes the
+     * class to 2 and back to 1 instead, and only the last instance to leave empties
+     * it.
+     */
+    private val ownViewLifecycle = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityStarted(activity: Activity) {
+            if (!isOwnForegroundView(activity)) return
+            ownViewStartedCounting(activity.javaClass.name)
+            applyFloatingButtonVisibility()
+        }
+
+        override fun onActivityStopped(activity: Activity) {
+            if (!isOwnForegroundView(activity)) return
+            ownViewStoppedCounting(activity.javaClass.name)
+            applyFloatingButtonVisibility()
+        }
+
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+        override fun onActivityResumed(activity: Activity) {}
+        override fun onActivityPaused(activity: Activity) {}
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        override fun onActivityDestroyed(activity: Activity) {}
+    }
+
+    /**
+     * #78: the single writer of the floating button's visibility: the button's own
+     * request AND none of the app's own views in front. Every path goes through it —
+     * a capture in flight, the screen going off, the share activity finishing (its
+     * onStop), the camera resuming or stopping — so the screenshot overlay can never
+     * inherit a hidden button from any of them.
+     */
+    private fun applyFloatingButtonVisibility() {
+        val fv = floatingView ?: return
+        fv.visibility = if (floatingButtonRequested && ownViewsStarted.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    /** #78: hide the button, for the paths that already did (screen off, a capture in
+     *  flight). Recorded as a request so a lifecycle change does not lose it. */
+    private fun hideFloatingButton() {
+        floatingButtonRequested = false
+        applyFloatingButtonVisibility()
+    }
+
+    /** #78: show the button, for the paths that already did (screen on, unlock, the
+     *  capture callback, the overlay closing). Same recorded request. */
+    private fun showFloatingButton() {
+        floatingButtonRequested = true
+        applyFloatingButtonVisibility()
+    }
+
     private fun triggerCapture(onSuccessAction: (Bitmap) -> Unit) {
         takeScreenshot(Display.DEFAULT_DISPLAY, applicationContext.mainExecutor,
             object : TakeScreenshotCallback {
                 override fun onSuccess(result: ScreenshotResult) {
-                    floatingView?.visibility = View.VISIBLE
+                    showFloatingButton()
                     val buffer = result.hardwareBuffer
                     val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
                         ?.copy(Bitmap.Config.ARGB_8888, true)
@@ -284,7 +394,7 @@ class OcrAccessibilityService : AccessibilityService() {
                 }
 
                 override fun onFailure(errorCode: Int) {
-                    floatingView?.visibility = View.VISIBLE
+                    showFloatingButton()
                     Log.e("OcrAccessibilityService", "Screenshot capture failed with error code: $errorCode")
                     Toast.makeText(this@OcrAccessibilityService, "Screenshot failed: $errorCode", Toast.LENGTH_SHORT).show()
                 }
@@ -366,7 +476,7 @@ class OcrAccessibilityService : AccessibilityService() {
                             pressedKeys.clear()
                             
                             // Trigger OCR (same logic as floating button click)
-                            floatingView?.visibility = View.GONE
+                            hideFloatingButton()
                             ocrButton?.postDelayed({
                                 triggerCapture { bitmap ->
                                     showScreenshotOverlay(bitmap)
@@ -394,7 +504,10 @@ class OcrAccessibilityService : AccessibilityService() {
         overlayView = null
         (floatingView?.parent as? android.view.ViewGroup)?.removeView(floatingView)
         if (view.isAttachedToWindow) try { windowManager?.removeViewImmediate(view) } catch (e: Exception) { Log.e("OcrAccessibilityService", "Error removing overlay", e) }
-        floatingView?.visibility = View.VISIBLE
+        // #78: through the one writer — if one of the app's own views is in front
+        // (an overlay over our own camera view, launched from the gamepad shortcut)
+        // the button stays hidden rather than being restored onto it.
+        showFloatingButton()
         controller.resetState()
         ensureFloatingButton()
         floatingView?.let { fv ->
@@ -425,9 +538,81 @@ class OcrAccessibilityService : AccessibilityService() {
         isDestroyed = true
         super.onDestroy()
         try { unregisterReceiver(overlayControllerReceiver) } catch (e: Exception) {}
+        // #78: release the lifecycle watch with the service. The state itself
+        // ([ownViewsStarted]) is deliberately NOT cleared: it describes the app's
+        // views, not this service, and a restarted service reads it back.
+        application.unregisterActivityLifecycleCallbacks(ownViewLifecycle)
+        ownViewCallbacks = null
         hideScreenshotOverlay()
         floatingView?.let { if (it.isAttachedToWindow) windowManager?.removeView(it) }
         ocrEngine.close()
+    }
+
+    private companion object {
+        /**
+         * #78: the app's own views whose foreground presence hides the floating
+         * button — the camera viewfinder and the image-share/OCR view. The
+         * screenshot overlay is not here: it is the button's own home.
+         */
+        private val OWN_FOREGROUND_VIEWS = setOf(
+            ProtoCameraActivity::class.java.name,
+            ShareImageActivity::class.java.name
+        )
+
+        /**
+         * #78: how many STARTED instances of each of the app's own views are in front,
+         * keyed by class name.
+         *
+         * A COUNT and not a set of names. The lifecycle order for A → B in one task
+         * delivers the incoming activity's onStart BEFORE the outgoing one's onStop
+         * ([ownViewLifecycle]), so for two instances of the SAME class a set would have
+         * B's entry removed by A's exit: the map would come out empty while B was still
+         * in front, and the floating trigger would reappear over it. Counting makes the
+         * handoff additive — A's entry is still there when B arrives (2), and A's exit
+         * only takes it back to 1 — so the trigger stays hidden until the last instance
+         * leaves. The normal case is unchanged: a single view in front is a count of 1
+         * and an empty map is what [applyFloatingButtonVisibility] tests.
+         *
+         * Process-wide on purpose, not a field of the service: everything here is in
+         * one process, and the Application — this static with it — outlives the
+         * service. A service that is destroyed and recreated while the camera is up
+         * therefore still finds the camera here and keeps the button hidden, instead
+         * of waiting for a lifecycle event that has already been delivered. The
+         * callback that maintains it lives on the same Application, so a view can
+         * only be in it while its activity really is started.
+         *
+         * Keyed by NAME rather than by the Activity: nothing reads which instance is
+         * in front, only whether any of the app's own views is, and an instance handed
+         * to one callback is never needed by another.
+         */
+        private val ownViewsStarted = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
+
+        /** #78: one more started instance of [name]. See [ownViewsStarted]. */
+        private fun ownViewStartedCounting(name: String) {
+            synchronized(ownViewsStarted) {
+                ownViewsStarted[name] = (ownViewsStarted[name] ?: 0) + 1
+            }
+        }
+
+        /**
+         * #78: one fewer started instance of [name], and the entry goes at zero — so
+         * an exit that arrives without a matching start (a state left over from a
+         * previous service, say) cannot leave a negative count that would keep the
+         * trigger hidden for good.
+         */
+        private fun ownViewStoppedCounting(name: String) {
+            synchronized(ownViewsStarted) {
+                val count = ownViewsStarted[name] ?: return
+                if (count <= 1) ownViewsStarted.remove(name) else ownViewsStarted[name] = count - 1
+            }
+        }
+
+        /** #78: the callback registered by the live service, so a restart releases it. */
+        private var ownViewCallbacks: Application.ActivityLifecycleCallbacks? = null
+
+        /** #78: is [activity] one of the app's own full-screen views? */
+        private fun isOwnForegroundView(activity: Activity): Boolean =
+            activity.javaClass.name in OWN_FOREGROUND_VIEWS
     }
 
 }

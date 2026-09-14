@@ -61,4 +61,16 @@ class DoubleTapZoomTest {
         val next = DoubleTapZoom.toggle(1.02f, 0f, 0f, 100f, 200f)
         assertEquals(2.5f, next.scale)
     }
+
+    @Test
+    fun the_floor_and_the_rest_level_are_distinct() {
+        // The pinch floor sits deliberately below the fit-to-view, but a double-tap
+        // must reset to the FIT, not to the floor. Those are only different while the
+        // two constants differ — this pins the bug of using one for both, which read
+        // fine at 1x/1x and breaks the moment the floor moves.
+        assertTrue(DoubleTapZoom.MIN_SCALE < DoubleTapZoom.REST_SCALE)
+        assertEquals(1f, DoubleTapZoom.REST_SCALE)
+        val fromZoomed = DoubleTapZoom.toggle(DoubleTapZoom.ZOOMED_SCALE, 0f, 0f, 0f, 0f)
+        assertEquals(DoubleTapZoom.REST_SCALE, fromZoomed.scale)
+    }
 }
