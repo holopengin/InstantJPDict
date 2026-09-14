@@ -47,14 +47,23 @@
         <!-- #78 PROTOTYPE — orientation. fullSensor, NOT a pin: like the
              viewfinder, this window follows the device from its FIRST layout, so
              a capture taken holding the phone sideways hands off to an OCR view
-             that is already landscape — no post-creation quarter turn, and
-             therefore no re-creation of the composite in the moment the OCR run
-             has just started. The exported ACTION_SEND entry point is not pinned
-             by it either: fullSensor asks the platform to resolve the orientation
-             from the sensor, it does not freeze a family. Deliberately NO
-             configChanges: the quarter-turn re-creation is what recomposes the
-             image at the new container size, and stopping it would leave
-             portrait-space boxes over a resized surface.
+             that is already landscape — no post-creation quarter turn. The
+             exported ACTION_SEND entry point is not pinned by it either:
+             fullSensor asks the platform to resolve the orientation from the
+             sensor, it does not freeze a family.
+
+             configChanges, deliberately. A later quarter turn used to RE-CREATE
+             this activity, which recomposed the image at the new container size
+             (the overlay's box coordinates are composite pixels, 1:1 with the
+             surface) — and threw away the detect/recognise pass, re-running it
+             on an image that had not changed. The maintainer's report: "it still
+             re-runs the inference when rotating the phone while the OCR view is
+             open". Handled in place instead: ShareImageActivity.onConfigurationChanged
+             KEEPS the run and re-fits the composite and its boxes to the new
+             container (ImageShareFit.refit owns the mapping). orientation +
+             screenSize are what a quarter turn actually reports; screenLayout,
+             smallestScreenSize and keyboardHidden are declared with them so the
+             resize/IMEs of the same window cannot re-create it either.
 
              This replaces the RUNTIME request the camera handoff used to make:
              ShareImageActivity asked for FULL_SENSOR in onCreate from
@@ -67,6 +76,7 @@
             android:name=".ShareImageActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:label="@string/app_name"
             android:screenOrientation="fullSensor"
             android:theme="@style/Theme.InstantJPDict.Share">

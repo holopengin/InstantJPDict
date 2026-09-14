@@ -664,31 +664,13 @@ class OcrOverlayView(
                     controller.activeLineBoxes = lineBoxes
                     
                     postStatus(gen, "Recognizing...")
-                    
-                    val linesBorderLayer = FrameLayout(context).apply { tag = "lines_border_layer" }
-                    contentContainer.addView(linesBorderLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
-                    lineBoxes.forEach { box ->
-                        val lineView = View(context).apply {
-                            background = borderDrawable
-                        }
-                        val lineParams = FrameLayout.LayoutParams(box.width(), box.height()).apply {
-                            leftMargin = box.left
-                            topMargin = box.top
-                        }
-                        linesBorderLayer.addView(lineView, lineParams)
-                    }
-
-                    val clicksLayer = FrameLayout(context).apply { tag = "clicks_layer" }
-                    contentContainer.addView(clicksLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                    // Both box layers, and the per-line click containers inside them,
+                    // are built from either the fresh detect boxes (here) or the KEPT
+                    // ones after a container re-fit (refitContent) — see buildBoxLayers.
+                    val clicksLayer = buildBoxLayers(lineBoxes)
 
                     findViewWithTag<View>("confidence_controls")?.isVisible = true
-
-                    // Pre-create line containers to maintain Z-order and simplify updates
-                    lineBoxes.forEachIndexed { i, _ ->
-                        val lineContainer = FrameLayout(context).apply { tag = "line_clicks_$i" }
-                        clicksLayer.addView(lineContainer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-                    }
 
                     textViews.clear()
                     lineViews.clear()
@@ -796,10 +778,31 @@ class OcrOverlayView(
         ocrJob = null
         lookupJob?.cancel()
         lookupJob = null
-        // A cached dictionary panel belongs to the run being discarded; reused
-        // verbatim it would show the previous orientation's content.
+        removeRunLayers()
+        controller.resetState()
+        contentContainer.scaleX = 1f
+        contentContainer.scaleY = 1f
+        contentContainer.translationX = 0f
+        contentContainer.translationY = 0f
+    }
+
+    /**
+     * Take this view's drawing of a run off the screen, leaving the RUN's data where
+     * it is. Two callers, one shape: [clearOcrRun], which is about to discard the
+     * data too, and [refitContent], which KEEPS it (the host has already moved the
+     * boxes into the new pixel space) and rebuilds the same layers from it.
+     *
+     * Everything removed here is expressed in the old composite's pixels or belongs
+     * to the old screen: the borders and the per-character hit rects (both positioned
+     * from box coordinates), the cursor, the dictionary/alternatives panel (positioned
+     * from a tapped box) and the manual-input blocker. The maps that point at those
+     * views go with them, so a lookup cannot reach a detached line view.
+     */
+    private fun removeRunLayers() {
         dictionaryViewCache.clear()
         cursorView = null
+        textViews.clear()
+        lineViews.clear()
         listOf(
             "clicks_layer",
             "lines_border_layer",
@@ -809,11 +812,89 @@ class OcrOverlayView(
         ).forEach { tag ->
             findViewWithTag<View>(tag)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) }
         }
-        controller.resetState()
-        contentContainer.scaleX = 1f
-        contentContainer.scaleY = 1f
-        contentContainer.translationX = 0f
-        contentContainer.translationY = 0f
+    }
+
+    /**
+     * The two box layers for [lineBoxes], with a click container per line ready for
+     * the character views: the empty skeleton both the OCR pass (which then renders
+     * the recognised lines into it) and a container re-fit need.
+     *
+     * Extracted verbatim from [startOcr] so the re-fit path builds the same layers
+     * rather than a second copy of them: [refitContent] has no pass to run, only
+     * kept boxes to draw.
+     */
+    private fun buildBoxLayers(lineBoxes: List<JpDictRect>): FrameLayout {
+        val linesBorderLayer = FrameLayout(context).apply { tag = "lines_border_layer" }
+        contentContainer.addView(linesBorderLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        lineBoxes.forEach { box ->
+            val lineView = View(context).apply {
+                background = borderDrawable
+            }
+            val lineParams = FrameLayout.LayoutParams(box.width(), box.height()).apply {
+                leftMargin = box.left
+                topMargin = box.top
+            }
+            linesBorderLayer.addView(lineView, lineParams)
+        }
+
+        val clicksLayer = FrameLayout(context).apply { tag = "clicks_layer" }
+        contentContainer.addView(clicksLayer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // Pre-create line containers to maintain Z-order and simplify updates
+        lineBoxes.forEachIndexed { i, _ ->
+            val lineContainer = FrameLayout(context).apply { tag = "line_clicks_$i" }
+            clicksLayer.addView(lineContainer, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        return clicksLayer
+    }
+
+    /**
+     * #78: the host changed the container's size with this run kept — the OCR view
+     * is no longer re-created by a quarter turn (`ShareImageActivity` declares
+     * `configChanges` and re-fits in place) — and has ALREADY moved this run's box
+     * coordinates into the new composite's pixel space
+     * (`OcrOverlayStateController.refitBoxes`) and swapped the composite (the host's
+     * `refitComposite` has put the re-composed bitmap behind [Host.bitmap]).
+     *
+     * So this is a re-draw, not a re-run, and it is deliberately not [startOcr]: no
+     * detect, no recognise, no engine call of any kind. What it does:
+     *  - re-set the display copy of the image from the host's new composite;
+     *  - drop the previous drawing ([removeRunLayers]) and rebuild the box borders,
+     *    the per-line click containers, the line views and the cursor FROM THE KEPT
+     *    RESULTS — the same [addLineToResults] the pass renders through, so a
+     *    re-fitted box cannot be drawn differently from a fresh one;
+     *  - leave the confidence strip and the status line alone: both still describe
+     *    the run that is on screen, and the status line in particular is the
+     *    evidence that no second pass ran (its "Det …ms | Rec …ms" is from the
+     *    original pass).
+     *
+     * Zoom and pan are not re-applied here because the host reset them with the
+     * boxes (see `refitBoxes` for why the identity is the consistent choice); the
+     * content container is put back to the identity so nothing on screen is left
+     * carrying the old composite's transform.
+     */
+    fun refitContent(refit: ImageShareFit.Refit) {
+        if (closed) return
+        controller.refitBoxes(refit)
+        removeRunLayers()
+        imageView.setImageBitmap(createOverlayDisplayBitmap(srcBitmap, statusStripPx))
+        contentContainer.scaleX = controller.currentScale
+        contentContainer.scaleY = controller.currentScale
+        contentContainer.translationX = controller.currentTransX
+        contentContainer.translationY = controller.currentTransY
+        val clicksLayer = buildBoxLayers(controller.activeLineBoxes)
+        val kept = controller.activeLineResults
+        for (i in kept.indices) {
+            kept[i]?.let { addLineToResults(this, clicksLayer, i, it) }
+        }
+        findViewWithTag<View>("confidence_controls")?.isVisible = kept.any { it != null }
+        if (controller.currentTappedLineIdx == -1) updateCursor()
+        Log.i(
+            "OcrOverlayView",
+            "re-fitted in place: ${controller.activeLineBoxes.size} kept line boxes, " +
+                "${kept.count { it != null }} kept line results, no new pass"
+        )
     }
 
     private fun addLineToResults(rootLayout: FrameLayout, clicksLayer: FrameLayout, lineIdx: Int, lineIn: LineResult) {

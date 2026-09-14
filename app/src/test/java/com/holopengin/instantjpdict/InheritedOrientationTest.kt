@@ -59,9 +59,8 @@ class InheritedOrientationTest {
         // Which way up the camera was is the camera's business: it is passed along
         // for the record (the log the in-hand check reads) and does NOT decide the
         // value, which is the same sensor-based one for every hold — so there is no
-        // stale hold for a re-creation to act on: a quarter turn re-creates this
-        // activity and `onCreate` runs again with the camera's OLD hold in the same
-        // Intent, naming the same declaration it named the first time.
+        // stale hold lying around to act on, whichever hold the viewfinder happened
+        // to be in when the capture was taken.
         assertEquals(
             InheritedOrientation.requestedOrientationFor(Surface.ROTATION_0),
             InheritedOrientation.requestedOrientationFor(Surface.ROTATION_90)

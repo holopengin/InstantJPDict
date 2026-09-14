@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * #57: the pure math behind ingesting a shared image, kept free of Android
@@ -45,6 +46,80 @@ object ImageShareFit {
         val width = (srcW * scale).toInt().coerceAtLeast(1)
         val height = (srcH * scale).toInt().coerceAtLeast(1)
         return Placement((targetW - width) / 2, (targetH - height) / 2, width, height)
+    }
+
+    /**
+     * #78: the mapping from one composite's pixel space into the next's, for the
+     * case where the CONTAINER changed size and the OCR run did not.
+     *
+     * The problem it solves. The overlay's box coordinates are composite pixels,
+     * and the composite is composed at the container's own size so that mapping
+     * is 1:1 ([ShareImageActivity.composeForScreen], [OcrOverlayView]). A quarter
+     * turn of the phone with the OCR view open changes the container's size — and
+     * since #78 that turn no longer re-creates the activity, so the run is KEPT
+     * and its boxes must be carried into the new pixel space by hand. Carried by
+     * anything other than the transform the image itself was placed with, every
+     * box sits off the glyph it belongs to, silently.
+     *
+     * The transform, exactly. A [Placement] says where the picture was drawn and at
+     * what size, so the source-space point a composite pixel `x` refers to is
+     * `(x - before.left) / before.width` of the way across the picture, and the new
+     * composite pixel is `after.left + that * after.width`. Rearranged, that is
+     * one scale and one offset per axis:
+     *
+     *     scale  = after.width / before.width
+     *     offset = after.left - before.left * scale
+     *
+     * per axis independently, so the mapping is exactly the placement arithmetic
+     * including its integer truncation (the two axes land on the same scale to
+     * within a pixel of rounding, since both are `min()` of the same two ratios).
+     * It is UNIFORM SCALE PLUS TRANSLATION and never a rotation: the picture is a
+     * photo and a turn of the phone is not a turn of the photo, so the rows and
+     * columns of the image keep their direction and a landscape box stays
+     * landscape ([Refit.isIdentity] is what a same-size container asks for).
+     *
+     * The degenerate case — a container that was never laid out, or one caught
+     * mid-turn at a zero extent (a config change is exactly when that can happen):
+     * an axis is transformed only when BOTH placements describe a panel of pixels on
+     * it. With either side degenerate there is no correspondence to derive, so that
+     * axis is the IDENTITY — no scale and no offset — and nothing on it moves.
+     *
+     * Gating the OFFSET as well as the scale is the part that is easy to get wrong:
+     * a scale of 1 forced by a division guard, while the offset is still taken from
+     * `after.left`, silently translates every box by the new container's letterbox
+     * for a placement that never existed. There is nothing to be right about on that
+     * axis, so the transform must not claim to move anything.
+     */
+    fun refit(before: Placement, after: Placement): Refit {
+        val knownX = before.width > 0 && after.width > 0
+        val knownY = before.height > 0 && after.height > 0
+        val scaleX = if (knownX) after.width.toFloat() / before.width else 1f
+        val scaleY = if (knownY) after.height.toFloat() / before.height else 1f
+        return Refit(
+            scaleX = scaleX,
+            scaleY = scaleY,
+            offsetX = if (knownX) after.left - before.left * scaleX else 0f,
+            offsetY = if (knownY) after.top - before.top * scaleY else 0f,
+        )
+    }
+
+    /**
+     * The transform [refit] answers: a point in the previous composite's pixels in,
+     * the same point in the new one out. Rounds to whole pixels, because every
+     * caller is placing a view or a hit rect and nothing downstream takes a float.
+     */
+    data class Refit(
+        val scaleX: Float,
+        val scaleY: Float,
+        val offsetX: Float,
+        val offsetY: Float,
+    ) {
+        fun x(value: Int): Int = (offsetX + value * scaleX).roundToInt()
+        fun y(value: Int): Int = (offsetY + value * scaleY).roundToInt()
+
+        /** Nothing to do: the container did not change size, so neither do the boxes. */
+        val isIdentity: Boolean
+            get() = scaleX == 1f && scaleY == 1f && offsetX == 0f && offsetY == 0f
     }
 }
 

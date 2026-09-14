@@ -11,14 +11,20 @@ import java.io.File
 
 /**
  * #78 follow-up: the manifest half of "the OCR view inherits the camera's
- * orientation and the system-share entry point does not change".
+ * orientation, the system-share entry point does not change, and a quarter turn
+ * does not re-run the OCR".
  *
  * These assertions are about SHIPPED configuration, which is why they read the
- * committed manifest rather than a fixture: they are the standing guard on the
- * decision made for this change — the orientation is DECLARED on
- * `.ShareImageActivity` as `android:screenOrientation="fullSensor"`, the same
- * value the viewfinder declares for itself, so the OCR view is the right way up
- * on its FIRST layout and no post-creation quarter turn follows.
+ * committed manifest rather than a fixture: they are the standing guard on the two
+ * decisions made for this change —
+ *  - the orientation is DECLARED on `.ShareImageActivity` as
+ *    `android:screenOrientation="fullSensor"`, the same value the viewfinder
+ *    declares for itself, so the OCR view is the right way up on its FIRST layout
+ *    and no post-creation quarter turn follows;
+ *  - `configChanges` IS declared there, with `orientation` and `screenSize` among
+ *    its flags, so a LATER quarter turn is handled in place by
+ *    `ShareImageActivity.onConfigurationChanged` and the OCR run is kept instead of
+ *    being rebuilt and re-run on an image that did not change.
  *
  * Why that is right, and what must NOT change with it:
  *  - `fullSensor` is not a pin. It asks the platform to resolve the window from
@@ -26,15 +32,18 @@ import java.io.File
  *    `ACTION_SEND` entry point is not frozen into a family — which is why this
  *    test fails if a pinned value (`portrait`, `landscape`, `sensorPortrait`, …)
  *    ever replaces it.
- *  - `configChanges` must stay absent: the quarter-turn re-creation is what
- *    recomposes the image at the new container size, which is what keeps the
- *    overlay's box coordinates 1:1 with the surface. Declaring an orientation
- *    must not smuggle a `configChanges` in.
- *  - The runtime request this replaced (ShareImageActivity asking the window
- *    manager for FULL_SENSOR in onCreate, from the camera's hold extra) is gone:
- *    it resolved AFTER the first layout, which is the "starts portrait, then it
- *    rotates" the maintainer saw. The extra survives only as the marker the
- *    handoff log reads — see [InheritedOrientation].
+ *  - `configChanges` must be PRESENT and must cover `orientation` alongside
+ *    `screenSize`: a rotation reports both, and a missing `screenSize` is the trap
+ *    that looks right and still re-creates the activity on every turn. The
+ *    re-fit that replaces the re-creation — and which keeps the boxes on their
+ *    glyphs at the new container size — lives in
+ *    `ShareImageActivity.refitComposite`/`OcrOverlayView.refitContent` and is
+ *    pinned by `ImageShareRefitTest`.
+ *  - The runtime request the orientation decision replaced (ShareImageActivity
+ *    asking the window manager for FULL_SENSOR in onCreate, from the camera's hold
+ *    extra) is gone: it resolved AFTER the first layout, which is the "starts
+ *    portrait, then it rotates" the maintainer saw. The extra survives only as the
+ *    marker the handoff log reads — see [InheritedOrientation].
  */
 class OrientationManifestTest {
 
@@ -62,6 +71,11 @@ class OrientationManifestTest {
         Regex("android:screenOrientation=\"([^\"]*)\"")
             .find(tag)?.groupValues?.get(1)
 
+    /** The text `android:configChanges` is set to in [tag], or null. */
+    private fun configChangesValue(tag: String): String? =
+        Regex("android:configChanges=\"([^\"]*)\"")
+            .find(tag)?.groupValues?.get(1)
+
     @Test
     fun theShareEntryPointDeclaresTheSensorFollowingOrientationOnItsFirstLayout() {
         val tag = activityTag(".ShareImageActivity")
@@ -80,14 +94,34 @@ class OrientationManifestTest {
                 tag.contains("android:screenOrientation=\"$pin\"")
             )
         }
-        // Declaring an orientation must not smuggle in a `configChanges`: the
-        // quarter-turn re-creation is what recomposes the image at the new
-        // container size.
-        assertFalse(
-            "the share entry must keep being re-created on a quarter turn, so the " +
-                "composite is recomposed at the new container size: $tag",
-            tag.contains("configChanges")
-        )
+    }
+
+    /**
+     * The other half of the second fix: a LATER quarter turn must be handled in
+     * place, so the OCR run is not rebuilt and re-run on an image that did not
+     * change. That means `configChanges` IS declared on the share entry, and it
+     * covers `orientation` AND `screenSize` — a rotation reports both, and a
+     * declaration missing `screenSize` still re-creates the activity, which is the
+     * trap this test exists for. The viewfinder's entry must keep its own.
+     */
+    @Test
+    fun theQuarterTurnIsHandledInPlaceRatherThanByReCreation() {
+        val tag = activityTag(".ShareImageActivity")
+        val declared = configChangesValue(tag)
+            ?: error(
+                "the share entry must declare configChanges or a quarter turn " +
+                    "re-creates it and the OCR runs again: $tag"
+            )
+        val flags = declared.split('|').map { it.trim() }
+        for (required in listOf("orientation", "screenSize", "screenLayout", "smallestScreenSize", "keyboardHidden")) {
+            assertTrue(
+                "the share entry must declare $required (declared: $declared): $tag",
+                flags.contains(required)
+            )
+        }
+        // The re-fit that replaces the re-creation is only reachable if the activity
+        // really is the one that survives: a pinned orientation would still recreate.
+        assertEquals("fullSensor", orientationValue(tag))
     }
 
     @Test

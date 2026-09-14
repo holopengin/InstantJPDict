@@ -19,16 +19,22 @@ import android.content.pm.ActivityInfo
  * rotates" the maintainer saw.
  *
  * Why FULL_SENSOR is the same notion of orientation the camera used, rather than
- * a guess at it: the camera's preview stream and its control anchors both come
- * from the SENSOR ([DeviceHold.surfaceRotationFor], applied by
+ * a guess at it: the camera's preview stream comes from the SENSOR
+ * ([DeviceHold.surfaceRotationFor], applied by
  * `ProtoCameraActivity.applyTargetRotation`), and the only reason its window was
  * the way up it was is that `fullSensor` had the platform resolve it from that
  * same sensor. Declaring the same value on the OCR view puts it on that same
  * source and that same policy, so a landscape hold opens a landscape view — and,
  * because the platform keeps resolving from the sensor after the launch, turning
- * the phone does not leave the view stuck: it is re-created in the new
- * orientation and the image is recomposed at the new container size, so the
- * overlay's box coordinates stay 1:1 with the surface.
+ * the phone does not leave the view stuck: the window turns with it.
+ *
+ * A LATER quarter turn is now handled IN PLACE, not by a re-creation: this
+ * activity declares `configChanges` and `onConfigurationChanged` keeps the OCR run
+ * and re-fits the composite and its boxes to the new container size (see
+ * `ShareImageActivity.refitComposite`, `ImageShareFit.refit`). That is what makes
+ * the declaration worth anything — a turn no longer throws away the pass the user
+ * just waited for, and the box coordinates still end up 1:1 with the surface they
+ * are drawn in.
  *
  * Why NOT a fixed orientation, which is the tempting alternative ("it was
  * landscape, so ask for landscape"): pinning the family the camera happened to be

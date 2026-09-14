@@ -282,6 +282,79 @@ class OcrOverlayStateController {
         updateGlobalData()
     }
 
+    /**
+     * #78: the container changed size with the OCR run KEPT, so the boxes have to
+     * be moved into the new composite's pixel space here rather than re-derived by
+     * a second pass. [ShareImageActivity] handles a quarter turn in place now
+     * (`configChanges` + `onConfigurationChanged`) and re-composes the composite at
+     * the new container size; this is the other half — the transform, computed from
+     * the two fit placements by [ImageShareFit.refit] and pinned by
+     * `ImageShareRefitTest`, applied to every coordinate this object holds:
+     *
+     *  - [activeLineBoxes], the detect boxes, which draw the line borders;
+     *  - every [LineResult.charBoxes] entry, which draws the per-character hit
+     *    rects, the cursor and the lookup crop, and which [lookup] reads;
+     *  - and, through [updateGlobalData], the derived [navGraph], which is built
+     *    from the character boxes and would otherwise navigate by the OLD layout.
+     *
+     * The RUN itself is untouched: the text, the alternatives, the overrides and
+     * the activity's own "turns the last pass read" bookkeeping are all kept — that
+     * is the point of the change. Nothing here calls the engine.
+     *
+     * WHAT IS DELIBERATELY DROPPED, and why:
+     *  - THE ZOOM/PAN. `currentScale`/`currentTransX`/`currentTransY` are the screen
+     *    transform of the OLD composite (`screen = box * scale + trans`, with the
+     *    content container's pivot at its origin), so a box number moved into the
+     *    new pixel space would be drawn in a different place on screen unless the
+     *    zoom were re-expressed for the new mapping too. The identity — scale 1, no
+     *    translation — is the one choice that is right BY CONSTRUCTION: with it the
+     *    composite is 1:1 with the container, which is exactly what the re-fit
+     *    composed, and the tap-to-box inversion in [isNearCharacter] and
+     *    [updateGravity] keeps agreeing with what is drawn. It is also what a
+     *    re-created activity would have shown, so nothing the user could rely on is
+     *    lost that the old behaviour did not lose; a maintained zoom would need its
+     *    own anchor choice and is not what this asks for.
+     *  - THE SELECTION AND THE OPEN PANEL: the tapped index and the
+     *    dictionary/alternatives flags. The panel is positioned from the tapped
+     *    box's screen position and the view's gravity rule, and re-deriving that
+     *    placement here would be a second implementation of it. The view re-renders
+     *    the boxes and the cursor from the kept results afterwards
+     *    ([OcrOverlayView.refitContent]), so the run is still visible and still
+     *    tappable — a tap simply starts a new lookup.
+     */
+    fun refitBoxes(refit: ImageShareFit.Refit) {
+        // A container that did not change size asks for nothing: the activity's
+        // re-fit is only run for a real size change, and this keeps the two in step.
+        if (refit.isIdentity) return
+        activeLineBoxes = activeLineBoxes.map { it.refitted(refit) }
+        activeLineResults = activeLineResults.map { line ->
+            line?.copy(charBoxes = line.charBoxes.map { it.refitted(refit) })
+        }.toMutableList()
+        currentScale = 1f
+        currentTransX = 0f
+        currentTransY = 0f
+        currentTappedIdx = -1
+        currentTappedLineIdx = -1
+        currentTappedCharIdxInLine = -1
+        isDictionaryVisible = false
+        isAlternativesVisible = false
+        lastHighlightedCoords.clear()
+        lastNeighborHighlightedLine = -1
+        lastNeighborHighlightedChar = -1
+        updateGlobalData()
+    }
+
+    /** One box through the re-fit transform: [ImageShareFit.Refit] owns the maths
+     *  (plain ints, pinned by unit tests); this is only the [JpDictRect] spelling of
+     *  it, so the object above stays free of app types and this file free of maths. */
+    private fun JpDictRect.refitted(refit: ImageShareFit.Refit): JpDictRect =
+        JpDictRect(
+            refit.x(left),
+            refit.y(top),
+            refit.x(right),
+            refit.y(bottom),
+        )
+
     fun updateCharacter(lineIdx: Int, charIdx: Int, newChar: Char) {
         val line = activeLineResults.getOrNull(lineIdx) ?: return
         val charArray = line.text.toCharArray()

@@ -76,13 +76,20 @@ import java.util.concurrent.Executors
  *    because CameraX 1.4.2 does not follow a display-rotation change on its own
  *    for an already-bound use case (only PreviewView's own surface transform
  *    tracks the display, and that is 0 under a lock anyway).
- *  - The CONTROLS FOLLOW THE HOLD TOO, from the same value the camera is told.
- *    Portrait is the layout this prototype has always had; landscape moves the
- *    shutter and the framing control to the window's RIGHT edge — the short edge,
- *    where a thumb sits when the phone is held sideways — instead of leaving a
- *    bottom-row layout running along a long edge. See [applyControlAnchors] for
- *    the anchors and [initialHoldRotation] for why a cold start into landscape
- *    comes up right without waiting for a turn.
+ *  - The CONTROLS FOLLOW THE WINDOW, deliberately NOT the same value the camera
+ *    is told. Portrait is the layout this prototype has always had; landscape
+ *    moves the shutter and the framing control to the window's RIGHT edge — the
+ *    short edge, where a thumb sits when the phone is held sideways — instead of
+ *    leaving a bottom-row layout running along a long edge. See
+ *    [applyControlAnchors] for the anchors and [onConfigurationChanged] for why
+ *    the anchors change when the WINDOW does and not when the sensor first
+ *    reports the turn: a button that moved on the sensor jumped to its landscape
+ *    edge before the platform had begun turning the window (and before the
+ *    button itself had turned), and a phone laid flat reports ORIENTATION_UNKNOWN
+ *    — portrait to [DeviceHold.surfaceRotationFor] and to the stream — so two
+ *    buttons moved while nothing on screen had. The STREAM is unchanged: it still
+ *    follows the sensor, because a capture must be oriented for the hand holding
+ *    the phone. See [DeviceHold] for the two notions.
  *  - Back camera, minimise-latency capture mode, no flash. Tapping the preview refocuses
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
@@ -170,10 +177,12 @@ class ProtoCameraActivity : AppCompatActivity() {
 
     /**
      * True while the shutter and the framing control are anchored for a landscape
-     * hold, false for portrait — the state [applyControlAnchors] reads, and the
-     * gate that keeps a sensor reporting every degree of tilt from re-writing two
-     * sets of LayoutParams per callback. Seeded in [onCreate] from the hold the
-     * window came up in (see [initialHoldRotation]) so the first frame is right.
+     * WINDOW, false for portrait — the state [applyControlAnchors] reads, and the
+     * gate that keeps a window change from re-writing two sets of LayoutParams
+     * when nothing about the anchors would differ. Seeded in [onCreate] from the
+     * hold the window came up in ([windowIsLandscape]) so the first frame is
+     * right, and re-decided in [onConfigurationChanged] — NOT from the sensor:
+     * see [DeviceHold] for why the anchors may not follow the sensor.
      */
     private var controlsLandscape = false
 
@@ -386,12 +395,14 @@ class ProtoCameraActivity : AppCompatActivity() {
         root.addView(zoomButton, FrameLayout.LayoutParams(controlSide, controlSide))
         root.addView(captureButton, FrameLayout.LayoutParams(controlSide, controlSide))
 
-        // Which way up the window came up, BEFORE it is first laid out, and the
+        // Which way up the WINDOW came up, BEFORE it is first laid out, and the
         // controls are anchored for it in the same breath — that is what makes a
         // cold start into landscape come up with the controls already on the right
-        // edge instead of waiting for the sensor to report a turn that never comes.
-        // See [initialHoldRotation].
-        controlsLandscape = isLandscapeHold(initialHoldRotation())
+        // edge instead of waiting for a sensor report that would never come (the
+        // sensor already agrees; nothing is going to change). See
+        // [windowIsLandscape], and [DeviceHold] for why this is the WINDOW's
+        // answer and not the sensor's.
+        controlsLandscape = windowIsLandscape()
         applyControlAnchors()
 
         setContentView(root)
@@ -399,21 +410,19 @@ class ProtoCameraActivity : AppCompatActivity() {
         // The sensor, built here and enabled in onResume. A callback fires for
         // every degree of tilt, so [targetRotation] is what keeps this cheap: only
         // an actual quarter turn reaches the camera.
+        //
+        // The CALLBACK drives the STREAM and nothing else. It used to re-decide the
+        // controls' anchors from the same value, "so buttons and stream cannot
+        // disagree" — which was right for the stream and wrong for the buttons: it
+        // moved them the moment the sensor noticed the turn, i.e. before the
+        // platform had begun turning the window (and before the buttons
+        // themselves had turned), and it moved them for a phone laid flat, whose
+        // orientation reads as portrait while the window is still landscape. The
+        // anchors now follow the window ([onConfigurationChanged]); a capture
+        // still follows the hand.
         orientationListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
                 val rotation = surfaceRotationFor(orientation)
-                // The controls' anchors come off the SAME value the camera is told,
-                // decided here and not behind the gate below, because the two care
-                // about different things: the camera only wants to hear about a
-                // change ([targetRotation] is what keeps a sensor reporting every
-                // degree of tilt from re-telling it a rotation it already has), while
-                // the anchors only care about portrait-versus-landscape. One value,
-                // two questions — so they cannot disagree about which way is up.
-                val landscape = isLandscapeHold(rotation)
-                if (landscape != controlsLandscape) {
-                    controlsLandscape = landscape
-                    applyControlAnchors()
-                }
                 if (rotation == targetRotation) return
                 val was = targetRotation
                 targetRotation = rotation
@@ -477,53 +486,69 @@ class ProtoCameraActivity : AppCompatActivity() {
      * The rotation of what the camera writes, from the phone's own orientation —
      * [DeviceHold.surfaceRotationFor], which owns the bands (CameraX's own, and
      * the reason `ORIENTATION_UNKNOWN` reads as portrait there) so this is not a
-     * second implementation of them. The value it returns is the one thing this
-     * activity decides about orientation: it goes to both use cases
-     * ([applyTargetRotation]), to the control anchors below, and — in the
-     * handoff — to [ShareImageActivity], so the OCR view opens in the hold the
-     * viewfinder was in and cannot disagree with what it showed.
+     * second implementation of them. This is the STREAM's and the capture's value:
+     * it goes to both use cases ([applyTargetRotation]) and, in the handoff, to
+     * [ShareImageActivity]. It is deliberately NOT what the control anchors are
+     * decided from — see [windowIsLandscape] and [DeviceHold].
      */
     private fun surfaceRotationFor(orientation: Int): Int =
         DeviceHold.surfaceRotationFor(orientation)
 
     /**
-     * Which way up the window is, from a surface rotation — [DeviceHold]'s
-     * `isLandscapeHold`, the single definition, shared with the OCR view's
-     * inherited-orientation path ([InheritedOrientation]) for the same reason:
-     * one rule, three readers, no drift.
+     * Which way up this activity's WINDOW is — [DeviceHold]'s `isLandscapeWindow`,
+     * the single definition of that notion, read from the configuration the
+     * activity is laid out with. This is the one thing the control anchors are
+     * decided from, and the reason they are not decided from the sensor:
+     * see [DeviceHold], [onConfigurationChanged] and [applyControlAnchors].
      */
-    private fun isLandscapeHold(rotation: Int): Boolean =
-        DeviceHold.isLandscapeHold(rotation)
+    private fun windowIsLandscape(): Boolean =
+        DeviceHold.isLandscapeWindow(resources.configuration.orientation)
 
     /**
-     * The hold the window came up in, expressed as the rotation [isLandscapeHold]
-     * reads — the cold start's answer, and the reason it is taken here instead of
-     * waited for.
+     * The window turned. This activity declares `configChanges` for exactly this
+     * (see the manifest), so it is never re-created on a quarter turn and this is
+     * where the CONSEQUENCE of the turn for this activity's own layout is worked
+     * out. The camera needs nothing here — it follows the sensor, which reported
+     * the new hold before the platform had finished turning the window — and the
+     * crosshair is MATCH_PARENT, so it needs nothing either. The controls do: the
+     * anchors are for the window's edges, so they move when the window moves and
+     * not one frame before it.
      *
-     * The trap this avoids: a layout that only re-anchors when the sensor reports a
-     * CHANGE is still portrait-anchored when the app is launched with the phone
-     * already sideways, because nothing changes after launch. `resources` is this
-     * activity's own configuration as it was created with, and for a `fullSensor`
-     * activity that configuration IS the orientation the system chose for the
-     * launch, from the same sensor [orientationListener] reads — so the two cannot
-     * disagree about the hold except while the phone is literally mid-turn, and the
-     * sensor's first callback, which arrives as soon as the listener is enabled on
-     * resume, re-anchors if it disagrees with what was assumed here.
+     * Why here and not in the sensor callback (which is where they used to be
+     * decided): the window only turns once the platform plays its rotation
+     * animation, which is well after the sensor's first report of the new hold,
+     * so anchors decided from the sensor arrived while the window — and the
+     * buttons' own drawing — was still portrait: the button appeared to jump to
+     * the wrong edge and then jump back. And a phone laid FLAT reports
+     * ORIENTATION_UNKNOWN, which [surfaceRotationFor] reads as portrait (right for
+     * a capture, which must be oriented for the hand) while the window is still
+     * landscape: the anchors moved two buttons while nothing on screen had moved.
+     * Neither can happen while the window is the only thing that decides them.
      *
-     * Only the landscape/portrait distinction is taken from it; WHICH quarter turn
-     * it is does not matter to a layout anchored to the right edge, which is why
-     * landscape answers ROTATION_90 here without asking whether the display is
-     * really at 90 or 270.
+     * Sizes are untouched — 84dp squares, the same margins; only which edge they
+     * are anchored to changes. The right/bottom system-bar insets
+     * [applyControlAnchors] folds in are re-reported by the root's own insets
+     * listener when the bars move to the new edges, so nothing is read twice.
      */
-    private fun initialHoldRotation(): Int =
-        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            Surface.ROTATION_90
-        } else {
-            Surface.ROTATION_0
-        }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val landscape = DeviceHold.isLandscapeWindow(newConfig.orientation)
+        // Logged whether or not it changes anything: this line beside the sensor's
+        // own "device turned" line is what says the window lagged the sensor rather
+        // than the two having moved together.
+        Log.i(
+            TAG,
+            "window turned: ${if (landscape) "landscape" else "portrait"}" +
+                " (was ${if (controlsLandscape) "landscape" else "portrait"}), " +
+                "view ${previewView.width}x${previewView.height}"
+        )
+        if (landscape == controlsLandscape) return
+        controlsLandscape = landscape
+        applyControlAnchors()
+    }
 
     /**
-     * Where the shutter and the framing control sit, for the hold on screen.
+     * Where the shutter and the framing control sit, for the WINDOW on screen.
      *
      * PORTRAIT is the layout this prototype has always had, unchanged: the shutter
      * centred on the bottom edge, the framing control in the bottom-right corner,
@@ -553,11 +578,13 @@ class ProtoCameraActivity : AppCompatActivity() {
      * edge these two now hug — which is the same reason the corner stack takes
      * insets in the first place.
      *
-     * This is the ONLY place either control's LayoutParams are written, so a turn
-     * and an inset change cannot half-update the layout, and the params are rebuilt
-     * rather than mutated so no margin can survive from an anchor it no longer
-     * belongs to (a `marginEnd` left behind on a `CENTER_HORIZONTAL` control shifts
-     * it off centre).
+     * This is the ONLY place either control's LayoutParams are written, so a WINDOW
+     * turn ([onConfigurationChanged]) and an inset change cannot half-update the
+     * layout, and the params are rebuilt rather than mutated so no margin can
+     * survive from an anchor it no longer belongs to (a `marginEnd` left behind on a
+     * `CENTER_HORIZONTAL` control shifts it off centre). Nothing else calls it: the
+     * SENSOR deliberately does not, because the anchors are the window's and not the
+     * hold's (see [DeviceHold]).
      */
     private fun applyControlAnchors() {
         if (!::captureButton.isInitialized || !::zoomButton.isInitialized) return
@@ -946,9 +973,12 @@ class ProtoCameraActivity : AppCompatActivity() {
      *
      * It carries the hold as well, and that is the handoff marker:
      * [InheritedOrientation.EXTRA_CAMERA_HOLD] gets [targetRotation] — the same
-     * number [applyTargetRotation] just gave both use cases and [isLandscapeHold]
-     * reads for the anchors, so nothing new is decided here, a value the viewfinder
-     * already had is passed on. The OCR view reads it in `onCreate` and logs it
+     * number [applyTargetRotation] just gave both use cases, so nothing new is
+     * decided here, a value the viewfinder already had is passed on. (It is the
+     * STREAM's hold and not the anchors', which is right for this extra: what the
+     * OCR view logs it against is the way the camera's CAPTURE was oriented,
+     * which is what the photo it is about to read was written with.) The OCR view
+     * reads the extra in `onCreate` and logs it
      * beside the window it came up in (see [InheritedOrientation]): the OCR view's
      * ORIENTATION is no longer asked for at runtime — it is declared as
      * `fullSensor` in that activity's manifest entry, the same value this activity

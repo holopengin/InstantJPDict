@@ -18,6 +18,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -92,16 +93,34 @@ import kotlin.math.roundToInt
  * maintainer saw, with this activity's whole composite rebuilt on the re-creation.
  * The extra is still read, but only to LOG the handoff ([logCameraHold]): it is no
  * longer a second writer of any window property, so nothing can disagree with the
- * manifest. Deliberately NO `configChanges`: the quarter-turn re-creation still
- * recomposes the image at the new container size, which is what keeps the
- * overlay's box coordinates 1:1 with the surface.
+ * manifest.
+ *
+ * #78 follow-up (a LATER quarter turn): "it still re-runs the inference when
+ * rotating the phone while the OCR view is open." It did, and the reason was the
+ * deliberate absence of `configChanges`: a turn re-created this activity, which
+ * rebuilt the view, the engine and the whole detect/recognise pass on an image
+ * that had not changed. `configChanges` is now declared (see the manifest) and
+ * [onConfigurationChanged] handles the turn in place:
+ *  - the OCR run is KEPT. The engine, the overlay view, the composite and the
+ *    recognised lines all survive the turn — the whole point;
+ *  - the composite is REBUILT at the new container size from [baseImage] (which is
+ *    stored unrotated for the activity's life) at the SAME number of quarter turns
+ *    — a turn of the phone is not a turn of the picture;
+ *  - every box coordinate is carried into the new pixel space by
+ *    [ImageShareFit.refit], the one transform that matches how the image itself
+ *    was placed in each container, so the boxes stay on their glyphs
+ *    ([OcrOverlayView.refitContent] re-renders them from the kept results).
+ * The system-share path is untouched, and so is the deferred-close crash fix in
+ * [onDestroy]: with no re-creation on a turn there is no torn-down engine to race
+ * a native pass.
  *
  * The landscape chrome is this activity's own and needed no new anchoring: the
  * back control goes through [applySystemBarInsets], which writes all four
  * margins, so in landscape it is still clear of the status bar on the top edge
  * and of a navigation bar that has moved to a long edge; the rotate pair takes
- * the same treatment in the bottom-left. The dictionary/lookup panel and the
- * confidence controls are [OcrOverlayView]'s and are untouched.
+ * the same treatment in the bottom-left, and the insets are re-dispatched when
+ * the bars move. The dictionary/lookup panel and the confidence controls are
+ * [OcrOverlayView]'s and are untouched.
  */
 class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
 
@@ -164,6 +183,15 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      *  overlay view's box coordinates are expressed in. */
     private var surfaceWidth = 0
     private var surfaceHeight = 0
+
+    /**
+     * The activity's root container, kept so [onConfigurationChanged] can read the
+     * NEW container size off it. The composite has to be composed at whatever size
+     * the container actually is (the 1:1 mapping the boxes rely on), and after a
+     * turn that size only exists once the window has been laid out again — which
+     * is not yet true inside `onConfigurationChanged`. See [refitForNewContainer].
+     */
+    private var containerView: FrameLayout? = null
 
     private var overlayView: OcrOverlayView? = null
 
@@ -273,6 +301,7 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
 
         val container = FrameLayout(this)
+        containerView = container
         setContentView(container, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val uri = sharedImageUri(intent)
@@ -333,12 +362,10 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // Compose at the container's own size, so the image the view receives is
         // exactly the size of the view.
         container.post {
-            val width = container.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-            val height = container.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-            surfaceWidth = width
-            surfaceHeight = height
+            surfaceWidth = container.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            surfaceHeight = container.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
             overlayScope.launch {
-                val base = withContext(Dispatchers.IO) { decodeOriented(uri, width, height) }
+                val base = withContext(Dispatchers.IO) { decodeOriented(uri, surfaceWidth, surfaceHeight) }
                 if (isFinishing || isDestroyed) {
                     base?.recycle()
                     return@launch
@@ -349,6 +376,17 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                     return@launch
                 }
                 baseImage = base
+                // The container can have changed size while the decode ran — a turn
+                // during those few hundred milliseconds, which is one of the things
+                // this activity no longer being re-created makes possible — so the
+                // composite is composed at the size the container has NOW, and the
+                // sizes the boxes will be expressed in are updated with it. The
+                // box coordinates are composite pixels; they may not be composed at
+                // a size the container no longer has.
+                val width = container.width.takeIf { it > 0 } ?: surfaceWidth
+                val height = container.height.takeIf { it > 0 } ?: surfaceHeight
+                surfaceWidth = width
+                surfaceHeight = height
                 val composed = withContext(Dispatchers.IO) {
                     composeForScreen(base, width, height, rotations.turns)
                 }
@@ -424,6 +462,143 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // turn a finishing pass into a thrown error instead of letting it end.
         // Left alone, both die with this activity, which is unreachable once
         // its cancelled coroutines complete.
+    }
+
+    // ---- the window turning (handled here, not by a re-creation) ----
+
+    /**
+     * #78 (the second half of the report): "it still re-runs the inference when
+     * rotating the phone while the OCR view is open."
+     *
+     * It did, because this activity did not declare `configChanges`: a quarter turn
+     * re-created it, and a re-creation re-decodes, re-composes, re-creates the
+     * overlay view, re-opens the engine and runs the whole detect/recognise pass
+     * again — on an image the user had not changed. The manifest now declares
+     * `configChanges` (see the comment there) and the turn lands here instead.
+     * Nothing about the RUN is redone; what is redone is the geometry, because the
+     * CONTAINER really did change size and the composite and its box coordinates
+     * are expressed in the container's own pixels ([refitComposite]).
+     *
+     * The camera handoff and the system share sheet both reach this activity
+     * through entries that declare `fullSensor`, so a turn is normal. The window's
+     * own chrome (the back control, the rotate pair) needs nothing here: their
+     * margins are written by [applySystemBarInsets]' insets listener, which the
+     * window re-dispatches when the bars move to the new edges.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        Log.i(
+            "ShareImageActivity",
+            "window turned: ${familyName(landscape)} — keeping the OCR run and " +
+                "re-fitting the composite (was ${surfaceWidth}x${surfaceHeight})"
+        )
+        refitForNewContainer()
+    }
+
+    /**
+     * Watch for the layout that carries the new container size, then re-fit.
+     *
+     * The new size does not exist yet inside [onConfigurationChanged]: the window
+     * is resized and laid out AFTER the callback returns, and the composite must be
+     * composed at the container's real size or the 1:1 mapping every box relies on
+     * is broken. So the layout is waited for — and the wait ends on either of the
+     * two shapes of "the window has been laid out again": the container's size has
+     * changed, or it has come to rest at the screen size the new configuration
+     * reports. A size that has not changed AND is not the new screen size is a
+     * layout that has not caught up yet.
+     *
+     * Nothing to do when no composite exists yet (a turn during the decode): the
+     * compose in [onCreate] reads the container's size at the moment it composes,
+     * so it composes at the new size by itself.
+     */
+    private fun refitForNewContainer() {
+        val container = containerView ?: return
+        if (surfaceWidth <= 0 || surfaceHeight <= 0) return
+        val observer = container.viewTreeObserver
+        val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                val width = container.width
+                val height = container.height
+                if (width <= 0 || height <= 0) return
+                val changed = width != surfaceWidth || height != surfaceHeight
+                val metrics = resources.displayMetrics
+                val atTheNewScreenSize =
+                    width == metrics.widthPixels && height == metrics.heightPixels
+                if (!changed && !atTheNewScreenSize) return
+                if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
+                refitComposite(width, height)
+            }
+        }
+        observer.addOnGlobalLayoutListener(listener)
+    }
+
+    /**
+     * The re-fit: rebuild the composite at the new container size, then move the
+     * KEPT run's boxes into it.
+     *
+     * The image is re-composed from [baseImage] at the SAME number of quarter turns
+     * ([composedTurns]) — a turn of the phone is not a turn of the picture, so the
+     * content is not rotated here, the container around it simply changed shape and
+     * [composeForScreen] re-fits it (uniform scale plus centring, the same
+     * [ImageRotation.fitRotated] the first compose used). [ImageShareFit.refit]
+     * takes the two placements and answers the one transform that carries a point
+     * of the picture from the old composite's pixels to the new one's; that is the
+     * transform [OcrOverlayView.refitContent] applies to every box, hit rect and
+     * cursor, so the boxes stay on their glyphs.
+     *
+     * It runs behind whatever the rotation pumps are doing, and waits rather than
+     * cancelling them: a pass in flight was handed the OLD composite and will paint
+     * its boxes in the old pixel space, so the transform may not run until it has
+     * finished — otherwise its late boxes would be moved twice or not at all. Once
+     * `image` is the new composite, any pass started after that point reads the new
+     * pixel space and is not transformed at all.
+     *
+     * The zoom/pan and the open lookup panel are dropped by
+     * [OcrOverlayStateController.refitBoxes] with the transform, and why that is the
+     * consistent choice is written down there.
+     */
+    private fun refitComposite(width: Int, height: Int) {
+        val view = overlayView ?: return
+        val base = baseImage ?: return
+        val oldWidth = surfaceWidth
+        val oldHeight = surfaceHeight
+        if (width == oldWidth && height == oldHeight) return
+        val turns = composedTurns
+        val before = ImageRotation.fitRotated(base.width, base.height, oldWidth, oldHeight, turns)
+        val after = ImageRotation.fitRotated(base.width, base.height, width, height, turns)
+        val refit = ImageShareFit.refit(before, after)
+        surfaceWidth = width
+        surfaceHeight = height
+        Log.i(
+            "ShareImageActivity",
+            "re-fitting composite for ${width}x${height}: the picture was " +
+                "${before.width}x${before.height} at ${before.left},${before.top} and " +
+                "is now ${after.width}x${after.height} at ${after.left},${after.top}; " +
+                "boxes scale ${refit.scaleX}x/${refit.scaleY}y, offset " +
+                "${refit.offsetX},${refit.offsetY} (image ${base.width}x${base.height}, " +
+                "turns $turns)"
+        )
+        overlayScope.launch {
+            currentPass?.join()
+            rotateDisplayJob?.join()
+            rotatePump?.join()
+            val recomposed = withContext(Dispatchers.IO) {
+                composeForScreen(base, width, height, turns)
+            }
+            if (isFinishing || isDestroyed) {
+                recomposed?.recycle()
+                return@launch
+            }
+            if (recomposed == null) return@launch
+            if (overlayView !== view) {
+                recomposed.recycle()
+                return@launch
+            }
+            image = recomposed
+            composedTurns = turns
+            view.refitContent(refit)
+        }
     }
 
     // ---- orientation (the camera handoff) ----
