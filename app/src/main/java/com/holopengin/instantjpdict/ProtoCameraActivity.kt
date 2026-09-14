@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -14,6 +15,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.OrientationEventListener
 import android.view.Surface
+import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -75,6 +77,13 @@ import java.util.concurrent.Executors
  *    because CameraX 1.4.2 does not follow a display-rotation change on its own
  *    for an already-bound use case (only PreviewView's own surface transform
  *    tracks the display, and that is 0 under a lock anyway).
+ *  - The CONTROLS FOLLOW THE HOLD TOO, from the same value the camera is told.
+ *    Portrait is the layout this prototype has always had; landscape moves the
+ *    shutter and the framing control to the window's RIGHT edge — the short edge,
+ *    where a thumb sits when the phone is held sideways — instead of leaving a
+ *    bottom-row layout running along a long edge. See [applyControlAnchors] for
+ *    the anchors and [initialHoldRotation] for why a cold start into landscape
+ *    comes up right without waiting for a turn.
  *  - Back camera, minimise-latency capture mode, no flash. Tapping the preview refocuses
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
@@ -150,6 +159,34 @@ class ProtoCameraActivity : AppCompatActivity() {
 
     /** The reticle, kept so a resumed activity can pick up a moved tuning slider. */
     private lateinit var crosshair: ProtoCrosshairView
+
+    /**
+     * The framing control (the "Zoom" button). Kept as a field because its anchor
+     * is re-decided when the hold changes (see [applyControlAnchors]) — the views
+     * are not rebuilt on a turn, `configChanges` means this activity is never
+     * recreated, so the LayoutParams have to be re-applied to the views that are
+     * already there.
+     */
+    private lateinit var zoomButton: Button
+
+    /**
+     * True while the shutter and the framing control are anchored for a landscape
+     * hold, false for portrait — the state [applyControlAnchors] reads, and the
+     * gate that keeps a sensor reporting every degree of tilt from re-writing two
+     * sets of LayoutParams per callback. Seeded in [onCreate] from the hold the
+     * window came up in (see [initialHoldRotation]) so the first frame is right.
+     */
+    private var controlsLandscape = false
+
+    /**
+     * The system bars' right and bottom insets, in pixels, as the root last
+     * reported them. Only the landscape anchors use them — the right edge is the
+     * edge the navigation bar moves to in landscape — but they are kept as state
+     * because the anchors are re-applied from two directions (a turn, and an inset
+     * change) and both need the same numbers.
+     */
+    private var systemBarRight = 0
+    private var systemBarBottom = 0
 
     /**
      * The decode / rotate / crop of one FILL_CENTER handoff. One thread, because
@@ -308,6 +345,24 @@ class ProtoCameraActivity : AppCompatActivity() {
             }
             insets
         }
+        // The same system bars, taken once more for the two camera controls: in
+        // landscape the navigation bar sits along a long edge, and the anchors below
+        // put both controls against the right one, so their margins carry the right
+        // (and the framing control the bottom) inset. Attached to the root rather
+        // than to either control because insets are dispatched down the tree from
+        // here and this is also where they are stored — one place reports them, and
+        // [applyControlAnchors] is the only place that spends them. Guarded on a
+        // change, because a re-apply inside an inset dispatch requests another
+        // layout pass.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            if (bars.right != systemBarRight || bars.bottom != systemBarBottom) {
+                systemBarRight = bars.right
+                systemBarBottom = bars.bottom
+                applyControlAnchors()
+            }
+            insets
+        }
 
         captureButton = CenteredButton(this).apply {
             tag = "proto_capture"
@@ -328,35 +383,33 @@ class ProtoCameraActivity : AppCompatActivity() {
             setOnClickListener { capture() }
         }
         setShutterEnabled(false)
-        val zoomSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
-        root.addView(
-            Button(this).apply {
-                tag = "proto_zoom"
-                text = "Zoom"
-                minWidth = 0
-                minHeight = 0
-                setOnClickListener { togglePreviewFraming() }
-            },
-            FrameLayout.LayoutParams(zoomSide, zoomSide).apply {
-                gravity = Gravity.BOTTOM or Gravity.END
-                bottomMargin = 48
-                marginEnd = 24
-            }
-        )
+        // Both controls are added with their square footprint and NO anchor: where
+        // they sit is decided in one place, [applyControlAnchors], because the anchor
+        // depends on which way up the window is and has to be re-decided when that
+        // changes. The views themselves are never rebuilt.
+        //
+        // One side for both dimensions, because this is a shutter, not a label:
+        // WRAP_CONTENT made it a wide, short pill, and one square side keeps it
+        // square whatever the label measures — CAPTURE_BUTTON_DP is the single knob
+        // for the size of both controls.
+        val controlSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        zoomButton = Button(this).apply {
+            tag = "proto_zoom"
+            text = "Zoom"
+            minWidth = 0
+            minHeight = 0
+            setOnClickListener { togglePreviewFraming() }
+        }
+        root.addView(zoomButton, FrameLayout.LayoutParams(controlSide, controlSide))
+        root.addView(captureButton, FrameLayout.LayoutParams(controlSide, controlSide))
 
-        val captureSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
-        root.addView(
-            captureButton,
-            FrameLayout.LayoutParams(
-                // Square: this is a shutter, not a label. WRAP_CONTENT made it a wide, short
-                // pill; one side for both dimensions keeps it square whatever the label
-                // measures, and the constant is the single knob for its size.
-                captureSide, captureSide
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = 48
-            }
-        )
+        // Which way up the window came up, BEFORE it is first laid out, and the
+        // controls are anchored for it in the same breath — that is what makes a
+        // cold start into landscape come up with the controls already on the right
+        // edge instead of waiting for the sensor to report a turn that never comes.
+        // See [initialHoldRotation].
+        controlsLandscape = isLandscapeHold(initialHoldRotation())
+        applyControlAnchors()
 
         setContentView(root)
 
@@ -366,6 +419,18 @@ class ProtoCameraActivity : AppCompatActivity() {
         orientationListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
                 val rotation = surfaceRotationFor(orientation)
+                // The controls' anchors come off the SAME value the camera is told,
+                // decided here and not behind the gate below, because the two care
+                // about different things: the camera only wants to hear about a
+                // change ([targetRotation] is what keeps a sensor reporting every
+                // degree of tilt from re-telling it a rotation it already has), while
+                // the anchors only care about portrait-versus-landscape. One value,
+                // two questions — so they cannot disagree about which way is up.
+                val landscape = isLandscapeHold(rotation)
+                if (landscape != controlsLandscape) {
+                    controlsLandscape = landscape
+                    applyControlAnchors()
+                }
                 if (rotation == targetRotation) return
                 val was = targetRotation
                 targetRotation = rotation
@@ -447,6 +512,125 @@ class ProtoCameraActivity : AppCompatActivity() {
         orientation in 135..224 -> Surface.ROTATION_180
         orientation in 225..314 -> Surface.ROTATION_90
         else -> Surface.ROTATION_0
+    }
+
+    /**
+     * Which way up the window is, from a surface rotation.
+     *
+     * [surfaceRotationFor] is the only place a hold becomes a rotation and this is
+     * the only place a rotation becomes portrait-or-landscape, so the controls
+     * cannot disagree with the camera stream about which way is up: both ask about
+     * the same number. Held upside down (ROTATION_180) counts as portrait, and it
+     * is the right answer there — the whole window turns with the phone, so its
+     * bottom edge is still the one under the thumb.
+     */
+    private fun isLandscapeHold(rotation: Int): Boolean =
+        rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+
+    /**
+     * The hold the window came up in, expressed as the rotation [isLandscapeHold]
+     * reads — the cold start's answer, and the reason it is taken here instead of
+     * waited for.
+     *
+     * The trap this avoids: a layout that only re-anchors when the sensor reports a
+     * CHANGE is still portrait-anchored when the app is launched with the phone
+     * already sideways, because nothing changes after launch. `resources` is this
+     * activity's own configuration as it was created with, and for a `fullSensor`
+     * activity that configuration IS the orientation the system chose for the
+     * launch, from the same sensor [orientationListener] reads — so the two cannot
+     * disagree about the hold except while the phone is literally mid-turn, and the
+     * sensor's first callback, which arrives as soon as the listener is enabled on
+     * resume, re-anchors if it disagrees with what was assumed here.
+     *
+     * Only the landscape/portrait distinction is taken from it; WHICH quarter turn
+     * it is does not matter to a layout anchored to the right edge, which is why
+     * landscape answers ROTATION_90 here without asking whether the display is
+     * really at 90 or 270.
+     */
+    private fun initialHoldRotation(): Int =
+        if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            Surface.ROTATION_90
+        } else {
+            Surface.ROTATION_0
+        }
+
+    /**
+     * Where the shutter and the framing control sit, for the hold on screen.
+     *
+     * PORTRAIT is the layout this prototype has always had, unchanged: the shutter
+     * centred on the bottom edge, the framing control in the bottom-right corner,
+     * both 84dp squares, at the raw-pixel margins they were first placed with
+     * ([CONTROL_BOTTOM_MARGIN_PX] / [ZOOM_END_MARGIN_PX] — kept as pixels on
+     * purpose, because portrait has been judged in the hand and a unit conversion
+     * would move both controls on the phone it was judged on). Portrait takes no
+     * insets, then or now: the corner stack is the control that carries them there,
+     * and the bottom margin has always been that raw 48px.
+     *
+     * LANDSCAPE moves both to the window's RIGHT edge — in a landscape window the
+     * short edges are the left and right ones, so the right edge is where a thumb
+     * sits when the phone is held sideways, while the bottom edge is a long one a
+     * re-applied portrait row would have run along, out of reach:
+     *   - the SHUTTER goes on the right edge, VERTICALLY CENTRED: the ordinary
+     *     landscape camera hold, thumb-high, and the one anchor the maintainer
+     *     asked for by name ("the right side of the screen when landscape");
+     *   - the FRAMING control goes in the bottom-right corner — still under that
+     *     thumb, and clear of the shutter: what the framing control needs below the
+     *     centred shutter (its own 84dp, its margin, and the navigation bar when a
+     *     three-button device puts it along that bottom edge) fits in the space a
+     *     1080px-tall landscape window leaves there, which is where the margin
+     *     constant's 16dp comes from rather than from taste — see
+     *     [LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP].
+     * The right system-bar inset is added to both, and the bottom one to the framing
+     * control, because in landscape the navigation bar lies along a long edge — the
+     * edge these two now hug — which is the same reason the corner stack takes
+     * insets in the first place.
+     *
+     * This is the ONLY place either control's LayoutParams are written, so a turn
+     * and an inset change cannot half-update the layout, and the params are rebuilt
+     * rather than mutated so no margin can survive from an anchor it no longer
+     * belongs to (a `marginEnd` left behind on a `CENTER_HORIZONTAL` control shifts
+     * it off centre).
+     */
+    private fun applyControlAnchors() {
+        if (!::captureButton.isInitialized || !::zoomButton.isInitialized) return
+        val density = resources.displayMetrics.density
+        val side = (CAPTURE_BUTTON_DP * density).roundToInt()
+        if (controlsLandscape) {
+            val edge = (LANDSCAPE_EDGE_MARGIN_DP * density).roundToInt() + systemBarRight
+            val floor = (LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP * density).roundToInt() + systemBarBottom
+            placeControl(captureButton, side, Gravity.END or Gravity.CENTER_VERTICAL, edge, 0)
+            placeControl(zoomButton, side, Gravity.END or Gravity.BOTTOM, edge, floor)
+        } else {
+            placeControl(
+                captureButton, side,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, CONTROL_BOTTOM_MARGIN_PX
+            )
+            placeControl(
+                zoomButton, side,
+                Gravity.BOTTOM or Gravity.END, ZOOM_END_MARGIN_PX, CONTROL_BOTTOM_MARGIN_PX
+            )
+        }
+        Log.i(
+            TAG,
+            "controls anchored ${if (controlsLandscape) {
+                "landscape (right edge), insets ${systemBarRight}/${systemBarBottom}"
+            } else {
+                "portrait (bottom edge)"
+            }}"
+        )
+    }
+
+    /**
+     * One square control at one anchor, with its margins already in pixels (the
+     * caller folds the insets in). A fresh LayoutParams every time, deliberately:
+     * see [applyControlAnchors].
+     */
+    private fun placeControl(view: View, side: Int, anchor: Int, endMargin: Int, bottomMargin: Int) {
+        view.layoutParams = FrameLayout.LayoutParams(side, side).apply {
+            gravity = anchor
+            marginEnd = endMargin
+            this.bottomMargin = bottomMargin
+        }
     }
 
     /**
@@ -836,6 +1020,39 @@ class ProtoCameraActivity : AppCompatActivity() {
         /** Side of the square shutter button, in dp. One knob for its size — and the
          *  square it is a side of is the footprint of the OCR-button graphic. */
         private const val CAPTURE_BUTTON_DP = 84f
+
+        /**
+         * PORTRAIT's margins for those two squares, in RAW PIXELS — the values they
+         * were first placed with. Deliberately not converted to dp: portrait has
+         * been judged in the hand on a real phone, and a unit change would move both
+         * controls on that phone for no reason. The corner stack's margins below are
+         * dp, and that is the whole point of the split: this pair is frozen.
+         */
+        private const val CONTROL_BOTTOM_MARGIN_PX = 48
+
+        /** The framing control's gap from the right edge in portrait (see above). */
+        private const val ZOOM_END_MARGIN_PX = 24
+
+        /**
+         * LANDSCAPE's margins, in dp: new layout, so written in the unit that holds
+         * up on a density this layout has never been seen at. Off the right edge for
+         * both controls, and off the bottom for the framing control. The system-bar
+         * insets are added on top of these (see [applyControlAnchors]).
+         *
+         * 16dp on both is also the number that keeps the two controls apart in the
+         * WORST landscape the bars can produce. A vertically centred 84dp shutter on
+         * a 1080px-tall window (1080x2400 at density 2.625 — this app's device) ends
+         * 650px down, leaving ~430px below it. The framing control needs its own
+         * 221px plus its bottom margin plus, on a three-button device, a 48dp
+         * navigation bar along that bottom edge: 126px. At a 24dp margin that is
+         * 126 + 63 + 221 = 410 of the 430, i.e. a 5dp gap; at 16dp it is 389, i.e.
+         * ~15dp. Neither overlaps, but the smaller margin is the one with room to
+         * spare when a device reports a taller bar. (The layout assumes the window
+         * is at least ~2.2 shutter-sides tall, which any phone in a landscape hold
+         * is; in a very short free-form window the two would meet.)
+         */
+        private const val LANDSCAPE_EDGE_MARGIN_DP = 16f
+        private const val LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP = 16f
 
         /** What the shutter says to a screen reader, now that it has no label. */
         private const val SHUTTER_DESCRIPTION = "Capture"
