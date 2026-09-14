@@ -325,17 +325,24 @@ class OcrAccessibilityService : AccessibilityService() {
      * onResume, A.onStop — so the incoming view is already in the set before the
      * outgoing one leaves it. With resumed/paused the camera's pause would empty
      * the set for the moment before the share activity resumed.
+     *
+     * That same ordering is why [ownViewsStarted] counts instances and is not a set
+     * of names: for an A → B handoff between two instances of one class, B's onStart
+     * precedes A's onStop, so a set keyed by class name would have B's own entry
+     * removed by A's exit and the trigger would reappear over B. The count takes the
+     * class to 2 and back to 1 instead, and only the last instance to leave empties
+     * it.
      */
     private val ownViewLifecycle = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityStarted(activity: Activity) {
             if (!isOwnForegroundView(activity)) return
-            ownViewsStarted.add(activity.javaClass.name)
+            ownViewStartedCounting(activity.javaClass.name)
             applyFloatingButtonVisibility()
         }
 
         override fun onActivityStopped(activity: Activity) {
             if (!isOwnForegroundView(activity)) return
-            ownViewsStarted.remove(activity.javaClass.name)
+            ownViewStoppedCounting(activity.javaClass.name)
             applyFloatingButtonVisibility()
         }
 
@@ -553,7 +560,18 @@ class OcrAccessibilityService : AccessibilityService() {
         )
 
         /**
-         * #78: the class names in [OWN_FOREGROUND_VIEWS] that are started right now.
+         * #78: how many STARTED instances of each of the app's own views are in front,
+         * keyed by class name.
+         *
+         * A COUNT and not a set of names. The lifecycle order for A → B in one task
+         * delivers the incoming activity's onStart BEFORE the outgoing one's onStop
+         * ([ownViewLifecycle]), so for two instances of the SAME class a set would have
+         * B's entry removed by A's exit: the map would come out empty while B was still
+         * in front, and the floating trigger would reappear over it. Counting makes the
+         * handoff additive — A's entry is still there when B arrives (2), and A's exit
+         * only takes it back to 1 — so the trigger stays hidden until the last instance
+         * leaves. The normal case is unchanged: a single view in front is a count of 1
+         * and an empty map is what [applyFloatingButtonVisibility] tests.
          *
          * Process-wide on purpose, not a field of the service: everything here is in
          * one process, and the Application — this static with it — outlives the
@@ -563,10 +581,31 @@ class OcrAccessibilityService : AccessibilityService() {
          * callback that maintains it lives on the same Application, so a view can
          * only be in it while its activity really is started.
          *
-         * Names rather than class objects so two instances of the same view cannot
-         * count twice, and started rather than resumed (see [ownViewLifecycle]).
+         * Keyed by NAME rather than by the Activity: nothing reads which instance is
+         * in front, only whether any of the app's own views is, and an instance handed
+         * to one callback is never needed by another.
          */
-        private val ownViewsStarted = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        private val ownViewsStarted = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
+
+        /** #78: one more started instance of [name]. See [ownViewsStarted]. */
+        private fun ownViewStartedCounting(name: String) {
+            synchronized(ownViewsStarted) {
+                ownViewsStarted[name] = (ownViewsStarted[name] ?: 0) + 1
+            }
+        }
+
+        /**
+         * #78: one fewer started instance of [name], and the entry goes at zero — so
+         * an exit that arrives without a matching start (a state left over from a
+         * previous service, say) cannot leave a negative count that would keep the
+         * trigger hidden for good.
+         */
+        private fun ownViewStoppedCounting(name: String) {
+            synchronized(ownViewsStarted) {
+                val count = ownViewsStarted[name] ?: return
+                if (count <= 1) ownViewsStarted.remove(name) else ownViewsStarted[name] = count - 1
+            }
+        }
 
         /** #78: the callback registered by the live service, so a restart releases it. */
         private var ownViewCallbacks: Application.ActivityLifecycleCallbacks? = null
