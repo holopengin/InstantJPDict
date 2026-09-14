@@ -43,6 +43,27 @@ class ProtoCrosshairView(context: Context) : View(context) {
         isAntiAlias = false
     }
 
+    /** Half-gap in device pixels, from the tunable. Four lines sit at ±this. */
+    private var gapPx = 0f
+
+    /** Called when the host resumes, so a slider moved in the tuning screen applies
+     *  on return without restarting the camera. */
+    fun reloadGap() {
+        gapPx = gapPxFor(width, height)
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        gapPx = gapPxFor(w, h)
+    }
+
+    private fun gapPxFor(w: Int, h: Int): Float {
+        val fraction = context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(PREF_GAP, DEF_GAP)
+        return (minOf(w, h) * fraction).toInt().toFloat()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         // width/2 and height/2 land on an exact pixel on an even-sized view
@@ -52,9 +73,10 @@ class ProtoCrosshairView(context: Context) : View(context) {
         val cy = height / 2f
         // ONE half-gap for both axes, measured from the SHORT side, so the box the four
         // lines enclose is square. Scaling each axis by its own dimension makes the gap
-        // 5% of 1080 across but 5% of 2400 down — a tall rectangle on a portrait screen,
-        // which is not what the reticle means.
-        val gap = (minOf(width, height) * CROSSHAIR_GAP_FRACTION).toInt().toFloat()
+        // a different fraction of each side — a tall rectangle on a portrait screen,
+        // which is not what the reticle means. The value comes from the tuning slider
+        // (PREF_GAP), re-read on resume, so it can be judged in the hand.
+        val gap = gapPx
         canvas.drawLine(0f, cy - gap, width.toFloat(), cy - gap, linePaint)
         canvas.drawLine(0f, cy + gap, width.toFloat(), cy + gap, linePaint)
         canvas.drawLine(cx - gap, 0f, cx - gap, height.toFloat(), linePaint)
@@ -68,10 +90,13 @@ class ProtoCrosshairView(context: Context) : View(context) {
         /**
          * Half-distance between the two lines of a pair, as a fraction of the view's
          * SHORT side — the same distance on both axes, so the box the four lines
-         * enclose is square. A text line at the captured scale is roughly 50-100 px
-         * tall, so 0.04 is a band that brackets it: wide enough to see the line's
-         * angle, narrow enough to see it is being straddled. One constant to nudge.
+         * enclose is square. Now a tuning slider (MainActivity's tunable row), so the
+         * band can be judged in the hand; this is only the default.
          */
         const val CROSSHAIR_GAP_FRACTION = 0.04f
+
+        /** Tuning key + default for the gap slider. */
+        const val PREF_GAP = "crosshair_gap"
+        const val DEF_GAP = CROSSHAIR_GAP_FRACTION
     }
 }

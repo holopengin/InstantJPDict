@@ -471,6 +471,7 @@ class MainActivity : AppCompatActivity() {
         // tradeoff over 7,620 confusable bench positions: 0.01 -> 12 fixed / 4 broken,
         // 0.03 -> 22/12, 0.10 -> 29/24.
         addTunable("KANA_SIZE_EPSILON", KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON, 0.005f, 0.50f, 0.005f, false)
+        addTunable("CROSSHAIR_GAP", ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP, 0.005f, 0.10f, 0.005f, false)
 
         addButton(tuningContainer, "Copy inference log") {
             val text = InferLog.dump()
@@ -487,6 +488,7 @@ class MainActivity : AppCompatActivity() {
                 .putFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
                 .putFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
                 .putFloat(OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA)
+                .putFloat(ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP)
                 .apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
             Log.d("MainActivity", "all tuning reset to defaults")

@@ -60,6 +60,15 @@ import java.io.File
 class ProtoCameraActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
+
+    /** The reticle, kept so a resumed activity can pick up a moved tuning slider. */
+    private lateinit var crosshair: ProtoCrosshairView
+
+    override fun onResume() {
+        super.onResume()
+        // A gap slider moved in the tuning screen applies on return, without a restart.
+        if (::crosshair.isInitialized) crosshair.reloadGap()
+    }
     private lateinit var statusView: TextView
     private lateinit var captureButton: Button
     private var imageCapture: ImageCapture? = null
@@ -102,7 +111,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         // it never takes touch (no click listeners, not clickable), so the
         // shutter button below stays reachable.
         root.addView(
-            ProtoCrosshairView(this),
+            ProtoCrosshairView(this).also { crosshair = it },
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
