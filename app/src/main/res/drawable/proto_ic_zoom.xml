@@ -6,12 +6,18 @@
   lock controls, so it needs a glyph instead of a word (see
   ProtoCameraActivity.applyZoomAppearance / CHROME_CONTROL_DP).
 
-  A magnifier, because that is the symbol the word "Zoom" already was and the only
-  thing on this control that does not change: the framing it switches between (the
-  whole captured frame letterboxed in, vs the screen filled by the middle slice of
-  it) is the same readout as before — a single state on screen, no second look — and
-  the state is not stated on the control. What the control SAYS is its
-  contentDescription, which names the action a press takes.
+  A magnifier WITH A PLUS. The plain glass was the first attempt and the maintainer
+  rejected it for a real reason: on its own a magnifier reads as SEARCH, and this
+  control does not search anything — it switches the preview between the whole
+  captured frame letterboxed in and the screen filled by the middle slice of it. The
+  plus is what separates "make this bigger" from "look for something" at 26dp, which
+  is the size at which the difference has to survive.
+
+  The plus sits at the GLASS's centre (10.5,10.5), not the icon's: it belongs to the
+  glass, and offsetting it toward the handle to centre it in the overall bounding box
+  would read as a lopsided beam. Arms run 2.4 units from the centre at the ring's own
+  2-unit stroke — short enough that the round caps clear the ring's inner edge with
+  room to spare, long enough to read as a plus rather than a dot at 26dp.
 
   One glyph rather than a pair (the lock has a pair, and needs it — see
   proto_ic_lock_open.xml): this control's look did not change with its state before
@@ -35,6 +41,20 @@
       android:strokeColor="#FFFFFFFF"
       android:strokeWidth="2"
       android:pathData="M16.5,10.5 A6,6 0 1 1 4.5,10.5 A6,6 0 1 1 16.5,10.5 Z"/>
+
+  <!-- The plus, inside the glass: what makes this zoom rather than search. -->
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:pathData="M8.1,10.5 L12.9,10.5"/>
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:pathData="M10.5,8.1 L10.5,12.9"/>
 
   <!-- The handle, off the glass at 45° and running to the corner. -->
   <path
