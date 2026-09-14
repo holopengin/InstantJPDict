@@ -782,7 +782,8 @@ class ProtoCameraActivity : AppCompatActivity() {
      * not to the shutter, so the corner the hand judged is unmoved and the smaller square
      * only opens the clearances around it. Portrait takes no insets, then or now: the
      * corner stack is the control that carries them there, and the bottom margin has
-     * always been that raw 48px.
+     * always been that raw 48px, now raised by [SHUTTER_RAISE_PX] because the maintainer
+     * judged the shutter a little too close to the edge.
      *
      * LANDSCAPE moves both to the window's RIGHT edge — in a landscape window the
      * short edges are the left and right ones, so the right edge is where a thumb
@@ -841,7 +842,12 @@ class ProtoCameraActivity : AppCompatActivity() {
         val side = (CAPTURE_BUTTON_DP * density).roundToInt()
         val chromeSide = (CHROME_CONTROL_DP * density).roundToInt()
         if (controlsLandscape) {
-            val edge = (LANDSCAPE_EDGE_MARGIN_DP * density).roundToInt() + systemBarRight
+            // The shutter's clearance from the window's right edge is the portrait
+            // bottom clearance in the same physical place: the quarter turn carries the
+            // physical bottom to the window's right, so [SHUTTER_RAISE_PX] here is the
+            // same "off the edge" distance the portrait anchor gets below.
+            val edge = (LANDSCAPE_EDGE_MARGIN_DP * density).roundToInt() + systemBarRight +
+                SHUTTER_RAISE_PX
             placeControl(captureButton, side, Gravity.END or Gravity.CENTER_VERTICAL, edge, 0)
             // Zoom goes to the TOP of the right edge in landscape, which is the same
             // PHYSICAL corner it occupies in portrait (bottom-right): the quarter turn
@@ -860,7 +866,8 @@ class ProtoCameraActivity : AppCompatActivity() {
         } else {
             placeControl(
                 captureButton, side,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, CONTROL_BOTTOM_MARGIN_PX
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0,
+                CONTROL_BOTTOM_MARGIN_PX + SHUTTER_RAISE_PX
             )
             placeControl(
                 zoomButton, chromeSide,
@@ -1575,6 +1582,17 @@ class ProtoCameraActivity : AppCompatActivity() {
 
         /** The framing control's gap from the right edge in portrait (see above). */
         private const val ZOOM_END_MARGIN_PX = 24
+
+        /**
+         * The maintainer's nudge, in the same RAW PIXELS as [CONTROL_BOTTOM_MARGIN_PX]:
+         * the shutter sat a little too close to the physical bottom edge, so it is raised
+         * by this much in portrait — and, in landscape, pulled the same physical distance
+         * leftward off the window's right edge, which is where the physical bottom edge
+         * lands in a sideways hold (see the Zoom comment in [applyControlAnchors], which
+         * says the same about the 48px). One constant for both anchors, so the two holds
+         * cannot drift apart.
+         */
+        private const val SHUTTER_RAISE_PX = 32
 
         /**
          * LANDSCAPE's margins, in dp: new layout, so written in the unit that holds
