@@ -96,13 +96,12 @@ class MainActivity : AppCompatActivity() {
         scrollView.addView(layout)
         root.addView(scrollView)
 
-        // #78 PROTOTYPE (throwaway, branch proto/78-camera-viewfinder): our own
-        // viewfinder with the 1px full-frame crosshair. Capture goes into
-        // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry
-        // the system share sheet uses, so there is one OCR surface, not two.
-        // PINNED to the bottom of the screen: a sibling of the ScrollView, so it
-        // stays put while the list above scrolls, and the bars keep it clear of
-        // the navigation bar. Delete it when the prototype branch is dropped.
+        // #78: the camera viewfinder, and the only way into it. Capture goes into
+        // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry the
+        // system share sheet uses, so there is one OCR surface, not two. PINNED to
+        // the bottom of the screen: a sibling of the ScrollView, so it stays put
+        // while the list above scrolls, and the bars keep it clear of the navigation
+        // bar.
         root.addView(Button(this).apply {
             text = "Camera"
             setOnClickListener {

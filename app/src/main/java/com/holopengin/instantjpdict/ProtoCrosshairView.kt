@@ -7,7 +7,8 @@ import android.graphics.Paint
 import android.view.View
 
 /**
- * PROTOTYPE (#78, throwaway — not for main).
+ * #78 — the viewfinder's reticle, drawn over the live preview by
+ * [ProtoCameraActivity].
  *
  * The maintainer's reticle: TWO 1px horizontal lines and TWO 1px vertical lines,
  * each running the ENTIRE width/height of the camera view, straddling the centre

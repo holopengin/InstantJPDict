@@ -8,13 +8,13 @@
          OcrAccessibilityService.registerBackCallback), so back died on our
          window. Opting out restores legacy KEYCODE_BACK dispatch, which this
          service's key filtering does receive. -->
-    <!-- #78 PROTOTYPE — camera mode. Everything below that is marked PROTO
-         exists only for the throwaway prototype branch
-         proto/78-camera-viewfinder and must not reach main as-is. -->
+    <!-- #78 — camera mode. The CAMERA permission is declared because the app ships
+         a viewfinder (ProtoCameraActivity) that opens the back camera; the activity
+         asks for it at runtime before the camera is used. -->
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- Not required: the app installs and works on a device with no camera;
-         the prototype activity is simply unusable there. -->
+         the viewfinder is simply unavailable there. -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
@@ -44,7 +44,7 @@
         <!-- #57 (Feat — image share intent): a single shared image goes through
              the same OCR/lookup surface as the accessibility overlay. Only
              ACTION_SEND is handled; ACTION_SEND_MULTIPLE is a later follow-up. -->
-        <!-- #78 PROTOTYPE — orientation. fullSensor, NOT a pin: like the
+        <!-- #78 — orientation. fullSensor, NOT a pin: like the
              viewfinder, this window follows the device from its FIRST layout, so
              a capture taken holding the phone sideways hands off to an OCR view
              that is already landscape — no post-creation quarter turn. The
@@ -89,7 +89,7 @@
             </intent-filter>
         </activity>
 
-        <!-- #78 PROTOTYPE — our own viewfinder, launched from a main-activity
+        <!-- #78 — our own viewfinder, launched from a main-activity
              button. fullSensor, NOT portrait: the whole window has to turn with
              the phone, so the preview, the reticle and the capture turn
              together. Rotating only the camera stream inside a portrait lock is
@@ -108,10 +108,11 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.InstantJPDict" />
 
-        <!-- #78 PROTOTYPE — serves the captured JPEG to ShareImageActivity as a
-             content URI, so the capture uses the same EXTRA_STREAM entry the
-             system share sheet uses. Throwaway: a real camera feature would
-             probably hand the bitmap over in-process instead. -->
+        <!-- #78 — serves the captured JPEG to ShareImageActivity as a content
+             URI, so the capture enters through the same EXTRA_STREAM entry the
+             system share sheet uses and there is one decode/compose/render path
+             instead of two. It is not exported, and it grants read access to the
+             camera's own cache subdirectory only (res/xml/proto_file_paths.xml). -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.protofileprovider"

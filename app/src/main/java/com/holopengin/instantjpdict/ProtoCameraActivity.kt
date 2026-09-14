@@ -44,12 +44,14 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * PROTOTYPE (#78, throwaway — not for main, no tests, no polish beyond runnable).
+ * #78 — the camera viewfinder, and the app's own front door into the recognition
+ * pipeline: a capture is handed to [ShareImageActivity] exactly as a shared image
+ * is, so there is one decode/render path rather than a second renderer to drift.
  *
  * The question this answers: can our own viewfinder drop a captured photo into
- * the recognition pipeline the app already has, and does the 1px full-frame
- * crosshair read well enough in the hand to line a text line up (i.e. is
- * alignment workable before rotated-box support lands, #53)?
+ * the recognition pipeline the app already has, and does the reticle
+ * ([ProtoCrosshairView]) read well enough in the hand to line a text line up
+ * (i.e. is alignment workable before rotated-box support lands, #53)?
  *
  * Shape of the answer:
  *   camera → [ProtoCrosshairView] over the live preview → ImageCapture to a file
@@ -61,7 +63,7 @@ import java.util.concurrent.Executors
  *   The boxes therefore land wherever the share path already puts them — which
  *   is what makes this a test of the capture, not a copy of the renderer.
  *
- * Deliberate prototype decisions:
+ * Decisions taken here, each with the reason it was taken:
  *  - The viewfinder FOLLOWS THE PHONE. It used to be portrait-locked (one
  *    orientation for the in-hand crosshair judgement, no camera reopen on a
  *    quarter turn), but a locked activity also holds the DISPLAY rotation at 0
@@ -79,7 +81,7 @@ import java.util.concurrent.Executors
  *    for an already-bound use case (only PreviewView's own surface transform
  *    tracks the display, and that is 0 under a lock anyway).
  *  - The CONTROLS FOLLOW THE WINDOW, deliberately NOT the same value the camera
- *    is told. Portrait is the layout this prototype has always had; landscape
+ *    is told. Portrait is the layout this viewfinder has always had; landscape
  *    moves the shutter and the framing control to the window's RIGHT edge — the
  *    short edge, where a thumb sits when the phone is held sideways — instead of
  *    leaving a bottom-row layout running along a long edge. See
@@ -769,7 +771,7 @@ class ProtoCameraActivity : AppCompatActivity() {
     /**
      * Where the shutter and the framing control sit, for the WINDOW on screen.
      *
-     * PORTRAIT is the layout this prototype has always had, and it still puts things
+     * PORTRAIT is the layout this viewfinder has always had, and it still puts things
      * where it always did: the shutter centred on the bottom edge, the framing control
      * in the bottom-right corner, both at the raw-pixel margins they were first placed
      * with ([CONTROL_BOTTOM_MARGIN_PX] / [ZOOM_END_MARGIN_PX] — kept as pixels on
