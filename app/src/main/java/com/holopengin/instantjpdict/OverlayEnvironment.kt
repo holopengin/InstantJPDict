@@ -6,6 +6,7 @@ import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.ComponentTable
 import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.KanaOrthography
+import com.holopengin.instantjpdict.util.KanaSoundChanges
 import com.holopengin.instantjpdict.util.KanjiVariants
 import com.holopengin.instantjpdict.util.OovCandidates
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +48,8 @@ object OverlayEnvironment {
                 // #75: pre-reform orthography for the lookup query. Loaded here rather than
                 // in either host so the share activity normalises exactly like the overlay.
                 runCatching { KanaOrthography.install(context) }
+                // #81: historical sound changes, composed after the #75 table.
+                runCatching { KanaSoundChanges.install(context) }
             }
             controller.installOovSuggestions(OovCandidates(table))
             // The 14 MB packed model behind the blank's candidate ranking. Mapped the same
