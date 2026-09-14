@@ -21,6 +21,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -61,6 +62,14 @@ import kotlin.math.roundToInt
  *
  * ACTION_SEND_MULTIPLE is a deliberate later follow-up — only ACTION_SEND is
  * handled here.
+ *
+ * #78 follow-up: a back control sits in the top-left corner and does exactly what
+ * the system back button does — one press through
+ * [androidx.activity.OnBackPressedDispatcher.onBackPressed], the same entry the
+ * platform's own back reaches. Back already has behaviour here beyond finishing
+ * (it closes one layer at a time, so closing the results from the camera flow
+ * returns to the camera), so the control goes through the dispatcher's callback
+ * rather than calling `finish()`; the callback is registered in [onCreate].
  */
 class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
 
@@ -131,6 +140,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      *  renders under the dictionary panel but stays tappable when none is up. */
     private var rotateBar: View? = null
 
+    /** The top-left back control. Placed in the view's chrome layer beside the
+     *  rotate pair for the same reason: a sibling of the view sits under its
+     *  full-screen surface and would never see a press. */
+    private var backButton: View? = null
+
     // ---- OcrOverlayView.Host ----
 
     override val bitmap: Bitmap
@@ -149,8 +163,17 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     }
 
     /** No floating button to sit under; a fixed corner is all the button needs.
-     *  Top-left — which is why the rotate pair goes bottom-left. */
-    override fun closeButtonOrigin(): Pair<Int, Int> = 100 to 100
+     *  Top-left — which is why the rotate pair goes bottom-left.
+     *
+     *  The corner now belongs to the #78 back control, so the view's draggable
+     *  close button starts to its right: at 100px (~36dp here) the two would sit
+     *  on top of each other, and the chrome layer would take the presses in the
+     *  overlap. It stays in the top strip, one control along. */
+    override fun closeButtonOrigin(): Pair<Int, Int> {
+        val back = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        val gap = (BACK_BUTTON_GAP_DP * resources.displayMetrics.density).roundToInt()
+        return (100 + back + gap) to 100
+    }
 
     /** No floating button to keep in step. */
     override fun onCloseButtonMoved(x: Int, y: Int) {}
@@ -161,6 +184,34 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         super.onCreate(savedInstanceState)
         engine = OcrEngine(this)
         OverlayEnvironment.prepare(this, overlayState, overlayScope)
+
+        // Back owns the layer-by-layer close, and the #78 back control calls this
+        // same path: one definition of back for the key, the gesture and the
+        // button. With nothing of ours up yet (the image is still decoding) the
+        // press is handed to the default path — what the old `super.onBackPressed()`
+        // did — rather than being swallowed or finishing directly.
+        //
+        // A dispatcher callback and NOT an `onBackPressed` override: the override
+        // this replaced was bypassed by `onBackPressedDispatcher.onBackPressed()`
+        // (the dispatcher's fallback runs the framework's own
+        // `Activity.onBackPressed`, not a subclass override — checked against
+        // activity 1.8.0), which would have finished the activity outright and
+        // skipped the close, losing the return-to-camera behaviour.
+        val backHandler = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val view = overlayView
+                if (view == null) {
+                    // The canonical "do whatever the default is" idiom: disable,
+                    // re-dispatch this same press, re-enable.
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                } else {
+                    view.handleBackKey()
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, backHandler)
 
         // Fill the display like the overlay window does, so the bitmap the view
         // is given maps 1:1 onto its own pixels (the overlay's box coordinates
@@ -205,19 +256,30 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                 bottomMargin = barMargin
             }
         )
-        // The window lays out under the system bars (FLAG_LAYOUT_NO_LIMITS), so
-        // keep the pair clear of the navigation bar whatever its shape.
-        ViewCompat.setOnApplyWindowInsetsListener(rotateBar!!) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val base = (ROTATE_BAR_MARGIN_DP * resources.displayMetrics.density).roundToInt()
-            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
-                leftMargin = base + bars.left
-                bottomMargin = base + bars.bottom
-                rightMargin = base
-                topMargin = base + bars.top
-            }
-            insets
+
+        // The back control, in the top-left corner, built from the same chrome as
+        // the rotate pair. Added to this container first so it is visible while
+        // the image decodes, then moved into the overlay view's chrome layer with
+        // the pair — see [moveIntoChrome].
+        val backSide = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        val backMargin = (BACK_BUTTON_MARGIN_DP * resources.displayMetrics.density).roundToInt()
+        backButton = chromeButton(BACK_BUTTON_TAG, BACK_GLYPH, "Back", backSide) {
+            onBackPressedDispatcher.onBackPressed()
         }
+        container.addView(
+            backButton,
+            FrameLayout.LayoutParams(backSide, backSide).apply {
+                gravity = Gravity.TOP or Gravity.START
+                // Until the window insets land, keep it off the very edge.
+                leftMargin = backMargin
+                topMargin = backMargin
+            }
+        )
+
+        // The window lays out under the system bars (FLAG_LAYOUT_NO_LIMITS), so
+        // keep both corner controls clear of the bars whatever their shape.
+        applySystemBarInsets(rotateBar!!, ROTATE_BAR_MARGIN_DP)
+        applySystemBarInsets(backButton!!, BACK_BUTTON_MARGIN_DP)
 
         // Compose at the container's own size, so the image the view receives is
         // exactly the size of the view.
@@ -260,14 +322,12 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                         FrameLayout.LayoutParams.MATCH_PARENT
                     )
                 )
-                // The rotate pair moves into the view's chrome layer, keeping
-                // its own gravity and margins: under the dictionary panel, above
-                // the image, and — because the layer hit-tests its children —
-                // still taking its own presses.
-                rotateBar?.let { bar ->
-                    (bar.parent as? ViewGroup)?.removeView(bar)
-                    view.addHostChrome(bar)
-                }
+                // The rotate pair and the back control move into the view's chrome
+                // layer, keeping their own gravity and margins: under the
+                // dictionary panel, above the image, and — because the layer
+                // hit-tests its children — still taking their own presses.
+                rotateBar?.let { moveIntoChrome(view, it) }
+                backButton?.let { moveIntoChrome(view, it) }
                 // The first pass is a pass too: a press while it runs queues
                 // behind it instead of starting a second, overlapping one.
                 currentPass = view.startOcr()
@@ -278,21 +338,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     }
 
     /**
-     * The view tree is our own, but the activity's default back handler would
-     * finish on the first press. Route every press through the view's shared
-     * close so back closes one layer at a time, exactly like the overlay.
+     * Back handling lives in the dispatcher callback registered in [onCreate] —
+     * both the system back button and the #78 back control arrive there, so
+     * there is one definition of what back does. (This used to be a deprecated
+     * `onBackPressed()` override, which the dispatcher bypasses.)
      */
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        val view = overlayView
-        if (view == null) {
-            super.onBackPressed()
-        } else {
-            view.handleBackKey()
-        }
-    }
-
     override fun onDestroy() {
         overlayView?.onClosed()
         overlayView = null
@@ -313,7 +363,39 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // its cancelled coroutines complete.
     }
 
-    // ---- rotate chrome ----
+    // ---- chrome (the rotate pair and the back control) ----
+
+    /**
+     * Lift [control] out of the activity's container and into the overlay view's
+     * own chrome layer. A sibling of the view sits UNDER its full-screen surface
+     * (which is MATCH_PARENT and consumes empty-space taps), so it would never
+     * see a press; the view's chrome layer renders under the dictionary panel but
+     * above the image, and hit-tests its own children.
+     */
+    private fun moveIntoChrome(view: OcrOverlayView, control: View) {
+        (control.parent as? ViewGroup)?.removeView(control)
+        view.addHostChrome(control)
+    }
+
+    /**
+     * Keep a corner control clear of the system bars. The window lays out under
+     * them ([WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS]), so every margin
+     * is the control's own plus the bar's inset; the control's gravity decides
+     * which of the four it actually uses.
+     */
+    private fun applySystemBarInsets(view: View, marginDp: Int) {
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val base = (marginDp * resources.displayMetrics.density).roundToInt()
+            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
+                leftMargin = base + bars.left
+                rightMargin = base + bars.right
+                topMargin = base + bars.top
+                bottomMargin = base + bars.bottom
+            }
+            insets
+        }
+    }
 
     /**
      * The two rotate buttons, in this activity's chrome rather than the shared
@@ -334,16 +416,26 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             // anywhere else still closes exactly as before.
             setOnClickListener { }
         }
-        val counter = rotateButton(ROTATE_CCW_GLYPH, "Rotate counterclockwise", size) { rotate(clockwise = false) }
-        val clockwise = rotateButton(ROTATE_CW_GLYPH, "Rotate clockwise", size) { rotate(clockwise = true) }
+        val counter = chromeButton(
+            "rotate_button_$ROTATE_CCW_GLYPH", ROTATE_CCW_GLYPH, "Rotate counterclockwise", size
+        ) { rotate(clockwise = false) }
+        val clockwise = chromeButton(
+            "rotate_button_$ROTATE_CW_GLYPH", ROTATE_CW_GLYPH, "Rotate clockwise", size
+        ) { rotate(clockwise = true) }
         bar.addView(counter, LinearLayout.LayoutParams(size, size).apply { rightMargin = gap })
         bar.addView(clockwise, LinearLayout.LayoutParams(size, size))
         return bar
     }
 
-    private fun rotateButton(label: String, description: String, sizePx: Int, onClick: () -> Unit): CenteredButton =
+    /**
+     * One chrome button: a text glyph on a dark fill with the app's cyan outline.
+     * The rotate pair and the #78 back control are all built here, so the
+     * activity's chrome cannot drift, and the [tag] is passed in rather than
+     * derived from the glyph so the rotate pair keeps the tags it had.
+     */
+    private fun chromeButton(tag: String, label: String, description: String, sizePx: Int, onClick: () -> Unit): CenteredButton =
         CenteredButton(this).apply {
-            tag = "rotate_button_$label"
+            this.tag = tag
             text = label
             contentDescription = description
             setTextColor(ROTATE_GLYPH_COLOR)
@@ -354,7 +446,7 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             minHeight = 0
             setPadding(0, 0, 0, 0)
             gravity = Gravity.CENTER
-            background = rotateButtonBackground()
+            background = chromeButtonBackground()
             setOnClickListener { onClick() }
         }
 
@@ -368,7 +460,7 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * bright photo. Values are
      * named so they are a one-line nudge on device.
      */
-    private fun rotateButtonBackground(): Drawable = GradientDrawable().apply {
+    private fun chromeButtonBackground(): Drawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = ROTATE_BUTTON_RADIUS_DP * resources.displayMetrics.density
         setColor(ROTATE_BUTTON_FILL)
@@ -563,6 +655,18 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         /** The button texts, exactly as the issue asks for them. */
         private const val ROTATE_CW_GLYPH = "⟳"
         private const val ROTATE_CCW_GLYPH = "⟲"
+
+        /**
+         * #78: the top-left back control. A text glyph (U+2190 LEFT ARROW), not a
+         * bundled asset — a new asset would have to satisfy the app's licence
+         * index, and the chrome already speaks glyphs. Same 52dp as the rotate
+         * pair, and the same corner margin.
+         */
+        private const val BACK_BUTTON_TAG = "back_button"
+        private const val BACK_GLYPH = "\u2190"
+        private const val BACK_BUTTON_DP = 52
+        private const val BACK_BUTTON_MARGIN_DP = 12
+        private const val BACK_BUTTON_GAP_DP = 8
 
         /** ≥48dp touch targets (platform minimum), a step up for legibility. */
         private const val ROTATE_BUTTON_DP = 52

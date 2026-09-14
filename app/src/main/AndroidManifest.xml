@@ -60,13 +60,22 @@
         </activity>
 
         <!-- #78 PROTOTYPE — our own viewfinder, launched from a main-activity
-             button. Portrait-locked so the in-hand crosshair judgement happens
-             in one orientation. -->
+             button. fullSensor, NOT portrait: the whole window has to turn with
+             the phone, so the preview, the reticle and the capture turn
+             together. Rotating only the camera stream inside a portrait lock is
+             the thing to avoid — the preview would appear turned inside an
+             upright portrait window. fullSensor is also the sensor value the
+             documented rule "the sensor is used even if the user locked
+             sensor-based rotation" covers, so a locked auto-rotate still turns
+             the viewfinder. configChanges keeps the activity AND the bound
+             camera alive across the quarter turn: that was the one real thing
+             the old portrait lock bought, and it is bought back here. -->
         <activity
             android:name=".ProtoCameraActivity"
             android:exported="false"
             android:label="@string/app_name"
-            android:screenOrientation="portrait"
+            android:screenOrientation="fullSensor"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.InstantJPDict" />
 
         <!-- #78 PROTOTYPE — serves the captured JPEG to ShareImageActivity as a

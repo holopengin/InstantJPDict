@@ -2284,7 +2284,8 @@ class OcrOverlayView(
 
     /**
      * #57: one back press delivered by the host rather than by the key or
-     * dispatcher paths — the share activity's `onBackPressed`. Same
+     * dispatcher paths — the share activity's back callback (which its #78 back
+     * control and the system back button both reach). Same
      * de-duplicated [handleBack], so an activity and the service cannot
      * diverge on what back closes.
      */

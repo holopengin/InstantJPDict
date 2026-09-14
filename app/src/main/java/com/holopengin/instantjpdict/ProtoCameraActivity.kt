@@ -5,13 +5,18 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.OrientationEventListener
+import android.view.Surface
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +33,8 @@ import kotlin.math.roundToInt
 import android.view.MotionEvent
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
@@ -52,8 +59,22 @@ import java.util.concurrent.Executors
  *   is what makes this a test of the capture, not a copy of the renderer.
  *
  * Deliberate prototype decisions:
- *  - Portrait-locked, so the in-hand crosshair judgement happens in one
- *    orientation and the camera is not reopened on every quarter turn.
+ *  - The viewfinder FOLLOWS THE PHONE. It used to be portrait-locked (one
+ *    orientation for the in-hand crosshair judgement, no camera reopen on a
+ *    quarter turn), but a locked activity also holds the DISPLAY rotation at 0
+ *    forever, so anything reading WindowManager/DisplayManager/display.rotation
+ *    detects nothing — and holding the phone sideways to line the reticle up
+ *    with a text line left the capture upright for a portrait hold, so the text
+ *    arrived on its side. The activity is now `fullSensor` + `configChanges`
+ *    (see the manifest): the whole WINDOW turns with the phone, so the preview,
+ *    the reticle and the framing turn WITH it rather than a turned camera
+ *    stream sitting inside an upright portrait window; the activity is not
+ *    recreated, so the camera is not reopened on a quarter turn; and the bound
+ *    use cases are told the rotation from the SENSOR
+ *    ([android.view.OrientationEventListener], see [applyTargetRotation]),
+ *    because CameraX 1.4.2 does not follow a display-rotation change on its own
+ *    for an already-bound use case (only PreviewView's own surface transform
+ *    tracks the display, and that is 0 under a lock anyway).
  *  - Back camera, minimise-latency capture mode, no flash. Tapping the preview refocuses
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
@@ -97,6 +118,29 @@ class ProtoCameraActivity : AppCompatActivity() {
     /** The camera's controls (focus). Kept from the bind, which returns the session. */
     private var cameraControl: androidx.camera.core.CameraControl? = null
 
+    /**
+     * The bound preview use case. Kept with [imageCapture] because both carry the
+     * rotation the viewfinder follows the phone with (see [applyTargetRotation]).
+     */
+    private var previewUseCase: Preview? = null
+
+    /**
+     * The rotation handed to the use cases last — the gate that keeps a
+     * continuously-firing [orientationListener] from doing work on every degree
+     * of tilt. ROTATION_0 is only the value before the first sensor callback,
+     * which arrives as soon as the listener is enabled.
+     */
+    private var targetRotation = Surface.ROTATION_0
+
+    /**
+     * The phone's own rotation, which is the only source that reports it here:
+     * this activity's display rotation used to be pinned at 0 by the portrait
+     * lock, and even unlocked it is the window's answer, arriving late. Built in
+     * [onCreate] (an Activity is not a usable Context before then) and enabled
+     * only while this activity is the one on screen.
+     */
+    private lateinit var orientationListener: OrientationEventListener
+
     /** The reticle, kept so a resumed activity can pick up a moved tuning slider. */
     private lateinit var crosshair: ProtoCrosshairView
 
@@ -132,6 +176,23 @@ class ProtoCameraActivity : AppCompatActivity() {
         // app restarted. The capture session lives as long as this activity, so having one is
         // the right test.
         if (::captureButton.isInitialized) captureButton.isEnabled = imageCapture != null
+        // The phone can be turned while another activity is up; watch it again from here.
+        if (::orientationListener.isInitialized) {
+            if (orientationListener.canDetectOrientation()) {
+                orientationListener.enable()
+            } else {
+                // No sensor to read (some emulators, a device with the sensor denied): the
+                // viewfinder then keeps whatever rotation it was bound with, which is the
+                // behaviour before this change rather than something worse.
+                Log.w(TAG, "no orientation sensor: the viewfinder will not follow the phone")
+            }
+        }
+    }
+
+    override fun onPause() {
+        // The results view is another activity: nothing to watch while it is up.
+        if (::orientationListener.isInitialized) orientationListener.disable()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -198,6 +259,12 @@ class ProtoCameraActivity : AppCompatActivity() {
             )
         )
 
+        // The top-left corner, as ONE stack: the back control in the corner with the
+        // status line under it, so neither collides with the other. The window is
+        // edge-to-edge (targetSdk 35 on Android 15+ forces it) and the preview is
+        // deliberately full-bleed, so the insets are taken by this stack rather than
+        // by the root: without them the button's top slice sits under the status bar
+        // and the system takes the touches.
         statusView = TextView(this).apply {
             tag = "proto_status"
             setTextColor(0xFFFFFFFF.toInt())
@@ -205,13 +272,35 @@ class ProtoCameraActivity : AppCompatActivity() {
             textSize = 12f
             text = "PROTOTYPE #78 — camera mode"
         }
-        root.addView(
+        val corner = LinearLayout(this).apply {
+            tag = "proto_corner"
+            orientation = LinearLayout.VERTICAL
+        }
+        val backSide = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        corner.addView(backButton(), LinearLayout.LayoutParams(backSide, backSide))
+        corner.addView(
             statusView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (STATUS_GAP_DP * resources.displayMetrics.density).roundToInt() }
+        )
+        root.addView(
+            corner,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply { gravity = Gravity.TOP or Gravity.START }
         )
+        ViewCompat.setOnApplyWindowInsetsListener(corner) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val base = (CORNER_MARGIN_DP * resources.displayMetrics.density).roundToInt()
+            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply {
+                leftMargin = base + bars.left
+                topMargin = base + bars.top
+            }
+            insets
+        }
 
         captureButton = Button(this).apply {
             tag = "proto_capture"
@@ -254,6 +343,26 @@ class ProtoCameraActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // The sensor, built here and enabled in onResume. A callback fires for
+        // every degree of tilt, so [targetRotation] is what keeps this cheap: only
+        // an actual quarter turn reaches the camera.
+        orientationListener = object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                val rotation = surfaceRotationFor(orientation)
+                if (rotation == targetRotation) return
+                val was = targetRotation
+                targetRotation = rotation
+                Log.i(
+                    TAG,
+                    "device turned: orientation $orientation -> " +
+                        "${rotationName(rotation)} (was ${rotationName(was)}), " +
+                        "view ${previewView.width}x${previewView.height}"
+                )
+                applyTargetRotation(rotation)
+                if (::statusView.isInitialized) statusView.text = statusText()
+            }
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) {
@@ -261,6 +370,92 @@ class ProtoCameraActivity : AppCompatActivity() {
         } else {
             requestCamera.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    /**
+     * The back control, in the top-left corner. It does exactly what the system
+     * back button does — one press through [onBackPressedDispatcher], the same
+     * entry the platform's own back reaches (this activity overrides no back
+     * handling of its own, so there is no second exit path to drift from).
+     *
+     * Styled like the share activity's chrome — a text glyph on a semi-transparent
+     * dark fill with the app's cyan outline — rather than a bundled asset: a new
+     * asset would have to satisfy the app's licence index, a glyph does not. 52dp
+     * is the chrome size there; the camera's 84dp squares are its shutter-sized
+     * primary controls, which a corner affordance is not.
+     */
+    private fun backButton(): Button = CenteredButton(this).apply {
+        tag = "proto_back"
+        text = BACK_GLYPH
+        contentDescription = "Back"
+        setTextColor(BACK_GLYPH_COLOR)
+        textSize = BACK_GLYPH_TEXT_SIZE_SP
+        includeFontPadding = false
+        isAllCaps = false
+        minWidth = 0
+        minHeight = 0
+        setPadding(0, 0, 0, 0)
+        gravity = Gravity.CENTER
+        background = chromeBackground()
+        setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+    }
+
+    /** Dark fill with the app's cyan outline, as the share activity's chrome uses. */
+    private fun chromeBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = BACK_BUTTON_RADIUS_DP * resources.displayMetrics.density
+        setColor(BACK_BUTTON_FILL)
+        setStroke((1.5f * resources.displayMetrics.density).roundToInt(), BACK_BUTTON_STROKE)
+    }
+
+    /**
+     * The rotation of what the camera writes, from the phone's own orientation.
+     *
+     * The bands are CameraX's own (androidx.camera.view.RotationProvider
+     * .orientationToSurfaceRotation, camera-view 1.4.2 — the mapping
+     * LifecycleCameraController's device-rotation handling is built on), so a
+     * quarter turn here means the same thing it means to CameraX: each band is
+     * 90 degrees wide around a cardinal hold, and everything else — including
+     * OrientationEventListener.ORIENTATION_UNKNOWN, which arrives as -1 while the
+     * phone is flat or is being moved — reads as portrait.
+     *
+     * | orientation (degrees) | targetRotation      |
+     * | 45..134               | ROTATION_270        |
+     * | 135..224              | ROTATION_180        |
+     * | 225..314              | ROTATION_90         |
+     * | else (incl. -1)       | ROTATION_0          |
+     */
+    private fun surfaceRotationFor(orientation: Int): Int = when {
+        orientation in 45..134 -> Surface.ROTATION_270
+        orientation in 135..224 -> Surface.ROTATION_180
+        orientation in 225..314 -> Surface.ROTATION_90
+        else -> Surface.ROTATION_0
+    }
+
+    /**
+     * Tells both bound use cases which way up the camera's output is. One value,
+     * set on both, from one physical hold — that is what makes what is on screen
+     * and what lands in the file agree.
+     *
+     * Both are settable after binding: camera-core 1.4.2 declares a public
+     * `setTargetRotation(int)` on `Preview` and on `ImageCapture` (checked against
+     * the AAR, not assumed), and CameraX rebinds the use case internally when it
+     * changes — so this is a property set, not an unbind/rebind of the camera.
+     * Before the bind lands the use cases are null and the value is carried in
+     * [targetRotation], which [startCamera] applies once they exist.
+     */
+    private fun applyTargetRotation(rotation: Int) {
+        previewUseCase?.targetRotation = rotation
+        imageCapture?.targetRotation = rotation
+    }
+
+    /** The value's own name, so the status line and the log can be read off together. */
+    private fun rotationName(rotation: Int): String = when (rotation) {
+        Surface.ROTATION_0 -> "ROTATION_0"
+        Surface.ROTATION_90 -> "ROTATION_90"
+        Surface.ROTATION_180 -> "ROTATION_180"
+        Surface.ROTATION_270 -> "ROTATION_270"
+        else -> "rotation $rotation"
     }
 
     private fun startCamera() {
@@ -275,10 +470,16 @@ class ProtoCameraActivity : AppCompatActivity() {
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .build()
                 imageCapture = capture
+                previewUseCase = preview
                 provider.unbindAll()
                 val camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
                 cameraControl = camera.cameraControl
                 captureButton.isEnabled = true
+                // AFTER the bind, deliberately: a use case takes its target rotation
+                // from the display at bind time, so anything set before this would be
+                // overwritten. The sensor may already have reported a hold while this
+                // future was pending — [targetRotation] is the value to hand over.
+                applyTargetRotation(targetRotation)
                 statusView.text = statusText()
                 // The crop's one assumption, printed so it can be checked from logcat:
                 // the FILL_CENTER rect is worked out against the CAPTURE's frame, and it
@@ -288,7 +489,8 @@ class ProtoCameraActivity : AppCompatActivity() {
                     "camera bound, viewfinder up: preview " +
                         "${preview.resolutionInfo?.resolution}, capture " +
                         "${capture.resolutionInfo?.resolution}, view " +
-                        "${previewView.width}x${previewView.height}"
+                        "${previewView.width}x${previewView.height}, " +
+                        "targetRotation ${rotationName(capture.targetRotation)}"
                 )
             } catch (t: Throwable) {
                 Log.e(TAG, "camera bind failed", t)
@@ -317,11 +519,12 @@ class ProtoCameraActivity : AppCompatActivity() {
         Log.i(TAG, "preview framing = ${if (previewFill) "FILL_CENTER" else "FIT_CENTER"}")
     }
 
-    private fun statusText(): String = "PROTOTYPE #78 — framing: ${if (previewFill) {
-        "FILL_CENTER (screen filled; the photo sent is this crop)"
-    } else {
-        "FIT_CENTER (whole photo visible, and sent whole)"
-    }}. Line the text up on the crossing point; the Zoom button switches framing."
+    private fun statusText(): String = "PROTOTYPE #78 — camera targetRotation: " +
+        "${rotationName(targetRotation)}; framing: ${if (previewFill) {
+            "FILL_CENTER (screen filled; the photo sent is this crop)"
+        } else {
+            "FIT_CENTER (whole photo visible, and sent whole)"
+        }}. Line the text up on the crossing point; the Zoom button switches framing."
 
     /**
      * One press: write a JPEG, hand its URI to the EXISTING share entry.
@@ -599,6 +802,25 @@ class ProtoCameraActivity : AppCompatActivity() {
         private const val CAPTURE_DIR_NAME = "proto-camera"
         /** Side of the square shutter button, in dp. One knob for its size. */
         private const val CAPTURE_BUTTON_DP = 84f
+
+        /**
+         * The corner control: the same 52dp chrome size and glyph treatment the
+         * share activity's rotate pair uses, and the glyph is a text arrow rather
+         * than a drawable — a new bundled asset would have to satisfy the app's
+         * licence index (see app/licenses/components.tsv), a glyph costs nothing.
+         */
+        private const val BACK_BUTTON_DP = 52
+        /** U+2190 LEFT ARROW. */
+        private const val BACK_GLYPH = "\u2190"
+        private const val BACK_GLYPH_TEXT_SIZE_SP = 24f
+        private const val BACK_BUTTON_RADIUS_DP = 10f
+        private val BACK_GLYPH_COLOR = Color.parseColor("#00FFFF")
+        private val BACK_BUTTON_FILL = Color.argb(130, 25, 25, 25)
+        private val BACK_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
+
+        /** Between the back control and the status line under it, and off the corner. */
+        private const val STATUS_GAP_DP = 8f
+        private const val CORNER_MARGIN_DP = 12f
 
         /**
          * The long side, in pixels, of the frame the FILL_CENTER crop is taken
