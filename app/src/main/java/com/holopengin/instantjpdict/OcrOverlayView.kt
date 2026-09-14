@@ -210,7 +210,8 @@ class OcrOverlayView(
                 // Pinch takes over immediately from any running zoom animation.
                 zoomAnimator?.cancel()
                 val oldScale = controller.currentScale
-                controller.currentScale = (controller.currentScale * detector.scaleFactor).coerceIn(1f, 5f)
+                controller.currentScale = (controller.currentScale * detector.scaleFactor)
+                    .coerceIn(DoubleTapZoom.MIN_SCALE, DoubleTapZoom.MAX_SCALE)
                 val factor = controller.currentScale / oldScale
 
                 contentContainer.scaleX = controller.currentScale
