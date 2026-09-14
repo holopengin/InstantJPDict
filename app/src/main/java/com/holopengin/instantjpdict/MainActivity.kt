@@ -156,6 +156,10 @@ class MainActivity : AppCompatActivity() {
             DictionaryManagerDialog.show(this)
         }
 
+        addButton(layout, "Gamepad Controls") {
+            GamepadSettingsDialog.show(this)
+        }
+
         // #70: licences and attribution for everything the APK bundles — the app
         // itself, every dependency, the native libraries, the models and the
         // derived dictionary data. Read from assets/licenses/INDEX.txt, so it works
@@ -164,10 +168,6 @@ class MainActivity : AppCompatActivity() {
         // for, since KRADFILE/JMdict-derived data ships in here.
         addButton(layout, "Licenses") {
             LicenseDialog.show(this)
-        }
-
-        addButton(layout, "Gamepad Controls") {
-            GamepadSettingsDialog.show(this)
         }
 
         // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
