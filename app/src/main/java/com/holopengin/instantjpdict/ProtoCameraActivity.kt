@@ -944,14 +944,18 @@ class ProtoCameraActivity : AppCompatActivity() {
      * entry, with [note] — which framing actually went over — written to the log
      * so it can be read back afterwards.
      *
-     * It carries the hold as well, and that is the whole of the OCR view's
-     * orientation inheritance: [InheritedOrientation.EXTRA_CAMERA_HOLD] gets
-     * [targetRotation] — the same number [applyTargetRotation] just gave both use
-     * cases and [isLandscapeHold] reads for the anchors, so nothing new is
-     * decided here, a value the viewfinder already had is passed on. The OCR view
-     * reads it in `onCreate` and asks the window manager to come up that way; the
-     * system share sheet sends no such extra, so its path through the same
-     * activity is untouched (see [InheritedOrientation]).
+     * It carries the hold as well, and that is the handoff marker:
+     * [InheritedOrientation.EXTRA_CAMERA_HOLD] gets [targetRotation] — the same
+     * number [applyTargetRotation] just gave both use cases and [isLandscapeHold]
+     * reads for the anchors, so nothing new is decided here, a value the viewfinder
+     * already had is passed on. The OCR view reads it in `onCreate` and logs it
+     * beside the window it came up in (see [InheritedOrientation]): the OCR view's
+     * ORIENTATION is no longer asked for at runtime — it is declared as
+     * `fullSensor` in that activity's manifest entry, the same value this activity
+     * declares for itself, so both windows resolve the hold from the same sensor
+     * and the OCR view's first layout is already the hold. The explicit
+     * `setClass` below is what keeps the handoff on that entry; the system share
+     * sheet reaches the same activity with no extra of its own.
      */
     private fun handOff(file: File, note: String) {
         val uri = try {

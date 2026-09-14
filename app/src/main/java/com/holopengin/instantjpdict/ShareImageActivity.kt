@@ -78,17 +78,23 @@ import kotlin.math.roundToInt
  * rather than calling `finish()`; the callback is registered in [onCreate].
  *
  * #78 follow-up (orientation): opened FROM THE VIEWFINDER, this activity comes up
- * the way the camera was held. [ProtoCameraActivity] sends the hold it was in as
- * [InheritedOrientation.EXTRA_CAMERA_HOLD] — the same `Surface` rotation it gives
- * its use cases and reads its control anchors from — and [adoptCameraHold] asks
- * the window manager for a sensor-based orientation before the first layout, so
- * a landscape hold opens a landscape view and it keeps following the phone
- * afterwards. Opened from a SYSTEM SHARE SHEET there is no such extra and no
- * orientation call is made at all: that path is exactly what it was. Nothing is
- * declared in the manifest for either path — the entry there is shared with the
- * exported `ACTION_SEND` filter, so a `screenOrientation` (or `configChanges`)
- * on it would pin or restart the share path too; the whole difference lives in
- * [adoptCameraHold] and in one extra on the camera's Intent.
+ * the way the camera was held — DECLARED, not requested: its manifest entry carries
+ * `android:screenOrientation="fullSensor"`, the same value [ProtoCameraActivity]
+ * declares for itself, so the FIRST layout is already the device's hold and no
+ * post-creation quarter turn follows. `fullSensor` FOLLOWS the device rather than
+ * pinning a family, so the exported `ACTION_SEND` entry point is not pinned either.
+ *
+ * The runtime request this replaces is gone: [onCreate] used to ask the window
+ * manager for FULL_SENSOR from the camera's
+ * [InheritedOrientation.EXTRA_CAMERA_HOLD], and that request was resolving AFTER
+ * the first layout — the activity was laid out in the launch orientation and then
+ * re-created when it landed, which is the "starts portrait, then it rotates" the
+ * maintainer saw, with this activity's whole composite rebuilt on the re-creation.
+ * The extra is still read, but only to LOG the handoff ([logCameraHold]): it is no
+ * longer a second writer of any window property, so nothing can disagree with the
+ * manifest. Deliberately NO `configChanges`: the quarter-turn re-creation still
+ * recomposes the image at the new container size, which is what keeps the
+ * overlay's box coordinates 1:1 with the surface.
  *
  * The landscape chrome is this activity's own and needed no new anchoring: the
  * back control goes through [applySystemBarInsets], which writes all four
@@ -217,12 +223,13 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // The window is told which way up it is FIRST — before a single view
-        // exists and before the image is decoded — because an orientation
-        // request only decides the window this activity is laid out in if it
-        // lands before the first layout. See [adoptCameraHold] and
-        // [InheritedOrientation].
-        adoptCameraHold(intent)
+        // The orientation is DECLARED in the manifest (`fullSensor`), so the
+        // window this activity is created with is already the device's hold and
+        // nothing here asks the window manager for anything — see [logCameraHold]
+        // for why the camera's extra is still read, and the class doc for why the
+        // runtime request it used to make was the "starts portrait, then it
+        // rotates" the maintainer saw.
+        logCameraHold(intent)
 
         engine = OcrEngine(this)
         OverlayEnvironment.prepare(this, overlayState, overlayScope)
@@ -411,46 +418,52 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * #78 follow-up: "the ocr view does not inherit the camera view's orientation
      * but it should."
      *
-     * [ProtoCameraActivity] marks the handoff with the hold it was in
-     * ([InheritedOrientation.EXTRA_CAMERA_HOLD] — the same `Surface` rotation it
-     * gave its use cases and read its control anchors from). When that extra is
-     * present this asks the window manager for
-     * [InheritedOrientation.requestedOrientationFor]'s answer, `fullSensor`: the
-     * view opens the way up the viewfinder was, and keeps following the phone
-     * afterwards. When the extra is absent (a system share sheet) NOTHING is
-     * asked for and not one window property is touched, so the share path is this
-     * activity exactly as it was before.
+     * The INHERITANCE is now the manifest's: this activity declares
+     * `android:screenOrientation="fullSensor"`, the same value
+     * [ProtoCameraActivity] declares for itself, so `fullSensor` resolves the
+     * window from the same sensor the viewfinder's window came from and the FIRST
+     * layout is already the hold the camera was in — for both entry points, the
+     * viewfinder handoff and the exported `ACTION_SEND` filter, because
+     * `fullSensor` follows the device instead of pinning it.
      *
-     * Called from [onCreate] before anything is built, because an orientation
-     * request only decides the window this activity is laid out in if it lands
-     * before the first layout. See [InheritedOrientation] for why the request is
-     * `fullSensor` rather than the family the camera happened to be in, and for
-     * why re-running this on a later re-creation (with a stale hold) cannot flip
-     * a view that is already the right way up. A request that does change the
-     * window re-creates this activity in the new orientation, which is the clean
-     * way here: the image and the box coordinates are composed at the container's
-     * own size ([surfaceWidth] / [surfaceHeight]), so the re-created instance
-     * composes at the new container's size and the mapping stays 1:1 — where a
-     * `configChanges` activity would have had to recompose in place to avoid
-     * drawing stale portrait-space boxes over a resized view.
+     * This function used to be [adoptCameraHold], and it used to WRITE:
+     * `requestedOrientation = requested` from the camera's
+     * [InheritedOrientation.EXTRA_CAMERA_HOLD] extra. That writer is gone, and
+     * deliberately — an orientation request only decides the window this activity
+     * is laid out in if it lands before the first layout, and this one landed
+     * after: the activity came up in the launch orientation and was then
+     * re-created when the request resolved, i.e. the "starts portrait, then it
+     * rotates" the maintainer saw, rebuilding this activity's whole composite on a
+     * re-creation that no longer happens. A second writer that can disagree with
+     * the manifest is worse than no writer, so there is not one.
+     *
+     * What is left is the diagnostic the in-hand check reads, and it is read-only:
+     * one logcat line naming the hold the viewfinder handed over
+     * ([InheritedOrientation.EXTRA_CAMERA_HOLD] — the same `Surface` rotation the
+     * camera gave its use cases and read its control anchors from), the way up
+     * this window actually came up in, and the value the manifest declares for it
+     * ([InheritedOrientation.requestedOrientationFor], `fullSensor`). With the
+     * declaration in place the window and the hold must agree on the first layout;
+     * if they ever do not, this line says so without a second window property
+     * being touched. Called from [onCreate] before anything is built, exactly
+     * where the request used to be made.
      */
-    private fun adoptCameraHold(intent: Intent?) {
+    private fun logCameraHold(intent: Intent?) {
         val hold = intent
             ?.getIntExtra(InheritedOrientation.EXTRA_CAMERA_HOLD, InheritedOrientation.NO_HOLD)
             ?: InheritedOrientation.NO_HOLD
-        val requested = InheritedOrientation.requestedOrientationFor(hold) ?: return
+        val declared = InheritedOrientation.requestedOrientationFor(hold) ?: return
         // The one line the in-hand check reads: the hold the viewfinder handed
-        // over, the way up the window this instance came up in, and what went in.
+        // over, the way up this window came up, and what the manifest declares.
         // A window in the hold's own family is the feature working; one in the
-        // other family is the platform not having followed the sensor yet.
+        // other family is a first layout the declaration did not reach.
         val createdLandscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         Log.i(
             "ShareImageActivity",
             "camera hold ${holdName(hold)}, window was ${familyName(createdLandscape)}, " +
-                "requesting FULL_SENSOR ($requested)"
+                "manifest declares FULL_SENSOR ($declared)"
         )
-        requestedOrientation = requested
     }
 
     /** The hold's own name, so a logcat line can be read without decoding an int. */

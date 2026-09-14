@@ -4,60 +4,47 @@ import android.content.pm.ActivityInfo
 
 /**
  * #78 follow-up ("the ocr view does not inherit the camera view's orientation but
- * it should"): the orientation rule for [ShareImageActivity] when it is opened BY
- * THE VIEWFINDER, kept pure so the JVM unit tests can pin it — the activity
- * itself is view construction and cannot be.
+ * it should"): the orientation vocabulary of the [ShareImageActivity] handoff,
+ * kept pure so the JVM unit tests can pin it — the activity itself is view
+ * construction and cannot be.
  *
- * THE PROBLEM. [ProtoCameraActivity] declares `screenOrientation="fullSensor"`,
- * which is the sensor value the platform documents to "use the sensor even if the
- * user locked sensor-based rotation" — so the viewfinder turns with the phone
- * whatever the auto-rotate setting says, and while it is on screen the display
- * itself has turned with it. [ShareImageActivity] declares NO `screenOrientation`
- * (see the manifest: its entry is shared with the exported `ACTION_SEND` filter
- * and must not be pinned), so it obeys the user's rotation setting. With
- * auto-rotate off — exactly the state the viewfinder's `fullSensor` exists to
- * survive — a capture taken holding the phone sideways hands off to an upright
- * portrait OCR view.
- *
- * THE RULE. The camera marks the launch: it puts the hold it was in on the
- * handoff Intent ([EXTRA_CAMERA_HOLD]) and this answers
- * [ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR] for that launch — the same value
- * the viewfinder declares for itself.
+ * HOW IT IS APPLIED NOW. [ShareImageActivity] DECLARES
+ * `android:screenOrientation="fullSensor"` in the manifest, the same value
+ * [ProtoCameraActivity] declares for itself, so the FIRST layout is already the
+ * hold the camera was in and `fullSensor` keeps following the sensor afterwards.
+ * This object no longer writes anything: the runtime request it used to serve
+ * (`requestedOrientation` set from the extra, in `onCreate`) resolved after the
+ * first layout — the activity came up in the launch orientation and was
+ * re-created when the request landed, which is the "starts portrait, then it
+ * rotates" the maintainer saw.
  *
  * Why FULL_SENSOR is the same notion of orientation the camera used, rather than
  * a guess at it: the camera's preview stream and its control anchors both come
  * from the SENSOR ([DeviceHold.surfaceRotationFor], applied by
  * `ProtoCameraActivity.applyTargetRotation`), and the only reason its window was
  * the way up it was is that `fullSensor` had the platform resolve it from that
- * same sensor. Asking the OCR view for `fullSensor` puts it on that same source
- * and that same policy, so a landscape hold opens a landscape view — and, because
- * the platform keeps resolving from the sensor after the launch, turning the
- * phone does not leave the view stuck: it is re-created in the new orientation
- * and the image is recomposed at the new container size, so the overlay's box
- * coordinates stay 1:1 with the surface.
+ * same sensor. Declaring the same value on the OCR view puts it on that same
+ * source and that same policy, so a landscape hold opens a landscape view — and,
+ * because the platform keeps resolving from the sensor after the launch, turning
+ * the phone does not leave the view stuck: it is re-created in the new
+ * orientation and the image is recomposed at the new container size, so the
+ * overlay's box coordinates stay 1:1 with the surface.
  *
  * Why NOT a fixed orientation, which is the tempting alternative ("it was
- * landscape, so ask for landscape"): an orientation request is a property of the
- * activity for as long as it lives, and nothing in the handoff can release it
- * later. Locking the family the camera happened to be in would trade the
- * maintainer's complaint for its mirror image the moment the phone was turned
- * back — a capture-sideways OCR view that refuses to come upright — and the
- * question "which family was the camera in?" is the wrong question anyway: the
- * phone may have moved between the shutter and the OCR view's first frame, and
- * the sensor is the only thing that knows the answer now.
+ * landscape, so ask for landscape"): pinning the family the camera happened to be
+ * in would trade the maintainer's complaint for its mirror image the moment the
+ * phone was turned back — a capture-sideways OCR view that refuses to come
+ * upright — and it would pin the exported `ACTION_SEND` entry point too, which is
+ * the one path the ask excludes. `fullSensor` follows the device; it does not
+ * freeze anything.
  *
- * It is also idempotent by construction: the answer depends on nothing but the
- * presence of the hold. A later re-creation of the activity (a quarter turn, a
- * process death restore) runs the same call with the SAME, by then stale, camera
- * hold and asks for the same relative-to-the-device thing, so re-adopting can
- * never flip a view that is already the right way up.
- *
- * THE OTHER ENTRY POINT IS UNTOUCHED. A system share sheet sends no extra, so
- * [requestedOrientationFor] answers null for it: [ShareImageActivity] makes no
- * orientation call at all and the activity behaves exactly as it did before — the
- * user's rotation setting, and no `screenOrientation` in the manifest for anyone
- * else to inherit. Nothing about the share path changed, down to the absence of a
- * call.
+ * WHAT IS LEFT HERE. The extra is still carried and still read, but only for
+ * logging: [EXTRA_CAMERA_HOLD] is the marker that says which entry point this is
+ * (the system share sheet sends no such extra, so the line is a camera handoff
+ * line), and [requestedOrientationFor] is the value the log names as what the
+ * manifest declares. Presence of the extra no longer selects any behaviour — the
+ * manifest's declaration applies to both entry points — so nothing here can
+ * disagree with it.
  */
 object InheritedOrientation {
 
@@ -66,14 +53,13 @@ object InheritedOrientation {
      * ([DeviceHold]). Public because the camera writes it and the OCR view reads
      * it — one name, both ends.
      *
-     * Its PRESENCE is the marker of which entry point this is: the system share
-     * sheet sends no such extra, so that is what selects the behaviour, and its
-     * absence is what leaves the share path untouched. Its VALUE is the hold the
-     * viewfinder was in, carried for the in-hand check — [ShareImageActivity]
-     * logs it beside the window it came up in, so "did the OCR view open the way
-     * the camera was held?" is answered by one logcat line — and it is the same
-     * number the camera gave its use cases and read its control anchors from,
-     * not a second reading of the sensor taken somewhere else.
+     * The system share sheet sends no such extra, so its presence is what makes
+     * the handoff log line ([ShareImageActivity.logCameraHold]) a camera line.
+     * Its VALUE is the hold the viewfinder was in, carried for the in-hand check —
+     * the OCR view logs it beside the window it came up in, so "did the OCR view
+     * open the way the camera was held?" is answered by one logcat line — and it
+     * is the same number the camera gave its use cases and read its control
+     * anchors from, not a second reading of the sensor taken somewhere else.
      *
      * The name is namespaced rather than a bare word so no other sender can
      * collide with it by accident.
@@ -85,8 +71,13 @@ object InheritedOrientation {
     const val NO_HOLD = -1
 
     /**
-     * What [ShareImageActivity] should ask the window manager for, or null to ask
-     * for nothing at all (the system-share entry point — see the class doc).
+     * The orientation the OCR view's manifest entry declares — `fullSensor`, the
+     * same value the viewfinder declares for itself — or null when there was no
+     * camera handoff at all (the system-share entry point).
+     *
+     * Answering null for [NO_HOLD] is what keeps the share sheet from logging a
+     * camera line. Nothing calls this to SET an orientation any more; the value it
+     * answers is the one the log line compares the first layout against.
      */
     fun requestedOrientationFor(hold: Int): Int? =
         if (hold == NO_HOLD) null else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR

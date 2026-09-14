@@ -8,21 +8,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * #78 follow-up: what [ShareImageActivity] asks for when the viewfinder hands
- * off. The activity is view construction and cannot be JVM-tested; this decision
- * is a pure function of the handoff extra, so it is pinned here.
+ * #78 follow-up: the handoff rule the viewfinder and the OCR view share. The
+ * activity is view construction and cannot be JVM-tested; this decision is a pure
+ * function of the handoff extra, so it is pinned here.
  *
- * The two load-bearing tests:
- *  - [aShareSheetLaunchAsksForNothingAtAll] — the system-share entry point makes
- *    NO orientation call, so that path is provably what it was;
- *  - [theCameraPathNeverAsksForAFixedOrientation] — the view keeps following the
- *    phone after it opens, which is also why the answer does not depend on the
- *    hold: the phone can move between the shutter and this activity's first
+ * It is no longer the value [ShareImageActivity] ASKS for — that activity now
+ * declares `android:screenOrientation="fullSensor"` in its manifest entry, so the
+ * orientation is part of the window it is created with and no runtime request is
+ * made at all (see [OrientationManifestTest]). What is pinned here is the value
+ * the handoff log names as what the manifest declares, and the two properties
+ * that must hold of it:
+ *  - [aShareSheetLaunchAsksForNothingAtAll] — the system-share entry point hands
+ *    over no hold, so it names no orientation and logs no camera handoff line;
+ *  - [theCameraPathNeverAsksForAFixedOrientation] — the value is sensor-based, so
+ *    the view keeps following the phone after it opens, and it does not depend on
+ *    the hold: the phone can move between the shutter and this activity's first
  *    frame, and the sensor is the only thing that knows which way up it is by
  *    then.
  *
  * [OrientationManifestTest] takes the last step, which needs the manifest: the
- * value asked for here is the one the viewfinder declares for itself.
+ * value named here is the one the viewfinder declares for itself.
  */
 class InheritedOrientationTest {
 
@@ -53,9 +58,10 @@ class InheritedOrientationTest {
     fun aLandscapeHoldGetsTheSameAnswerAsAPortraitOne() {
         // Which way up the camera was is the camera's business: it is passed along
         // for the record (the log the in-hand check reads) and does NOT decide the
-        // request, so there is no stale hold for a re-creation to act on — a
-        // quarter turn re-creates this activity and `onCreate` runs again with the
-        // camera's OLD hold in the same Intent.
+        // value, which is the same sensor-based one for every hold — so there is no
+        // stale hold for a re-creation to act on: a quarter turn re-creates this
+        // activity and `onCreate` runs again with the camera's OLD hold in the same
+        // Intent, naming the same declaration it named the first time.
         assertEquals(
             InheritedOrientation.requestedOrientationFor(Surface.ROTATION_0),
             InheritedOrientation.requestedOrientationFor(Surface.ROTATION_90)
