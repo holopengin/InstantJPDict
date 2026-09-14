@@ -97,7 +97,7 @@ class MainActivity : AppCompatActivity() {
         // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry
         // the system share sheet uses, so there is one OCR surface, not two.
         // Delete this button when the prototype branch is dropped.
-        addButton(layout, "Camera (PROTOTYPE #78)") {
+        addButton(layout, "Camera") {
             startActivity(Intent(this, ProtoCameraActivity::class.java))
         }
 
@@ -495,14 +495,6 @@ class MainActivity : AppCompatActivity() {
             // Recreate to refresh SeekBars
             recreate()
         }
-
-        val tuningFooter = TextView(this).apply {
-            text = "ncnn only — onnxruntime removed (12s→7s proven). DET/REC both ncnn 960×960 / 48×W."
-            textSize = 10f
-            setPadding(0, 16, 0, 0)
-            setTextColor(android.graphics.Color.DKGRAY)
-        }
-        tuningContainer.addView(tuningFooter)
 
         setContentView(root)
         refreshStatus()
