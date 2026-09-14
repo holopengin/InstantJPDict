@@ -79,6 +79,13 @@ import java.util.concurrent.Executors
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
  *    as an accidental zoom.
+ *  - The SHUTTER is the app's own OCR-button graphic — the cyan circle on black with the
+ *    cyan 辞典 ([androidx.core.content.ContextCompat]-loaded `R.drawable.logo`, the same
+ *    drawable the accessibility service's floating trigger draws), in the same square
+ *    footprint the labelled button had. It is a graphic and not a new asset: a new
+ *    bundled asset has to satisfy the licence index the build verifies. With no label
+ *    left, the disabled state is shown by dimming ([setShutterEnabled]) and the control
+ *    carries a contentDescription, because it is still the shutter.
  *  - The preview shows the WHOLE captured frame by default
  *    ([PreviewView.ScaleType.FIT_CENTER]) — a portrait view with a landscape
  *    4:3 sensor frame, so the live image is a band across the middle of the
@@ -175,7 +182,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         // paths re-enable it, so without this the button stayed grey and unclickable until the
         // app restarted. The capture session lives as long as this activity, so having one is
         // the right test.
-        if (::captureButton.isInitialized) captureButton.isEnabled = imageCapture != null
+        if (::captureButton.isInitialized) setShutterEnabled(imageCapture != null)
         // The phone can be turned while another activity is up; watch it again from here.
         if (::orientationListener.isInitialized) {
             if (orientationListener.canDetectOrientation()) {
@@ -302,15 +309,25 @@ class ProtoCameraActivity : AppCompatActivity() {
             insets
         }
 
-        captureButton = Button(this).apply {
+        captureButton = CenteredButton(this).apply {
             tag = "proto_capture"
-            text = "Capture"
-            isEnabled = false
+            // The app's OWN OCR-button graphic — the cyan circle on black with the cyan
+            // 辞典, i.e. R.drawable.logo, the very drawable the accessibility service's
+            // floating button draws (logoButtonBackground). No new asset: a new bundled
+            // asset has to satisfy the licence index (app/licenses/components.tsv) and
+            // would fail the build's verifyLicenseIndex step.
+            background = logoButtonBackground(this@ProtoCameraActivity)
             // Cleared so the fixed square side below wins over Button's own minimums.
             minWidth = 0
             minHeight = 0
+            setPadding(0, 0, 0, 0)
+            // The label is gone, so the control says what it is to a screen reader:
+            // this is the shutter (see [setShutterEnabled] for how the disabled state
+            // reads without a text colour to grey out).
+            contentDescription = SHUTTER_DESCRIPTION
             setOnClickListener { capture() }
         }
+        setShutterEnabled(false)
         val zoomSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
         root.addView(
             Button(this).apply {
@@ -474,7 +491,7 @@ class ProtoCameraActivity : AppCompatActivity() {
                 provider.unbindAll()
                 val camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
                 cameraControl = camera.cameraControl
-                captureButton.isEnabled = true
+                setShutterEnabled(true)
                 // AFTER the bind, deliberately: a use case takes its target rotation
                 // from the display at bind time, so anything set before this would be
                 // overwritten. The sensor may already have reported a hold while this
@@ -527,6 +544,22 @@ class ProtoCameraActivity : AppCompatActivity() {
         }}. Line the text up on the crossing point; the Zoom button switches framing."
 
     /**
+     * The shutter's enabled state and its look, in one place.
+     *
+     * The control is the app's OCR-button graphic now, not a labelled Button, so
+     * there is no text colour for the platform to grey out when it is disabled —
+     * and [capture] disables it for the whole handoff (a second press would write a
+     * second file for the same shot), so an indistinguishable disabled state would
+     * read as a dead button. The dimming is the whole of the difference; which
+     * presses are allowed is unchanged, including the onResume restore in
+     * [onResume].
+     */
+    private fun setShutterEnabled(enabled: Boolean) {
+        captureButton.isEnabled = enabled
+        captureButton.alpha = if (enabled) SHUTTER_ALPHA_ENABLED else SHUTTER_ALPHA_DISABLED
+    }
+
+    /**
      * One press: write a JPEG, hand its URI to the EXISTING share entry.
      *
      * Which JPEG depends on the framing that was on screen at the press —
@@ -544,7 +577,7 @@ class ProtoCameraActivity : AppCompatActivity() {
      */
     private fun capture() {
         val capture = imageCapture ?: return
-        captureButton.isEnabled = false
+        setShutterEnabled(false)
         statusView.text = "PROTOTYPE #78 — capturing..."
         val framingWasFill = previewFill
         val dir = File(cacheDir, CAPTURE_DIR_NAME).apply { mkdirs() }
@@ -573,7 +606,7 @@ class ProtoCameraActivity : AppCompatActivity() {
                 override fun onError(exception: ImageCaptureException) {
                     Log.e(TAG, "capture failed", exception)
                     statusView.text = "PROTOTYPE #78 — capture failed: ${exception.message}"
-                    captureButton.isEnabled = true
+                    setShutterEnabled(true)
                 }
             }
         )
@@ -780,7 +813,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         } catch (t: Throwable) {
             Log.e(TAG, "FileProvider failed", t)
             statusView.text = "PROTOTYPE #78 — FileProvider failed: ${t.message}"
-            captureButton.isEnabled = true
+            setShutterEnabled(true)
             return
         }
         Log.i(TAG, "handing $uri to ShareImageActivity ($note)")
@@ -800,8 +833,16 @@ class ProtoCameraActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ProtoCamera"
         private const val CAPTURE_DIR_NAME = "proto-camera"
-        /** Side of the square shutter button, in dp. One knob for its size. */
+        /** Side of the square shutter button, in dp. One knob for its size — and the
+         *  square it is a side of is the footprint of the OCR-button graphic. */
         private const val CAPTURE_BUTTON_DP = 84f
+
+        /** What the shutter says to a screen reader, now that it has no label. */
+        private const val SHUTTER_DESCRIPTION = "Capture"
+
+        /** The shutter's own alpha, enabled and disabled: the graphic does not dim itself. */
+        private const val SHUTTER_ALPHA_ENABLED = 1f
+        private const val SHUTTER_ALPHA_DISABLED = 0.4f
 
         /**
          * The corner control: the same 52dp chrome size and glyph treatment the
