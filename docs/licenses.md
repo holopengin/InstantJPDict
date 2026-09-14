@@ -88,7 +88,7 @@ dependency, and every one of those was checked against its own published POM.
 | Component | Licence | Text shipped | Verified from |
 |---|---|---|---|
 | InstantJPDict (the app) | AGPL-3.0-only | `texts/agpl-3.0.txt` | repo `LICENSE`, copied by the generator |
-| 78 Gradle runtime modules (AndroidX, Material, Gson, Kotlin stdlib, coroutines, jspecify, error_prone_annotations, guava listenablefuture) | Apache-2.0 | `texts/apache-2.0.txt` | each module's own POM `<licenses>` (Google Maven / Maven Central), 2026-09-13 |
+| 87 Gradle runtime modules (AndroidX, Material, Gson, Kotlin stdlib, coroutines, jspecify, error_prone_annotations, guava listenablefuture) | Apache-2.0 | `texts/apache-2.0.txt` | each module's own POM `<licenses>` (Google Maven / Maven Central), 2026-09-13 |
 | JNA 5.14.0 (`@aar`, ships `libjnidispatch.so`) | LGPL-2.1-or-later OR Apache-2.0 — Apache-2.0 elected | `texts/apache-2.0.txt`, `texts/lgpl-2.1.txt` | its POM `<licenses>`; note in `notices/jna.txt` |
 | ncnn (fork `vgf89/ncnn@a2b8507f`, upstream `Tencent/ncnn`) | BSD-3-Clause | `texts/bsd-3-clause-ncnn.txt` | `LICENSE.txt` at the pinned commit, fetched 2026-09-13 |
 | PP-OCRv6 small det + rec models + `vocab.json` | Apache-2.0 | `texts/apache-2.0.txt` | HF model cards `PaddlePaddle/PP-OCRv6_small_{det_onnx,rec_safetensors}`: `license: apache-2.0` |
@@ -152,8 +152,8 @@ app/src/main/assets/fonts/NotoSerifJP-Regular.ttf   8,079,912 bytes
 
 Both are static Regular instances of the upstream variable fonts
 (`wght=400` via `fontTools.varLib.instancer`) because the variable default is
-Thin/ExtraLight and shipping variable fonts would put 9.6 MB + 13.6 MB per face
-into the APK. Nothing is subset — the overlay draws dictionary text of arbitrary
+Thin/ExtraLight and shipping the variables would add 9.6 MB + 13.6 MB instead
+of the 5.8 MB + 8.1 MB above. Nothing is subset — the overlay draws dictionary text of arbitrary
 breadth — so the whole ~17,900-glyph faces ship. The notices
 (`notices/noto-sans-jp.txt`, `notices/noto-serif-jp.txt`) record the upstream
 file, its SHA-256, the exact instancing call, the copyright lines and the

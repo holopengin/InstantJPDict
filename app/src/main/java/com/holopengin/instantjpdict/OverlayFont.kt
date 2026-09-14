@@ -34,7 +34,11 @@ object OverlayFont {
     const val FACE_SANS = "sans"
     const val FACE_SERIF = "serif"
 
-    /** Today's appearance: the platform's own sans face, which was what the overlay drew. */
+    /**
+     * Today's appearance: the sans face the overlay drew before the switch
+     * existed (the bundled Noto Sans JP is metric-identical to the platform's
+     * Japanese sans on Android, so a fresh install's rendering is unchanged).
+     */
     const val DEFAULT_FACE = FACE_SANS
 
     /**

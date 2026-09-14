@@ -51,8 +51,8 @@ Vertical substitution verified (issue #47)
 ------------------------------------------
 
 The overlay renders vertical lines with Paint.fontFeatureSettings = "'vert' 1",
-so the face must carry the vertical GSUB features. Checked with fontTools on the
-committed file:
+so the face must carry the vert/vrt2 GSUB features. Checked with fontTools on
+the committed file:
 
   vert  : lookups 16/17/18, single substitutions covering 378 + 1 + 4 glyphs
           (、→uniFE11, 。→uniFE12, 「→uniFE41, 」→uniFE42, （→uniFE35,

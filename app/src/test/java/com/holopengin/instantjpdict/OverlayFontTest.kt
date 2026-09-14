@@ -90,7 +90,10 @@ class OverlayFontTest {
 
     // ————— helpers —————
 
-    private fun bytes(rel: String): ByteArray = TestAssets.assetsFile(rel).readBytes()
+    /** One read per asset per test, not per assertion: each file is 5.7–8 MB. */
+    private val fontBytes = mutableMapOf<String, ByteArray>()
+    private fun bytes(rel: String): ByteArray =
+        fontBytes.getOrPut(rel) { TestAssets.assetsFile(rel).readBytes() }
 
     private fun assertBundledFont(rel: String, family: String) {
         val bytes = bytes(rel)

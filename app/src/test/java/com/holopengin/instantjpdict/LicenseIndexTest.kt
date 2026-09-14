@@ -202,9 +202,10 @@ class LicenseIndexTest {
             assertTrue("'$name' notice does not state the instancing",
                 notice.contains("instancer"))
             // #47/#84: the vertical path uses fontFeatureSettings "'vert' 1", so
-            // the notice must record that the feature was checked, not assumed.
-            assertTrue("'$name' notice does not record the vert check", notice.contains("vert"))
-            assertTrue("'$name' notice does not record the vrt2 check", notice.contains("vrt2"))
+            // the notice must record that the features were checked, not assumed
+            // ("vert/vrt2" verbatim: "vert" alone would match "vertical").
+            assertTrue("'$name' notice does not record the vert/vrt2 check",
+                notice.contains("vert/vrt2"))
         }
     }
 
