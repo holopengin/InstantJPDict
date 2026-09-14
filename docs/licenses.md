@@ -98,6 +98,7 @@ dependency, and every one of those was checked against its own published POM.
 | Kanjium pitch accents `kanjium_pitch_accents.zip` | CC BY-SA 4.0 | `texts/cc-by-sa-4.0.txt` | upstream `LICENSE.txt` at the pinned commit |
 | Unihan variants `kanji_variants.txt` | Unicode License V3 | `texts/unicode-licence-v3.txt` | `unicode.org/license.txt`, UCD 17.0.0 |
 | JMdict oK/rK tags (same table) | CC BY-SA 4.0 (EDRDG) | `texts/cc-by-sa-4.0.txt`, `texts/edrdg-licence.txt` | EDRDG licence statement |
+| Historical kana sound-change rules (#81) | Public domain (著作権法第13条第2号) | none needed — notice only | 文化庁 内閣告示 昭和21年第33号「現代かなづかい」/ 昭和61年第1号「現代仮名遣い」, URLs in `notices/historical-kana-sound-changes.txt` |
 | Yomichan/Yomitan deinflection rules `deinflect.json` | GPL-3.0-only | `texts/gpl-3.0.txt` | JSON-identical to upstream `ext/data/deinflect.json`; `yomidevs/yomitan` is GPL-3.0 |
 | `libnav_graph_core.so` — 67-crate Rust closure (uniffi and friends) | per crate; MPL-2.0 for the uniffi family, MIT/Apache-2.0 otherwise | `texts/mpl-2.0.txt` + each crate's own licence file in `texts/rust/` | `cargo metadata` over the pinned `Cargo.lock`; texts copied from the crates' published sources |
 | `libomp.so` (LLVM OpenMP runtime from the NDK toolchain) | Apache-2.0 WITH LLVM-exception | `texts/apache-2.0-with-llvm-exception.txt` | LLVM's `LICENSE.TXT`; `libomp.so` packaged from NDK 28.2.13676358 |

@@ -1,0 +1,52 @@
+Historical kana sound-change rules (内閣告示「現代かなづかい」/「現代仮名遣い」)
+==============================================================================
+
+Component : app/src/main/assets/variants/kana_sound_changes.txt
+            (paired with variants/kana_sound_changes.PROVENANCE.txt)
+Generator : tools/build_kana_sound_changes.py
+
+What it is
+----------
+The 旧仮名遣い -> 現代仮名遣い sound changes the app's lookup-query normaliser
+applies (#81): ハ行転呼 (ふ->う, ひ->い, へ->え, は->わ), アウ->オウ (やう->よう,
+かう->こう) and エウ->ヨウ (けふ->きょう, てふ->ちょう). The rules rewrite the
+queried string only; displayed text is never changed.
+
+Source
+------
+The correspondences are those of two Cabinet notices (内閣告示), published by the
+Agency for Cultural Affairs (文化庁):
+
+  昭和21年内閣告示第33号「現代かなづかい」(1946-11-16)
+    語中・語尾のハ行の仮名はワ行の仮名に書き改める; 母音の変化 (アウ->オウ,
+    エウ->ヨウ)
+
+  昭和61年内閣告示第1号「現代仮名遣い」(1986-07-01)
+    本文第1 (直音・拗音・促音・長音の書き表し方) and 本文第2 (表記の慣習による
+    特例: the particle は stays は, the verb いう（言） keeps いう, 「ぢ」「づ」,
+    オ列の長音は「お」) — the source of the grammatical conditions the normaliser
+    applies (e.g. the particle は never folds, 言ふ -> 言う keeps いう).
+
+  https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/gendaikana/index.html
+  https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/gendaikana/honbun_dai1.html
+  https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/gendaikana/honbun_dai2.html
+  (retrieved 2026-09-14)
+
+Licence
+-------
+Public domain. 著作権法第13条第2号 (Copyright Act, Article 13, item 2): documents
+that are 国若しくは地方公共団体の機関…が発する告示、訓令、通達その他これらに
+類するもの are not eligible for copyright protection. A 内閣告示 is such a
+notice, so no licence text is shipped for this component; this notice and the
+index row are the attribution.
+
+The correspondences themselves are language facts. This repository's engineering
+choices — which rows are withheld and which ending conditions apply — are
+measured on the #75 bench slice and documented in the generator, the PROVENANCE
+file and KanaSoundChangesTest.kt; they are not copied from the notices.
+
+Checks
+------
+tools/build_kana_sound_changes.py --check/--reject pins the required and withheld
+pairs at generation time; app/src/test/…/KanaSoundChangesTest.kt pins every row
+and the normaliser's behaviour against the committed asset.

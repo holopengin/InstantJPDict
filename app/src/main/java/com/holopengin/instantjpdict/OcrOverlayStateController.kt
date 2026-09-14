@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.KanaOrthography
+import com.holopengin.instantjpdict.util.KanaSoundChanges
 import com.holopengin.instantjpdict.util.DeinflectionChain
 import com.holopengin.instantjpdict.util.DictionaryRedirects
 import com.holopengin.instantjpdict.util.OovCandidates
@@ -860,6 +861,11 @@ class OcrOverlayStateController {
             // only add a reachable headword, never take one away. Displayed text is
             // untouched: only this query string is rewritten.
             val modernised = KanaOrthography.modernise(queryText)
+            // #81: the historical sound changes JMdict's entry-local variants cannot
+            // reach (やう->よう, けふ->きょう, 思ふ->思う). Composed after #75, so
+            // きやう -> きゃう -> きょう; both forms stay in the candidate set, so
+            // nothing #75 reached is lost, and the raw prefix is still searched.
+            val soundChanged = KanaSoundChanges.modernise(modernised)
 
             // The RAW prefix is searched alongside its folded form. The fold is a
             // substitution, so folding alone replaced the queried form outright: an old
@@ -873,7 +879,9 @@ class OcrOverlayStateController {
                 JapaneseUtil.katakanaToHiragana(queryText),
                 JapaneseUtil.collapseEmphatic(queryText),
                 modernised,
-                JapaneseUtil.katakanaToHiragana(modernised)
+                JapaneseUtil.katakanaToHiragana(modernised),
+                soundChanged,
+                JapaneseUtil.katakanaToHiragana(soundChanged)
             ).distinct()
 
             val deinflections = deinflector.deinflect(queryText)
@@ -882,6 +890,8 @@ class OcrOverlayStateController {
             // modern form is deinflected as well — additive, like the variant above.
             val modernisedDeinflections =
                 if (modernised != queryText) deinflector.deinflect(modernised) else emptyList()
+            val soundChangedDeinflections =
+                if (soundChanged != modernised) deinflector.deinflect(soundChanged) else emptyList()
             val lengthCandidates = mutableListOf<SearchCandidate>()
             variants.forEach { lengthCandidates.add(SearchCandidate(it, null, null)); allTermsToSearch.add(it) }
             deinflections.forEach {
@@ -892,6 +902,12 @@ class OcrOverlayStateController {
             }
             modernisedDeinflections.forEach {
                 if (it.term != modernised && it.reasons.isNotEmpty()) {
+                    lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
+                    allTermsToSearch.add(it.term)
+                }
+            }
+            soundChangedDeinflections.forEach {
+                if (it.term != soundChanged && it.reasons.isNotEmpty()) {
                     lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
                     allTermsToSearch.add(it.term)
                 }
