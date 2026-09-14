@@ -45,9 +45,14 @@ import kotlin.math.roundToInt
  * hands it to [OcrOverlayView], which runs the shared detect/recognise render
  * pass and owns the boxes, lookup, popup and close behaviour.
  *
- * Exit is the same as the overlay's, per the issue: a tap on empty space or the
- * close button. Both reach [OcrOverlayView]'s single close path; when there is
+ * Exit: a tap on empty space, the system back key or gesture, the swipe down from
+ * the status strip, or the #78 back control in the top-left corner. All of them
+ * reach [OcrOverlayView]'s single close path; when there is
  * no layer left to close it calls [dismissOverlay] and this activity finishes.
+ *
+ * #78 ask: the view's own floating close button (a second logo button drawn over
+ * the image) is NOT drawn in this host — the back control covers it and one thing
+ * more. See [closeButtonOrigin].
  *
  * #57 rotation follow-up: two rotate buttons (⟳ / ⟲) are this activity's own
  * chrome, but they are placed in [OcrOverlayView]'s host-chrome layer
@@ -162,18 +167,26 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
-    /** No floating button to sit under; a fixed corner is all the button needs.
-     *  Top-left — which is why the rotate pair goes bottom-left.
+    /**
+     * #78: null — this host wants NO floating close button, so the overlay draws
+     * none (see [OcrOverlayView.addCloseButtonFor]).
      *
-     *  The corner now belongs to the #78 back control, so the view's draggable
-     *  close button starts to its right: at 100px (~36dp here) the two would sit
-     *  on top of each other, and the chrome layer would take the presses in the
-     *  overlap. It stays in the top strip, one control along. */
-    override fun closeButtonOrigin(): Pair<Int, Int> {
-        val back = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
-        val gap = (BACK_BUTTON_GAP_DP * resources.displayMetrics.density).roundToInt()
-        return (100 + back + gap) to 100
-    }
+     * There is no floating button to sit under here, which is why this corner was
+     * the button's. Since #78 the top-left corner belongs to the back control, and
+     * that control does everything the close button did and one thing more: it goes
+     * through the back dispatcher, so it closes the dictionary panel first and the
+     * whole view second — the same order as the system back key and the empty-space
+     * tap. What was left was a second, weaker exit affordance drawn with the app's
+     * OCR-logo graphic floating over the image (indistinguishable from the
+     * accessibility service's own floating trigger, which is the same drawable), and
+     * that is the control the maintainer asked to lose from this view.
+     *
+     * The exits are unaffected: the top-left back control, the system back key or
+     * gesture, a tap on empty space, and the swipe down from the status strip. The
+     * accessibility overlay's own close button is untouched — the service passes a
+     * position, and there it is the visible half of the floating trigger.
+     */
+    override fun closeButtonOrigin(): Pair<Int, Int>? = null
 
     /** No floating button to keep in step. */
     override fun onCloseButtonMoved(x: Int, y: Int) {}
@@ -666,7 +679,6 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         private const val BACK_GLYPH = "\u2190"
         private const val BACK_BUTTON_DP = 52
         private const val BACK_BUTTON_MARGIN_DP = 12
-        private const val BACK_BUTTON_GAP_DP = 8
 
         /** ≥48dp touch targets (platform minimum), a step up for legibility. */
         private const val ROTATE_BUTTON_DP = 52

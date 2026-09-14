@@ -79,8 +79,16 @@ class OcrOverlayView(
         fun dismissOverlay()
         /** Re-apply the host window's LayoutParams (manual-input keyboard). */
         fun requestSoftInputResize()
-        /** The draggable close button's starting position (floating-button coords). */
-        fun closeButtonOrigin(): Pair<Int, Int>
+        /**
+         * The draggable close button's starting position (floating-button
+         * coords) — or null when this host does not want that button at all.
+         *
+         * #78: a host that already has its own back control asks for null here
+         * rather than the view growing a second flag, so "no close button" is one
+         * fact in one place. See [addCloseButton] for why the accessibility
+         * service — the view's other host — still passes a position.
+         */
+        fun closeButtonOrigin(): Pair<Int, Int>?
         /** The close button was dragged; keep the floating button in step. */
         fun onCloseButtonMoved(x: Int, y: Int)
     }
@@ -392,7 +400,7 @@ class OcrOverlayView(
         }
         addView(controlsRoot, controlsParams)
 
-        addCloseButton()
+        addCloseButtonFor(host)
 
         // #57 rotation chrome: a layer for the host's own controls (the share
         // activity's rotate pair). Added last, so it sits above the image, the
@@ -424,12 +432,28 @@ class OcrOverlayView(
     }
 
     /**
+     * #78: the overlay's own floating close button, for hosts that want it.
+     *
+     * [Host.closeButtonOrigin] answers null when the host draws no close button:
+     * the image-share view already puts a back control in the top-left corner, so
+     * this button (the same logo graphic, floating over the image) was a second
+     * exit affordance doing one thing less — the back control closes a layer at a
+     * time, this closes the whole view. The accessibility service, whose overlay
+     * is the button's own home and is unchanged, still passes a position: the
+     * close button there is the visible half of the floating trigger.
+     */
+    private fun addCloseButtonFor(host: Host) {
+        val origin = host.closeButtonOrigin() ?: return
+        addCloseButton(origin)
+    }
+
+    /**
      * The draggable close button. Its position is the floating button's, and
      * dragging it keeps them in step — both host-specific bits go through
      * [Host] so the share activity gets the same button without a floating
      * button to sync.
      */
-    private fun addCloseButton() {
+    private fun addCloseButton(origin: Pair<Int, Int>) {
         val closeButton = CenteredButton(context).apply {
             tag = "close_button"
             background = logoButtonBackground(context)
@@ -485,7 +509,6 @@ class OcrOverlayView(
             })
         }
         val size = (44 * resources.displayMetrics.density).toInt()
-        val origin = host.closeButtonOrigin()
         val lp = FrameLayout.LayoutParams(size, size).apply {
             leftMargin = origin.first
             topMargin = origin.second
