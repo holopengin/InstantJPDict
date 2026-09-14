@@ -14,7 +14,9 @@ import android.view.Surface
  *    photo has to be written the way up the hand is holding the phone, so the
  *    preview stream and the image capture are told this one
  *    (`ProtoCameraActivity.applyTargetRotation`). It is a `Surface` rotation
- *    because that is the vocabulary CameraX takes.
+ *    because that is the vocabulary CameraX takes. Which rotation a fresh
+ *    reading turns the stream to — and which readings turn it at all — is
+ *    [streamRotationFor].
  *  - [isLandscapeWindow] is the WINDOW's answer — the orientation the UI is
  *    actually laid out and drawn in — and it describes the CONTROLS: where a
  *    button is anchored has to be the edge of the window that exists, so the
@@ -30,18 +32,23 @@ import android.view.Surface
  *    before the phone's native orientation switch rotate animation happens …
  *    they just jump weirdly" half of the report.
  *  - Laid flat, the phone's orientation is UNKNOWN ([ORIENTATION_UNKNOWN], -1),
- *    which [surfaceRotationFor] reads as portrait because that is the safe
- *    reading for a CAPTURE. The WINDOW is still landscape — it does not turn
- *    because a phone was tipped onto a table — so anchoring off the sensor moves
- *    two buttons that nothing on screen moved with: "if you tilt the phone down
- *    while in landscape the buttons move despite the rotate never triggering".
+ *    and that is the sensor saying it has NO hold to report rather than
+ *    reporting portrait. The WINDOW is still landscape — it does not turn
+ *    because a phone was tipped onto a table — and the STREAM keeps the hold it
+ *    already had, because [streamRotationFor] does not turn on a reading that is
+ *    not a hold. Taken off the raw band instead, both would move for it: two
+ *    buttons that nothing on screen moved with — "if you tilt the phone down
+ *    while in landscape the buttons move despite the rotate never triggering" —
+ *    and a capture stream a quarter turn out from the window that is still
+ *    holding it.
  *
- * The two functions are plain ints in and ints/booleans out, so the JVM unit
+ * The functions here are plain ints in and ints/booleans out, so the JVM unit
  * tests pin them without a phone:
  *  - [DeviceHoldTest] pins the bands, the portrait/landscape hold rule including
- *    every degree, and the window rule — including the two disagreeing cases
- *    above, which is the statement "the anchors do not move before the window
- *    does, and a flat phone moves nothing";
+ *    every degree, the stream rule (every reading that IS a hold turns the
+ *    stream; the unknown one does not), and the window rule — including the two
+ *    disagreeing cases above, which is the statement "the anchors do not move
+ *    before the window does, and a flat phone moves nothing";
  *  - the `Surface` and `Configuration` constants are compile-time constants, so
  *    the tests read them inlined rather than through the stub Android classes.
  *
@@ -70,7 +77,10 @@ object DeviceHold {
      * being moved — reads as portrait.
      *
      * The SENSOR's answer, so this is the STREAM's and the capture's notion of
-     * orientation, never the controls': see [isLandscapeWindow].
+     * orientation, never the controls': see [isLandscapeWindow]. This is the BAND
+     * a reading falls in — deliberately still the whole reading, unknown value
+     * included — and [streamRotationFor] is what decides whether the stream turns
+     * for it.
      *
      * | orientation (degrees) | targetRotation      |
      * | 45..134               | ROTATION_270        |
@@ -84,6 +94,37 @@ object DeviceHold {
         orientation in 225..314 -> Surface.ROTATION_90
         else -> Surface.ROTATION_0
     }
+
+    /**
+     * The rotation the STREAM takes from a fresh sensor reading, given the
+     * rotation it is carrying now — [surfaceRotationFor] for a reading that IS a
+     * hold, and [currentRotation] untouched for [ORIENTATION_UNKNOWN].
+     *
+     * WHY THE UNKNOWN READING IS NOT A TURN. [surfaceRotationFor]'s bands make -1
+     * portrait because that is CameraX's own band for a degree value it has no
+     * band for, and as a BAND that is still the right answer. Handed to the
+     * stream as a hold, though, it says something the sensor did not: the phone
+     * lying flat (or being moved) carries no hold at all, so portrait here is not
+     * a reading of the hand, it is the absence of one. A LANDSCAPE window does not
+     * turn because a phone was tipped onto a table, so applying it turns the
+     * capture a quarter turn inside the window that is still holding it — the
+     * preview would show a turned stream in an upright window, which is exactly
+     * what the `fullSensor` decision exists to avoid, and the FILL_CENTER crop
+     * (a centred aspect-crop of the UPRIGHT frame, [PreviewCrop]) would no longer
+     * be a crop of what is on screen. So the stream keeps what it has, the way it
+     * does under the orientation lock ([OrientationLock.streamRotationFor]), and
+     * the hand's last real hold stands until the sensor has another one.
+     *
+     * WHAT IT IS NOT. Not a filter over the bands: every reading that falls in one
+     * still turns the stream, including the 1-degree bands, so following the hand
+     * through a rotation is unchanged and only the no-reading case is dropped.
+     * And not a hold of its own — [currentRotation] is the caller's to keep
+     * ([ProtoCameraActivity] keeps the last hold the sensor reported), so this
+     * stays a plain function of two ints.
+     */
+    fun streamRotationFor(orientation: Int, currentRotation: Int): Int =
+        if (orientation == ORIENTATION_UNKNOWN) currentRotation
+        else surfaceRotationFor(orientation)
 
     /**
      * Which way up the phone is being HELD, from a surface rotation — the

@@ -87,11 +87,13 @@ import java.util.concurrent.Executors
  *    the anchors change when the WINDOW does and not when the sensor first
  *    reports the turn: a button that moved on the sensor jumped to its landscape
  *    edge before the platform had begun turning the window (and before the
- *    button itself had turned), and a phone laid flat reports ORIENTATION_UNKNOWN
- *    — portrait to [DeviceHold.surfaceRotationFor] and to the stream — so two
- *    buttons moved while nothing on screen had. The STREAM is unchanged: it still
- *    follows the sensor, because a capture must be oriented for the hand holding
- *    the phone. See [DeviceHold] for the two notions.
+ *    button itself had turned). The STREAM follows the sensor, because a capture
+ *    must be oriented for the hand holding the phone — but only for a reading that
+ *    IS a hold: a phone laid flat reports ORIENTATION_UNKNOWN, the sensor saying it
+ *    has no hold to report, and the stream keeps the hold it was last given rather
+ *    than being turned to portrait inside the landscape window still holding it
+ *    ([DeviceHold.streamRotationFor]). Either way a flat phone moves nothing. See
+ *    [DeviceHold] for the two notions.
  *  - The LOCK is the third orientation notion and the only one the user can turn
  *    on: a padlock control that holds the WINDOW and the STREAM together where they
  *    are, so the phone can be held at an awkward angle (over a book, lying down)
@@ -231,11 +233,13 @@ class ProtoCameraActivity : AppCompatActivity() {
     private var orientationLocked = false
 
     /**
-     * The latest band the sensor reported, whatever the lock is doing — the value
+     * The last HOLD the sensor reported, whatever the lock is doing — the value
      * un-freezing hands back to the stream ([OrientationLock.streamRotationFor]), so
      * a phone that was turned while the lock held the view does not stay pointed the
-     * wrong way after the release. Updated on every sensor callback, spent only when
-     * the lock is off.
+     * wrong way after the release. Recorded on every callback that reports a hold;
+     * the unknown reading is not one and does not replace it, which is what keeps a
+     * capture from being turned to portrait over a landscape window when the phone is
+     * tipped flat ([streamRotationFor]). Spent only when the lock is off.
      */
     private var lastSensorRotation = Surface.ROTATION_0
 
@@ -553,13 +557,17 @@ class ProtoCameraActivity : AppCompatActivity() {
         // themselves had turned), and it moved them for a phone laid flat, whose
         // orientation reads as portrait while the window is still landscape. The
         // anchors now follow the window ([onConfigurationChanged]); a capture
-        // still follows the hand. The one thing the LOCK changes here: while it is
+        // still follows the hand. And a capture only follows a READING: [streamRotationFor]
+        // is what this callback asks, so a phone tipped flat — the sensor reporting
+        // that it has no hold — leaves the stream on the hold it already has instead
+        // of turning it to portrait inside the landscape window that is still up.
+        // The one thing the LOCK changes here: while it is
         // on, this callback's reading is recorded ([lastSensorRotation]) and logged
         // but never applied, because the stream is frozen at the window's rotation
         // and the window itself is held — see [OrientationLock].
         orientationListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
-                val rotation = surfaceRotationFor(orientation)
+                val rotation = streamRotationFor(orientation)
                 // Recorded whatever the lock is doing: this is what un-freezing hands
                 // back to the stream, so a phone that was turned while the lock held
                 // the view does not stay pointed the wrong way after the release. The
@@ -686,16 +694,22 @@ class ProtoCameraActivity : AppCompatActivity() {
     }
 
     /**
-     * The rotation of what the camera writes, from the phone's own orientation —
-     * [DeviceHold.surfaceRotationFor], which owns the bands (CameraX's own, and
-     * the reason `ORIENTATION_UNKNOWN` reads as portrait there) so this is not a
-     * second implementation of them. This is the STREAM's and the capture's value:
-     * it goes to both use cases ([applyTargetRotation]) and, in the handoff, to
-     * [ShareImageActivity]. It is deliberately NOT what the control anchors are
-     * decided from — see [windowIsLandscape] and [DeviceHold].
+     * The rotation the STREAM takes from a fresh sensor reading —
+     * [DeviceHold.streamRotationFor], which owns the rule, given the last hold the
+     * sensor reported ([lastSensorRotation]) so this is not a second implementation
+     * of it. A reading that falls in one of [DeviceHold.surfaceRotationFor]'s bands
+     * turns the capture (the bands are CameraX's own); the sensor's unknown reading —
+     * the phone flat, or being moved — is not a hold, so the stream keeps the
+     * rotation it already has rather than being sent to portrait under a landscape
+     * window.
+     *
+     * This is the STREAM's and the capture's value: it goes to both use cases
+     * ([applyTargetRotation]) and, in the handoff, to [ShareImageActivity]. It is
+     * deliberately NOT what the control anchors are decided from — see
+     * [windowIsLandscape] and [DeviceHold].
      */
-    private fun surfaceRotationFor(orientation: Int): Int =
-        DeviceHold.surfaceRotationFor(orientation)
+    private fun streamRotationFor(orientation: Int): Int =
+        DeviceHold.streamRotationFor(orientation, lastSensorRotation)
 
     /**
      * Which way up this activity's WINDOW is — [DeviceHold]'s `isLandscapeWindow`,

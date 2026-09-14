@@ -10,18 +10,21 @@ import org.junit.Test
 /**
  * #78: the hold vocabulary shared by the viewfinder and the OCR view it hands off
  * to, and the SEPARATE window vocabulary the viewfinder's control anchors are
- * decided from. [DeviceHold] is plain ints, so the bands and both
- * portrait/landscape rules are pinned here rather than by holding a phone the
- * right way up.
+ * decided from. [DeviceHold] is plain ints, so the bands, the rule that turns the
+ * capture stream, and both portrait/landscape rules are pinned here rather than by
+ * holding a phone the right way up.
  *
- * The two load-bearing tests are the pair at the bottom:
+ * The load-bearing tests are:
  *  - [theWindowAndTheSensorAreTwoAnswersAndMayDisagree] sweeps every degree the
  *    sensor can report against a landscape window and names exactly where the two
  *    disagree;
  *  - [aFlatPhoneLeavesTheAnchorsWhereTheyAre] states the maintainer's own case
  *    ("if you tilt the phone down while in landscape the buttons move despite the
  *    rotate never triggering") as the property that must hold: the window decides
- *    the anchors, so the sensor's unknown reading moves nothing.
+ *    the anchors, so the sensor's unknown reading moves nothing;
+ *  - [aFlatPhoneDoesNotMoveTheStream] and [everyReadingThatIsAHoldStillTurnsTheStream]
+ *    are the stream's half of the same case: a reading that is not a hold does not
+ *    turn the capture either, while every reading that is one still does.
  */
 class DeviceHoldTest {
 
@@ -43,10 +46,11 @@ class DeviceHoldTest {
     @Test
     fun flatAndUnknownReadAsPortraitNotLandscape() {
         // ORIENTATION_UNKNOWN, what the sensor reports while the phone is flat or
-        // is being moved — the one reading that must not be taken for a hold. It is
-        // right for the STREAM (a capture is oriented for the hand) and is exactly
-        // why the anchors may not be decided from this value: see
-        // [aFlatPhoneLeavesTheAnchorsWhereTheyAre].
+        // is being moved — the one reading that must not be taken for a hold. As a
+        // BAND it is portrait (CameraX's band for a value it has no band for), and
+        // that is exactly why the raw band may not be handed to the stream: see
+        // [aFlatPhoneDoesNotMoveTheStream] for the stream's rule and
+        // [aFlatPhoneLeavesTheAnchorsWhereTheyAre] for the anchors'.
         assertEquals(Surface.ROTATION_0, DeviceHold.surfaceRotationFor(DeviceHold.ORIENTATION_UNKNOWN))
         assertEquals(Surface.ROTATION_0, DeviceHold.surfaceRotationFor(-1))
         assertEquals(Surface.ROTATION_0, DeviceHold.surfaceRotationFor(0))
@@ -82,6 +86,50 @@ class DeviceHoldTest {
             DeviceHold.isLandscapeHold(DeviceHold.surfaceRotationFor(it))
         }
         assertEquals((45..134).toList() + (225..314).toList(), landscapeDegrees)
+    }
+
+    /**
+     * THE STREAM'S half of the flat-phone report, and the half that was still
+     * live: tipped toward flat (the sensor reports ORIENTATION_UNKNOWN), the
+     * stream must NOT be sent to portrait. A landscape window does not turn
+     * because the phone was laid on a table, so a stream sent to portrait there
+     * is a quarter turn out from its own window — the turned-preview-inside-an-
+     * upright-window failure the `fullSensor` decision exists to avoid — and the
+     * FILL_CENTER crop, which is a centred aspect-crop of the upright frame, stops
+     * being a crop of what is on screen.
+     *
+     * Swept over all four rotations the stream can already be carrying, so this
+     * cannot pass by the unknown reading happening to agree with the value the
+     * test started from.
+     */
+    @Test
+    fun aFlatPhoneDoesNotMoveTheStream() {
+        val carried = listOf(
+            Surface.ROTATION_0, Surface.ROTATION_90, Surface.ROTATION_180, Surface.ROTATION_270
+        )
+        for (current in carried) {
+            assertEquals(
+                "the sensor has no hold to report, so the stream keeps the one it has ($current)",
+                current,
+                DeviceHold.streamRotationFor(DeviceHold.ORIENTATION_UNKNOWN, current)
+            )
+        }
+    }
+
+    /**
+     * The other half of the same rule, so the fix cannot be "the stream stops
+     * following the hand": every reading that IS a hold still turns it. Swept over
+     * every degree the sensor can report, from a stream carrying ROTATION_90, the
+     * only degrees it keeps ROTATION_90 for are that rotation's OWN band — i.e. the
+     * sensor still drives the capture, and the flat-phone rule is exactly the one
+     * no-reading case.
+     */
+    @Test
+    fun everyReadingThatIsAHoldStillTurnsTheStream() {
+        val kept = (0 until 360).filter { degree ->
+            DeviceHold.streamRotationFor(degree, Surface.ROTATION_90) == Surface.ROTATION_90
+        }
+        assertEquals((225..314).toList(), kept)
     }
 
     @Test
@@ -132,7 +180,8 @@ class DeviceHoldTest {
     fun aFlatPhoneLeavesTheAnchorsWhereTheyAre() {
         val flatSensorRotation = DeviceHold.surfaceRotationFor(DeviceHold.ORIENTATION_UNKNOWN)
         assertFalse(
-            "the stream reads a flat phone as portrait, and that is right for a capture",
+            "the flat phone's band is portrait — which is why the stream must not take it " +
+                "as a hold, and keeps the rotation it already has",
             DeviceHold.isLandscapeHold(flatSensorRotation)
         )
         assertTrue(
