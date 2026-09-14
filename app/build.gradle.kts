@@ -54,6 +54,16 @@ android {
             keepDebugSymbols += "*/arm64-v8a/*.so"
         }
     }
+    androidResources {
+        // #84: the bundled overlay fonts (assets/fonts/*.ttf) must stay
+        // uncompressed. Typeface.createFromAsset prefers the file-descriptor
+        // path (memory-mapped) and only falls back to decompressing into a
+        // buffer when the asset is compressed — a fallback that is not reliable
+        // across API levels. Uncompressed costs ~6 MB in the APK against the
+        // deflated alternative; the fonts are still static Regular instances so
+        // the growth stays bounded (see docs/licenses.md).
+        noCompress += "ttf"
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21

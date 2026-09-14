@@ -24,7 +24,11 @@ class LineOverlayView(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#FF7777")
-        typeface = android.graphics.Typeface.DEFAULT
+        // #84: the setting's face (default sans), read once per line view. The
+        // highlighted glyphs keep the same face and are fake-bolded in onDraw —
+        // the bundled faces ship Regular only, and a BOLD request against a
+        // single-font family selects the same outlines.
+        typeface = OverlayFont.typeface(context)
         textSize = fixedSize * 0.90f
         isAntiAlias = true
     }
@@ -46,9 +50,15 @@ class LineOverlayView(
          * 0.90 textSize, plus bold-highlight headroom). */
         const val INK_MARGIN_RATIO = 0.30f
         /** Halfwidth glyph trim (#49): shared line-height textSize renders
-         * ASCII ~10% too large next to kanji on-device (eyeball-calibrated;
-         * nudge if the device font changes). Applied as a center-scale so
-         * centering is untouched — and it also shrinks edge overflow. */
+         * ASCII ~10% too large next to kanji (eyeball-calibrated on the
+         * platform face). #84: the bundled faces keep it. Noto Sans JP is
+         * metric-identical to the platform's Japanese sans (capHeight
+         * 733/1000, 'W' 0.878em — both matching Noto Sans CJK JP), so the
+         * default path is unchanged; Noto Serif JP is a serif design whose
+         * Latin differs more (capHeight 729/1000, 'W' 1.053em, '1' 0.471em), so
+         * its exact ASCII sizing on-device is the maintainer's eye, not a
+         * number re-invented here. Applied as a center-scale so centering is
+         * untouched — and it also shrinks edge overflow. */
         const val ASCII_GLYPH_SCALE = 0.9f
         fun marginFor(fixedSize: Int): Int =
             (fixedSize * INK_MARGIN_RATIO).roundToInt().coerceAtLeast(1)
@@ -166,8 +176,8 @@ class LineOverlayView(
 
             val isHighlighted = highlightedIndices.contains(i)
             paint.color = if (isHighlighted) Color.YELLOW else Color.parseColor("#FF7777")
-            // Keep typeface bold for highlighted
-            paint.typeface = if (isHighlighted) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+            // #84: emphasis without a second font file — same face, synthetic bold.
+            paint.isFakeBoldText = isHighlighted
 
             // Halfwidth trim (#49): shared line-height textSize overshoots
             // ASCII ~10% next to kanji — scale about the box center (centering

@@ -88,6 +88,8 @@ class LicenseIndexTest {
             "deinflection",             // Yomichan/Yomitan rules, GPL-3.0
             "nav_graph_core",           // the Rust library in the APK
             "OpenMP",                   // libomp.so from the NDK
+            "Noto Sans JP",             // #84 bundled overlay font, OFL-1.1
+            "Noto Serif JP",            // #84 bundled overlay font, OFL-1.1
         )
         expected.forEach { name ->
             assertTrue(
@@ -145,6 +147,7 @@ class LicenseIndexTest {
             "licenses/texts/cc-by-sa-4.0.txt" to "Attribution-ShareAlike 4.0",
             "licenses/texts/unicode-licence-v3.txt" to "UNICODE LICENSE V3",
             "licenses/texts/edrdg-licence.txt" to "ELECTRONIC DICTIONARY RESEARCH",
+            "licenses/texts/ofl-1.1.txt" to "SIL OPEN FONT LICENSE",
         )
         markers.forEach { (path, marker) ->
             val body = text(path)
@@ -183,6 +186,28 @@ class LicenseIndexTest {
         assertEquals("Apache-2.0 WITH LLVM-exception", openmp.license)
         assertTrue(openmp.textFiles.contains("licenses/texts/apache-2.0-with-llvm-exception.txt"))
         assertTrue(text(openmp.noticeFile!!).contains("libomp.so"))
+    }
+
+    @Test
+    fun the_bundled_overlay_fonts_ship_the_ofl_and_record_the_vertical_check() {
+        listOf("Noto Sans JP", "Noto Serif JP").forEach { name ->
+            val font = entry(name)
+            assertEquals("$name is labelled '${font.license}'", "OFL-1.1", font.license)
+            assertTrue("'$name' does not ship the OFL text",
+                font.textFiles.contains("licenses/texts/ofl-1.1.txt"))
+            val notice = text(font.noticeFile!!)
+            assertTrue("'$name' notice does not name the bundled file",
+                notice.contains("assets/fonts/"))
+            assertTrue("'$name' notice does not state the licence",
+                notice.contains("SIL Open Font License"))
+            assertTrue("'$name' notice does not state the instancing",
+                notice.contains("instancer"))
+            // #47/#84: the vertical path uses fontFeatureSettings "'vert' 1", so
+            // the notice must record that the features were checked, not assumed
+            // ("vert/vrt2" verbatim: "vert" alone would match "vertical").
+            assertTrue("'$name' notice does not record the vert/vrt2 check",
+                notice.contains("vert/vrt2"))
+        }
     }
 
     @Test
