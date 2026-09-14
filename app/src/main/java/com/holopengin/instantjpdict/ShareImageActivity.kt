@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -75,6 +76,26 @@ import kotlin.math.roundToInt
  * (it closes one layer at a time, so closing the results from the camera flow
  * returns to the camera), so the control goes through the dispatcher's callback
  * rather than calling `finish()`; the callback is registered in [onCreate].
+ *
+ * #78 follow-up (orientation): opened FROM THE VIEWFINDER, this activity comes up
+ * the way the camera was held. [ProtoCameraActivity] sends the hold it was in as
+ * [InheritedOrientation.EXTRA_CAMERA_HOLD] — the same `Surface` rotation it gives
+ * its use cases and reads its control anchors from — and [adoptCameraHold] asks
+ * the window manager for a sensor-based orientation before the first layout, so
+ * a landscape hold opens a landscape view and it keeps following the phone
+ * afterwards. Opened from a SYSTEM SHARE SHEET there is no such extra and no
+ * orientation call is made at all: that path is exactly what it was. Nothing is
+ * declared in the manifest for either path — the entry there is shared with the
+ * exported `ACTION_SEND` filter, so a `screenOrientation` (or `configChanges`)
+ * on it would pin or restart the share path too; the whole difference lives in
+ * [adoptCameraHold] and in one extra on the camera's Intent.
+ *
+ * The landscape chrome is this activity's own and needed no new anchoring: the
+ * back control goes through [applySystemBarInsets], which writes all four
+ * margins, so in landscape it is still clear of the status bar on the top edge
+ * and of a navigation bar that has moved to a long edge; the rotate pair takes
+ * the same treatment in the bottom-left. The dictionary/lookup panel and the
+ * confidence controls are [OcrOverlayView]'s and are untouched.
  */
 class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
 
@@ -195,6 +216,14 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // The window is told which way up it is FIRST — before a single view
+        // exists and before the image is decoded — because an orientation
+        // request only decides the window this activity is laid out in if it
+        // lands before the first layout. See [adoptCameraHold] and
+        // [InheritedOrientation].
+        adoptCameraHold(intent)
+
         engine = OcrEngine(this)
         OverlayEnvironment.prepare(this, overlayState, overlayScope)
 
@@ -375,6 +404,59 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // Left alone, both die with this activity, which is unreachable once
         // its cancelled coroutines complete.
     }
+
+    // ---- orientation (the camera handoff) ----
+
+    /**
+     * #78 follow-up: "the ocr view does not inherit the camera view's orientation
+     * but it should."
+     *
+     * [ProtoCameraActivity] marks the handoff with the hold it was in
+     * ([InheritedOrientation.EXTRA_CAMERA_HOLD] — the same `Surface` rotation it
+     * gave its use cases and read its control anchors from). When that extra is
+     * present this asks the window manager for
+     * [InheritedOrientation.requestedOrientationFor]'s answer, `fullSensor`: the
+     * view opens the way up the viewfinder was, and keeps following the phone
+     * afterwards. When the extra is absent (a system share sheet) NOTHING is
+     * asked for and not one window property is touched, so the share path is this
+     * activity exactly as it was before.
+     *
+     * Called from [onCreate] before anything is built, because an orientation
+     * request only decides the window this activity is laid out in if it lands
+     * before the first layout. See [InheritedOrientation] for why the request is
+     * `fullSensor` rather than the family the camera happened to be in, and for
+     * why re-running this on a later re-creation (with a stale hold) cannot flip
+     * a view that is already the right way up. A request that does change the
+     * window re-creates this activity in the new orientation, which is the clean
+     * way here: the image and the box coordinates are composed at the container's
+     * own size ([surfaceWidth] / [surfaceHeight]), so the re-created instance
+     * composes at the new container's size and the mapping stays 1:1 — where a
+     * `configChanges` activity would have had to recompose in place to avoid
+     * drawing stale portrait-space boxes over a resized view.
+     */
+    private fun adoptCameraHold(intent: Intent?) {
+        val hold = intent
+            ?.getIntExtra(InheritedOrientation.EXTRA_CAMERA_HOLD, InheritedOrientation.NO_HOLD)
+            ?: InheritedOrientation.NO_HOLD
+        val requested = InheritedOrientation.requestedOrientationFor(hold) ?: return
+        // The one line the in-hand check reads: the hold the viewfinder handed
+        // over, the way up the window this instance came up in, and what went in.
+        // A window in the hold's own family is the feature working; one in the
+        // other family is the platform not having followed the sensor yet.
+        val createdLandscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        Log.i(
+            "ShareImageActivity",
+            "camera hold ${holdName(hold)}, window was ${familyName(createdLandscape)}, " +
+                "requesting FULL_SENSOR ($requested)"
+        )
+        requestedOrientation = requested
+    }
+
+    /** The hold's own name, so a logcat line can be read without decoding an int. */
+    private fun holdName(hold: Int): String = "$hold (${familyName(DeviceHold.isLandscapeHold(hold))})"
+
+    private fun familyName(landscape: Boolean): String = if (landscape) "landscape" else "portrait"
 
     // ---- chrome (the rotate pair and the back control) ----
 

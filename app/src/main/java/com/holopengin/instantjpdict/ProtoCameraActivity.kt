@@ -474,41 +474,26 @@ class ProtoCameraActivity : AppCompatActivity() {
     }
 
     /**
-     * The rotation of what the camera writes, from the phone's own orientation.
-     *
-     * The bands are CameraX's own (androidx.camera.view.RotationProvider
-     * .orientationToSurfaceRotation, camera-view 1.4.2 — the mapping
-     * LifecycleCameraController's device-rotation handling is built on), so a
-     * quarter turn here means the same thing it means to CameraX: each band is
-     * 90 degrees wide around a cardinal hold, and everything else — including
-     * OrientationEventListener.ORIENTATION_UNKNOWN, which arrives as -1 while the
-     * phone is flat or is being moved — reads as portrait.
-     *
-     * | orientation (degrees) | targetRotation      |
-     * | 45..134               | ROTATION_270        |
-     * | 135..224              | ROTATION_180        |
-     * | 225..314              | ROTATION_90         |
-     * | else (incl. -1)       | ROTATION_0          |
+     * The rotation of what the camera writes, from the phone's own orientation —
+     * [DeviceHold.surfaceRotationFor], which owns the bands (CameraX's own, and
+     * the reason `ORIENTATION_UNKNOWN` reads as portrait there) so this is not a
+     * second implementation of them. The value it returns is the one thing this
+     * activity decides about orientation: it goes to both use cases
+     * ([applyTargetRotation]), to the control anchors below, and — in the
+     * handoff — to [ShareImageActivity], so the OCR view opens in the hold the
+     * viewfinder was in and cannot disagree with what it showed.
      */
-    private fun surfaceRotationFor(orientation: Int): Int = when {
-        orientation in 45..134 -> Surface.ROTATION_270
-        orientation in 135..224 -> Surface.ROTATION_180
-        orientation in 225..314 -> Surface.ROTATION_90
-        else -> Surface.ROTATION_0
-    }
+    private fun surfaceRotationFor(orientation: Int): Int =
+        DeviceHold.surfaceRotationFor(orientation)
 
     /**
-     * Which way up the window is, from a surface rotation.
-     *
-     * [surfaceRotationFor] is the only place a hold becomes a rotation and this is
-     * the only place a rotation becomes portrait-or-landscape, so the controls
-     * cannot disagree with the camera stream about which way is up: both ask about
-     * the same number. Held upside down (ROTATION_180) counts as portrait, and it
-     * is the right answer there — the whole window turns with the phone, so its
-     * bottom edge is still the one under the thumb.
+     * Which way up the window is, from a surface rotation — [DeviceHold]'s
+     * `isLandscapeHold`, the single definition, shared with the OCR view's
+     * inherited-orientation path ([InheritedOrientation]) for the same reason:
+     * one rule, three readers, no drift.
      */
     private fun isLandscapeHold(rotation: Int): Boolean =
-        rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+        DeviceHold.isLandscapeHold(rotation)
 
     /**
      * The hold the window came up in, expressed as the rotation [isLandscapeHold]
@@ -908,32 +893,20 @@ class ProtoCameraActivity : AppCompatActivity() {
 
     /**
      * The region a FILL_CENTER preview showed, as a rect in an [frameW] x
-     * [frameH] UPRIGHT frame's pixels.
+     * [frameH] UPRIGHT frame's pixels — [PreviewCrop.cover], which owns the
+     * geometry (and is unit-tested), converted to the `Rect` the Bitmap crop
+     * wants.
      *
      * FILL_CENTER scales the frame up until it covers a view of [viewAspect] and
-     * lets the overflow fall off both sides, so the visible region is the
-     * centred rect with the VIEW's aspect: full height and a narrower width on
-     * this phone (a 0.45-ish view against a 0.75 frame), or full width and a
-     * shorter height if the view ever came out the wider one. Centred, so the
-     * frame's centre — and with it the reticle's crossing point — stays inside
-     * the crop, which is what keeps the crosshair meaning the same thing in both
-     * framings.
+     * lets the overflow fall off, so the visible region is the centred rect with
+     * the VIEW's aspect. Which pair of edges falls off follows from the two
+     * aspects alone, which is why a landscape hold needs nothing new here: the
+     * view is then the wider shape, and the crop is the full width with the top
+     * and bottom cut — the same slice the preview was filling.
      */
     private fun cropRect(frameW: Int, frameH: Int, viewAspect: Float): Rect {
-        if (frameW <= 0 || frameH <= 0 || viewAspect <= 0f) return Rect(0, 0, frameW, frameH)
-        val frameAspect = frameW.toFloat() / frameH.toFloat()
-        return if (viewAspect >= frameAspect) {
-            // The view is the wider shape: the frame covers it from edge to edge and
-            // the TOP AND BOTTOM fall off.
-            val height = (frameW / viewAspect).roundToInt().coerceIn(1, frameH)
-            val top = (frameH - height) / 2
-            Rect(0, top, frameW, top + height)
-        } else {
-            // The view is the taller shape (this device): full height, the SIDES fall off.
-            val width = (frameH * viewAspect).roundToInt().coerceIn(1, frameW)
-            val left = (frameW - width) / 2
-            Rect(left, 0, left + width, frameH)
-        }
+        val region = PreviewCrop.cover(frameW, frameH, viewAspect)
+        return Rect(region.left, region.top, region.left + region.width, region.top + region.height)
     }
 
     /**
@@ -970,6 +943,15 @@ class ProtoCameraActivity : AppCompatActivity() {
      * The single handoff: [file]'s FileProvider URI into the existing share
      * entry, with [note] — which framing actually went over — written to the log
      * so it can be read back afterwards.
+     *
+     * It carries the hold as well, and that is the whole of the OCR view's
+     * orientation inheritance: [InheritedOrientation.EXTRA_CAMERA_HOLD] gets
+     * [targetRotation] — the same number [applyTargetRotation] just gave both use
+     * cases and [isLandscapeHold] reads for the anchors, so nothing new is
+     * decided here, a value the viewfinder already had is passed on. The OCR view
+     * reads it in `onCreate` and asks the window manager to come up that way; the
+     * system share sheet sends no such extra, so its path through the same
+     * activity is untouched (see [InheritedOrientation]).
      */
     private fun handOff(file: File, note: String) {
         val uri = try {
@@ -983,10 +965,15 @@ class ProtoCameraActivity : AppCompatActivity() {
             setShutterEnabled(true)
             return
         }
-        Log.i(TAG, "handing $uri to ShareImageActivity ($note)")
+        Log.i(
+            TAG,
+            "handing $uri to ShareImageActivity ($note), hold " +
+                "${rotationName(targetRotation)}"
+        )
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "image/jpeg"
             putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(InheritedOrientation.EXTRA_CAMERA_HOLD, targetRotation)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             setClass(this@ProtoCameraActivity, ShareImageActivity::class.java)
         }
