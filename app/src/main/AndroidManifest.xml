@@ -29,16 +29,40 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.InstantJPDict">
+        <!-- #82 — the launcher entry, and now also the shortcut's target.
+             singleTop: the camera shortcut arrives here as an explicit intent
+             with CameraShortcut.ACTION_OPEN_CAMERA (res/xml/shortcuts.xml), and
+             when this activity is ALREADY the top of the task — the user is on
+             the dictionary screen — reusing the instance (onNewIntent) opens the
+             camera instead of stacking a second dictionary screen under it. It
+             changes nothing else: an ordinary MAIN launcher tap delivers no such
+             action, and a launch while the camera or the OCR view is on top
+             still gets a new instance from the platform, because singleTop
+             reuses an instance only when it is the one on top. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.InstantJPDict">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- #82 — the STATIC shortcut list, read by a launcher's long-press
+                 menu and by Pixel's Quick Tap ("Open app", then the gear).
+                 Static, so it exists from install and works cold with no runtime
+                 push; the camera action has no state to reflect and is not
+                 updated by anything, so there is no dynamic half to keep in
+                 sync. The declaration and the full reasoning (why it targets
+                 this already-exported entry rather than the unexported
+                 viewfinder, and why that is the smaller export surface) live in
+                 res/xml/shortcuts.xml. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- #57 (Feat — image share intent): a single shared image goes through

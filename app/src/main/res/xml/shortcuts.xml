@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+   #82 — camera mode on the app's shortcut list.
+
+   Pixel's Quick Tap ("Open app → <app>", then the gear) and a launcher's
+   long-press menu both read the app's SHORTCUTS; without this file the app
+   declares none, so the only thing either surface could offer was the ordinary
+   entry point (the dictionary screen). This is the declaration that puts the
+   viewfinder (ProtoCameraActivity) beside it.
+
+   STATIC, not dynamic. The action is fixed — open the camera — with no state to
+   reflect and nothing to compute at runtime, which is exactly what a static
+   shortcut is for: it exists from install onward, so Quick Tap works before the
+   app has ever been launched, and no code has to push or refresh anything. A
+   dynamic shortcut with the same id would be the same declaration in Kotlin plus
+   a runtime push, and the two could disagree; dynamic would earn its place only
+   if the shortcut grew state (e.g. "last capture"), which is not this ask.
+
+   The intent targets .MainActivity, not the viewfinder:
+    - a shortcut's intent is started by the launcher (another app), so it may
+      only name an exported component. ProtoCameraActivity is deliberately
+      android:exported="false"; exporting it would give every app on the device
+      a camera entry point to trigger at will. .MainActivity is already exported
+      as the launcher entry, so the shortcut adds NO new exported surface — it
+      arrives on a namespaced action MainActivity turns into a camera launch, and
+      anything else that can start MainActivity can already do strictly more
+      (the dictionary screen). The camera's runtime permission request is the
+      same one the pinned button triggers; the action cannot capture anything by
+      itself.
+    - a shortcut launched straight into the viewfinder would make the viewfinder
+      the task's root, and Back out of it would leave an empty task. Through
+      MainActivity the dictionary screen is the task root, below the camera.
+
+   The action is a namespaced custom one (CameraShortcut.ACTION_OPEN_CAMERA)
+   because a static shortcut's <intent> can carry an ACTION and nothing else —
+   there is no extras slot — so the action string IS the signal. MainActivity
+   compares it for equality, so the ordinary MAIN launcher tap is untouched.
+
+   No <capability-binding> (Assistant / App Actions): that would need a capability
+   verified through Assistant tooling and is not part of this ask. This file is
+   the seam where one can be added later without moving the shortcut.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The camera shortcut. No android:icon: the platform falls back to the app
+         icon (badged as a shortcut), so this adds no bundled asset and therefore
+         no licence-index entry — the same reasoning the viewfinder's own chrome
+         uses for its repo-authored vectors. If it ever gets its own icon, that
+         asset enters app/licenses/components.tsv and this note is the reminder.
+
+         The short label is the one a launcher must have and must be a string
+         resource (the platform rejects a literal); "Camera" matches the control
+         on the main screen so the two read as one thing. -->
+    <shortcut
+        android:shortcutId="camera"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_camera_short_label"
+        android:shortcutLongLabel="@string/shortcut_camera_long_label">
+        <intent
+            android:action="com.holopengin.instantjpdict.action.OPEN_CAMERA"
+            android:targetPackage="com.holopengin.instantjpdict"
+            android:targetClass="com.holopengin.instantjpdict.MainActivity" />
+    </shortcut>
+
+</shortcuts>
