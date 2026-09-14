@@ -19,7 +19,6 @@ import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -121,8 +120,8 @@ import java.util.concurrent.Executors
  *    pixels are LANDSCAPE (4032x3024) while the picture is PORTRAIT, so a rect
  *    taken in stored-pixel space would be turned a quarter turn against the
  *    picture and crop the wrong axis. It is bounded by [CROP_LONG_SIDE_PX], and
- *    any failure hands over the ORIGINAL file and says so in the status line
- *    and the log rather than losing the capture.
+ *    any failure hands over the ORIGINAL file and says so in the log rather
+ *    than losing the capture.
  *  - COPIES_FORWARD: never taken; the captured file — and, in FILL_CENTER, the
  *    cropped one beside it — is left in the cache dir (see [CAPTURE_DIR_NAME])
  *    so it can be pulled off the device for evidence.
@@ -243,7 +242,6 @@ class ProtoCameraActivity : AppCompatActivity() {
         cropExecutor.shutdown()
         super.onDestroy()
     }
-    private lateinit var statusView: TextView
     private lateinit var captureButton: Button
     private var imageCapture: ImageCapture? = null
 
@@ -303,32 +301,17 @@ class ProtoCameraActivity : AppCompatActivity() {
             )
         )
 
-        // The top-left corner, as ONE stack: the back control in the corner with the
-        // status line under it, so neither collides with the other. The window is
+        // The top-left corner: the back control, on its own. The window is
         // edge-to-edge (targetSdk 35 on Android 15+ forces it) and the preview is
         // deliberately full-bleed, so the insets are taken by this stack rather than
         // by the root: without them the button's top slice sits under the status bar
         // and the system takes the touches.
-        statusView = TextView(this).apply {
-            tag = "proto_status"
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0x99000000.toInt())
-            textSize = 12f
-            text = "PROTOTYPE #78 — camera mode"
-        }
         val corner = LinearLayout(this).apply {
             tag = "proto_corner"
             orientation = LinearLayout.VERTICAL
         }
         val backSide = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
         corner.addView(backButton(), LinearLayout.LayoutParams(backSide, backSide))
-        corner.addView(
-            statusView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = (STATUS_GAP_DP * resources.displayMetrics.density).roundToInt() }
-        )
         root.addView(
             corner,
             FrameLayout.LayoutParams(
@@ -441,7 +424,7 @@ class ProtoCameraActivity : AppCompatActivity() {
                         "view ${previewView.width}x${previewView.height}"
                 )
                 applyTargetRotation(rotation)
-                if (::statusView.isInitialized) statusView.text = statusText()
+                Log.i(TAG, statusText())
             }
         }
 
@@ -650,7 +633,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         imageCapture?.targetRotation = rotation
     }
 
-    /** The value's own name, so the status line and the log can be read off together. */
+    /** The value's own name, so the log can be read without decoding a bare int. */
     private fun rotationName(rotation: Int): String = when (rotation) {
         Surface.ROTATION_0 -> "ROTATION_0"
         Surface.ROTATION_90 -> "ROTATION_90"
@@ -681,7 +664,7 @@ class ProtoCameraActivity : AppCompatActivity() {
                 // overwritten. The sensor may already have reported a hold while this
                 // future was pending — [targetRotation] is the value to hand over.
                 applyTargetRotation(targetRotation)
-                statusView.text = statusText()
+                Log.i(TAG, statusText())
                 // The crop's one assumption, printed so it can be checked from logcat:
                 // the FILL_CENTER rect is worked out against the CAPTURE's frame, and it
                 // is only the right rect if the preview stream is the same shape.
@@ -695,7 +678,6 @@ class ProtoCameraActivity : AppCompatActivity() {
                 )
             } catch (t: Throwable) {
                 Log.e(TAG, "camera bind failed", t)
-                statusView.text = "PROTOTYPE #78 — camera failed: ${t.message}"
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -704,10 +686,9 @@ class ProtoCameraActivity : AppCompatActivity() {
      * The Zoom button: FIT_CENTER (the whole captured frame, letterboxed into
      * the portrait view, and the whole frame goes to the model) <->
      * FILL_CENTER (screen filled by the middle slice of the frame, and that
-     * slice is what goes to the model — see [cropToPreviewFraming]). The status
-     * line names the active framing, so the in-hand verdict can be written down
-     * without having to remember which one was on screen, and the framing is
-     * logged for the same reason.
+     * slice is what goes to the model — see [cropToPreviewFraming]). The active
+     * framing is logged so the in-hand verdict can be written down without having
+     * to remember which one was on screen.
      */
     private fun togglePreviewFraming() {
         previewFill = !previewFill
@@ -716,16 +697,21 @@ class ProtoCameraActivity : AppCompatActivity() {
         } else {
             PreviewView.ScaleType.FIT_CENTER
         }
-        statusView.text = statusText()
         Log.i(TAG, "preview framing = ${if (previewFill) "FILL_CENTER" else "FIT_CENTER"}")
     }
 
-    private fun statusText(): String = "PROTOTYPE #78 — camera targetRotation: " +
-        "${rotationName(targetRotation)}; framing: ${if (previewFill) {
+    /**
+     * The viewfinder's state as one log line — which way up the camera's output is
+     * being told to sit and which framing the preview is showing. This used to be
+     * the top-left status line; the readout is diagnostic, so it goes to logcat
+     * instead of onto the preview.
+     */
+    private fun statusText(): String = "viewfinder state: targetRotation " +
+        "${rotationName(targetRotation)}, framing ${if (previewFill) {
             "FILL_CENTER (screen filled; the photo sent is this crop)"
         } else {
             "FIT_CENTER (whole photo visible, and sent whole)"
-        }}. Line the text up on the crossing point; the Zoom button switches framing."
+        }}"
 
     /**
      * The shutter's enabled state and its look, in one place.
@@ -762,7 +748,7 @@ class ProtoCameraActivity : AppCompatActivity() {
     private fun capture() {
         val capture = imageCapture ?: return
         setShutterEnabled(false)
-        statusView.text = "PROTOTYPE #78 — capturing..."
+        Log.i(TAG, "capturing")
         val framingWasFill = previewFill
         val dir = File(cacheDir, CAPTURE_DIR_NAME).apply { mkdirs() }
         val stamp = System.currentTimeMillis()
@@ -789,7 +775,6 @@ class ProtoCameraActivity : AppCompatActivity() {
 
                 override fun onError(exception: ImageCaptureException) {
                     Log.e(TAG, "capture failed", exception)
-                    statusView.text = "PROTOTYPE #78 — capture failed: ${exception.message}"
                     setShutterEnabled(true)
                 }
             }
@@ -801,9 +786,9 @@ class ProtoCameraActivity : AppCompatActivity() {
      * the main thread, then hand the result over.
      *
      * ANY failure — an unreadable EXIF tag, a decode that returns null, a full
-     * heap — falls back to [source] and says so on the status line and in the
-     * log. A photo one framing too wide is a worse answer than no answer, but a
-     * far better one than a lost capture.
+     * heap — falls back to [source] and says so in the log. A photo one framing
+     * too wide is a worse answer than no answer, but a far better one than a
+     * lost capture.
      */
     private fun cropThenHandOff(source: File, dest: File) {
         val view = previewView
@@ -983,9 +968,8 @@ class ProtoCameraActivity : AppCompatActivity() {
 
     /**
      * The single handoff: [file]'s FileProvider URI into the existing share
-     * entry, and [note] on the status line — which is left standing when the
-     * results view closes, so the framing that was actually recognised can be
-     * read off the screen afterwards.
+     * entry, with [note] — which framing actually went over — written to the log
+     * so it can be read back afterwards.
      */
     private fun handOff(file: File, note: String) {
         val uri = try {
@@ -996,12 +980,10 @@ class ProtoCameraActivity : AppCompatActivity() {
             )
         } catch (t: Throwable) {
             Log.e(TAG, "FileProvider failed", t)
-            statusView.text = "PROTOTYPE #78 — FileProvider failed: ${t.message}"
             setShutterEnabled(true)
             return
         }
         Log.i(TAG, "handing $uri to ShareImageActivity ($note)")
-        statusView.text = "PROTOTYPE #78 — $note"
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "image/jpeg"
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -1076,8 +1058,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         private val BACK_BUTTON_FILL = Color.argb(130, 25, 25, 25)
         private val BACK_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
 
-        /** Between the back control and the status line under it, and off the corner. */
-        private const val STATUS_GAP_DP = 8f
+        /** Off the corner, so the back control clears the system bars. */
         private const val CORNER_MARGIN_DP = 12f
 
         /**
