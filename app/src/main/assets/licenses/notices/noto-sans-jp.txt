@@ -1,0 +1,62 @@
+Noto Sans JP — the overlay's sans/gothic face (issue #84)
+=========================================================
+
+Bundled as   : app/src/main/assets/fonts/NotoSansJP-Regular.ttf
+               5,766,828 bytes, sha256
+               b6195972e136a5a232fa108a775325de8621db46514df8c91a111df6a718738b
+               17,936 glyphs — the whole face, nothing subset (the overlay
+               draws dictionary text of arbitrary breadth).
+Used by      : the OCR overlay's "sans" face — the LineOverlayView glyphs over
+               the screenshot plus every TextView the overlay builds (dictionary
+               panel, alternatives, neighbour chips, pitch line), selected by
+               the "Serif font (mincho) in the OCR overlay" setting (#84).
+Copyright    : (c) 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font
+               Name 'Source' — the font binary's own name-table record.
+Licence      : SIL Open Font License, Version 1.1 (OFL-1.1).
+Licence text : licenses/texts/ofl-1.1.txt — the official OFL text as published
+               at openfontlicense.org, fetched 2026-09-14 (4,599 bytes, sha256
+               1d361a8f8e8ce6e68457dcd93fb56e162e6baa3bbb7e7573a290d44399f6b57e).
+
+Where the font came from
+------------------------
+
+  Source    : https://github.com/google/fonts — ofl/notosansjp/NotoSansJP[wght].ttf
+  Retrieved : 2026-09-14. The local copy is byte-identical to that file:
+              9,589,900 bytes, sha256
+              c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f
+  Upstream  : https://github.com/notofonts/noto-cjk (Adobe/Google Noto)
+  Version   : 2.004 (H2). The variable font's fvar default is wght=100 (Thin).
+
+Modification: static Regular instance
+-------------------------------------
+
+The variable font cannot ship as-is — its default instance is Thin, which would
+render a hairline face — and shipping the variable font would put 9.6 MB per
+face into the APK. The bundled file is a static instance at wght=400 produced
+with fontTools:
+
+  fontTools.varLib.instancer.instantiateVariableFont(font, {"wght": 400},
+      updateFontNames=True)
+
+That is the only modification: the outlines are the variable font's Regular
+master, the fvar/gvar/HVAR/avar tables are dropped, and the name table says
+"Noto Sans JP / Regular". The result is distributed under the same OFL-1.1. The
+Reserved Font Name 'Source' is not used by the derivative (its name is
+"Noto Sans JP", which is not the reserved name).
+
+Vertical substitution verified (issue #47)
+------------------------------------------
+
+The overlay renders vertical lines with Paint.fontFeatureSettings = "'vert' 1",
+so the face must carry the vertical GSUB features. Checked with fontTools on the
+committed file:
+
+  vert  : lookups 16/17/18, single substitutions covering 378 + 1 + 4 glyphs
+          (、→uniFE11, 。→uniFE12, 「→uniFE41, 」→uniFE42, （→uniFE35,
+            ）→uniFE36, ー→glyph17789)
+  vrt2  : lookup 16, covering the same 378 glyphs
+  scripts: both registered under DFLT, cyrl, grek, hani, kana and latn
+          (default and JAN langsys); vhea/vmtx vertical metrics present.
+
+The JVM test OverlayFontTest parses this committed file and fails if vert or
+vrt2 disappears, so a future font swap cannot silently drop the substitution.
