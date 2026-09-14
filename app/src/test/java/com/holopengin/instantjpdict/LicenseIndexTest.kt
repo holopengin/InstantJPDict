@@ -84,6 +84,7 @@ class LicenseIndexTest {
             "KRADFILE",                 // EDRDG, CC BY-SA 4.0
             "Kanjium",                  // pitch accents, CC BY-SA 4.0
             "Unihan",                   // Unicode License v3
+            "Historical kana",          // 内閣告示 sound changes, public domain
             "deinflection",             // Yomichan/Yomitan rules, GPL-3.0
             "nav_graph_core",           // the Rust library in the APK
             "OpenMP",                   // libomp.so from the NDK
