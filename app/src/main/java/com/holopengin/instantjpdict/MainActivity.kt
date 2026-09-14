@@ -505,10 +505,14 @@ class MainActivity : AppCompatActivity() {
 
         // #82: the app shortcut (res/xml/shortcuts.xml). Cold launches — the app
         // was not running — arrive here with the shortcut's action, and this is
-        // where it becomes the viewfinder. Deliberately the LAST thing in
-        // onCreate: the dictionary screen below it is fully built, so Back out of
-        // the camera lands on a screen rather than a half-drawn one.
-        openCameraFrom(intent)
+        // where it becomes the viewfinder. The dictionary screen this activity
+        // just built is an artefact of the routing, not somewhere the user asked
+        // to be, so the router removes itself: with nothing of ours beneath the
+        // camera, Back returns to whatever was on screen before (home, another
+        // app, or the task below) instead of dropping the user into the
+        // dictionary. Warm re-entry (onNewIntent) keeps this activity, because
+        // there the dictionary IS the screen the user came from.
+        if (openCameraFrom(intent)) finish()
     }
 
     /**
@@ -520,6 +524,8 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // No finish() here: this instance was already the top of the task, so
+        // it is the previous activity Back should return to.
         openCameraFrom(intent)
     }
 
@@ -545,11 +551,12 @@ class MainActivity : AppCompatActivity() {
      * shortcut launch into a dead-but-tasked app, and refusing the camera on a
      * real activation would be the worse failure.
      */
-    private fun openCameraFrom(intent: Intent) {
-        if (!CameraShortcut.opensCamera(intent.action)) return
+    private fun openCameraFrom(intent: Intent): Boolean {
+        if (!CameraShortcut.opensCamera(intent.action)) return false
         intent.action = null
         Log.d("MainActivity", "camera shortcut: opening the viewfinder")
         openCamera()
+        return true
     }
 
     /** The one way into the viewfinder: the pinned control and the shortcut both land here. */
