@@ -91,9 +91,15 @@ class ProtoCrosshairView(context: Context) : View(context) {
          * Half-distance between the two lines of a pair, as a fraction of the view's
          * SHORT side — the same distance on both axes, so the box the four lines
          * enclose is square. Now a tuning slider (MainActivity's tunable row), so the
-         * band can be judged in the hand; this is only the default.
+         * band can be judged in the hand; this is only the default, and a stored
+         * slider value (PREF_GAP) wins over it. It also sets the slider's start point
+         * and the reset-to-defaults value, because both read this constant through
+         * [DEF_GAP] rather than repeating the number.
+         *
+         * The box it draws is about 2 × this × the view's SHORT side: ~43px on this
+         * device's 1080x2400 view (it was ~86px at the 0.04 default this replaced).
          */
-        const val CROSSHAIR_GAP_FRACTION = 0.04f
+        const val CROSSHAIR_GAP_FRACTION = 0.02f
 
         /** Tuning key + default for the gap slider. */
         const val PREF_GAP = "crosshair_gap"
