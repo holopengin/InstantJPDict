@@ -502,11 +502,14 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * The new size does not exist yet inside [onConfigurationChanged]: the window
      * is resized and laid out AFTER the callback returns, and the composite must be
      * composed at the container's real size or the 1:1 mapping every box relies on
-     * is broken. So the layout is waited for — and the wait ends on either of the
-     * two shapes of "the window has been laid out again": the container's size has
-     * changed, or it has come to rest at the screen size the new configuration
-     * reports. A size that has not changed AND is not the new screen size is a
-     * layout that has not caught up yet.
+     * is broken. So the layout is waited for — and the wait ends on the ONE shape of
+     * "the window has been laid out again": the container has come to rest at the
+     * size the new configuration reports. Any other size is one of the intermediate
+     * layouts a turn produces while the rotation settles, so it is left alone; the
+     * wait goes on, and the next layout that does reach the new screen size is the
+     * one that re-fits. Taking an intermediate size here would compose the composite
+     * (and express every box) at a size the window is about to leave, with the wait
+     * already over and nothing left to fire when the real size arrived.
      *
      * Nothing to do when no composite exists yet (a turn during the decode): the
      * compose in [onCreate] reads the container's size at the moment it composes,
@@ -521,11 +524,8 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                 val width = container.width
                 val height = container.height
                 if (width <= 0 || height <= 0) return
-                val changed = width != surfaceWidth || height != surfaceHeight
                 val metrics = resources.displayMetrics
-                val atTheNewScreenSize =
-                    width == metrics.widthPixels && height == metrics.heightPixels
-                if (!changed && !atTheNewScreenSize) return
+                if (width != metrics.widthPixels || height != metrics.heightPixels) return
                 if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
                 refitComposite(width, height)
             }
@@ -557,6 +557,13 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * The zoom/pan and the open lookup panel are dropped by
      * [OcrOverlayStateController.refitBoxes] with the transform, and why that is the
      * consistent choice is written down there.
+     *
+     * The RECORDED size moves with the composite and not before it: [surfaceWidth]
+     * and [surfaceHeight] are written in the coroutine below, beside `image =`. The
+     * compose is asynchronous, so recording them up front would leave a window in
+     * which a second config change computes its own `before` placement — and this log
+     * line reads its transform — against a size the composite in use does not have.
+     * Recorded here, the fields always describe the composite on screen.
      */
     private fun refitComposite(width: Int, height: Int) {
         val view = overlayView ?: return
@@ -568,8 +575,6 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         val before = ImageRotation.fitRotated(base.width, base.height, oldWidth, oldHeight, turns)
         val after = ImageRotation.fitRotated(base.width, base.height, width, height, turns)
         val refit = ImageShareFit.refit(before, after)
-        surfaceWidth = width
-        surfaceHeight = height
         Log.i(
             "ShareImageActivity",
             "re-fitting composite for ${width}x${height}: the picture was " +
@@ -596,6 +601,8 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                 return@launch
             }
             image = recomposed
+            surfaceWidth = width
+            surfaceHeight = height
             composedTurns = turns
             view.refitContent(refit)
         }
