@@ -13,11 +13,14 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import kotlin.math.roundToInt
+import android.view.MotionEvent
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -43,12 +46,15 @@ import java.io.File
  * Deliberate prototype decisions:
  *  - Portrait-locked, so the in-hand crosshair judgement happens in one
  *    orientation and the camera is not reopened on every quarter turn.
- *  - Back camera, minimise-latency capture mode, no flash/tap-to-focus.
+ *  - Back camera, minimise-latency capture mode, no flash. Tapping the preview refocuses
+ *    there — the ordinary camera gesture. Framing has its own square button in the
+ *    bottom-right, because a tap that silently changed what the capture would contain read
+ *    as an accidental zoom.
  *  - The preview shows the WHOLE captured frame by default
  *    ([PreviewView.ScaleType.FIT_CENTER]) — a portrait view with a landscape
  *    4:3 sensor frame, so the live image is a band across the middle of the
  *    screen and what the reticle is laid over is exactly what the capture will
- *    contain. Tapping the preview switches to
+ *    contain. The Zoom button switches to
  *    [PreviewView.ScaleType.FILL_CENTER], which fills the screen like an
  *    ordinary camera app but shows only the middle slice of the frame: the
  *    capture then holds text the user never saw. Both framings put the frame's
@@ -61,13 +67,36 @@ class ProtoCameraActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
 
+    /** The camera's controls (focus). Kept from the bind, which returns the session. */
+    private var cameraControl: androidx.camera.core.CameraControl? = null
+
     /** The reticle, kept so a resumed activity can pick up a moved tuning slider. */
     private lateinit var crosshair: ProtoCrosshairView
+
+    /** Tap to focus: the ordinary camera gesture, moved here from the framing toggle. */
+    private fun focusAt(x: Float, y: Float) {
+        val control = cameraControl ?: return
+        val point = previewView.meteringPointFactory.createPoint(x, y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .setAutoCancelDuration(5, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        try {
+            control.startFocusAndMetering(action)
+            Log.i(TAG, "tap-focus at ${x.toInt()},${y.toInt()}")
+        } catch (t: Throwable) {
+            Log.e(TAG, "tap-focus failed", t)
+        }
+    }
 
     override fun onResume() {
         super.onResume()
         // A gap slider moved in the tuning screen applies on return, without a restart.
         if (::crosshair.isInitialized) crosshair.reloadGap()
+        // Returning from the results view: capture() disables the shutter and only its FAILURE
+        // paths re-enable it, so without this the button stayed grey and unclickable until the
+        // app restarted. The capture session lives as long as this activity, so having one is
+        // the right test.
+        if (::captureButton.isInitialized) captureButton.isEnabled = imageCapture != null
     }
     private lateinit var statusView: TextView
     private lateinit var captureButton: Button
@@ -97,7 +126,16 @@ class ProtoCameraActivity : AppCompatActivity() {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             // Default: the whole captured frame visible (see the class doc).
             scaleType = PreviewView.ScaleType.FIT_CENTER
-            setOnClickListener { togglePreviewFraming() }
+            // Tap = refocus at that point, the ordinary camera gesture. Framing moved to its
+            // own button: a tap that silently changed what the capture would contain read as
+            // an accidental zoom.
+            setOnTouchListener { v, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_UP) {
+                    focusAt(ev.x, ev.y)
+                    v.performClick() // silences ClickableViewAccessibility; no click action
+                }
+                true
+            }
         }
         root.addView(
             previewView,
@@ -137,13 +175,35 @@ class ProtoCameraActivity : AppCompatActivity() {
             tag = "proto_capture"
             text = "Capture"
             isEnabled = false
+            // Cleared so the fixed square side below wins over Button's own minimums.
+            minWidth = 0
+            minHeight = 0
             setOnClickListener { capture() }
         }
+        val zoomSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        root.addView(
+            Button(this).apply {
+                tag = "proto_zoom"
+                text = "Zoom"
+                minWidth = 0
+                minHeight = 0
+                setOnClickListener { togglePreviewFraming() }
+            },
+            FrameLayout.LayoutParams(zoomSide, zoomSide).apply {
+                gravity = Gravity.BOTTOM or Gravity.END
+                bottomMargin = 48
+                marginEnd = 24
+            }
+        )
+
+        val captureSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
         root.addView(
             captureButton,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
+                // Square: this is a shutter, not a label. WRAP_CONTENT made it a wide, short
+                // pill; one side for both dimensions keeps it square whatever the label
+                // measures, and the constant is the single knob for its size.
+                captureSide, captureSide
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 bottomMargin = 48
@@ -174,7 +234,8 @@ class ProtoCameraActivity : AppCompatActivity() {
                     .build()
                 imageCapture = capture
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                val camera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                cameraControl = camera.cameraControl
                 captureButton.isEnabled = true
                 statusView.text = statusText()
                 Log.i(TAG, "camera bound, viewfinder up")
@@ -273,6 +334,8 @@ class ProtoCameraActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ProtoCamera"
         private const val CAPTURE_DIR_NAME = "proto-camera"
+        /** Side of the square shutter button, in dp. One knob for its size. */
+        private const val CAPTURE_BUTTON_DP = 84f
 
         /** The FileProvider authority suffix; the manifest declares `${applicationId}.protofileprovider`. */
         const val FILE_PROVIDER_SUFFIX = ".protofileprovider"
