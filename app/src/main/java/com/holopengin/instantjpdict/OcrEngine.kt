@@ -765,25 +765,32 @@ class OcrEngine(private val context: Context) {
             bitmap.height,
         )
 
-        // 7-9. Min-size filter and the centred vertical-width shrink; merging,
-        // splitting and the ruby-gutter trim are default-path stages (#53 note).
+        // 7-9. Min-size filter, blob filter and the centred vertical-width
+        // shrink; merging, splitting and the ruby-gutter trim are default-path
+        // stages (#53 note).
+        val minSized = quads.indices
+            .filter { keep.getOrElse(it) { true } }
+            .map { quads[it] }
+            .filter { it.localWidth >= 10f && it.localHeight >= 10f }
+        // #53: a DB blob that merged several Lines fits one frame covering them
+        // all, while the Lines inside it arrive as their own smaller fits. The
+        // blob is the false positive, so drop it before it can become a Line.
+        val kept = RotatedGeometry.filterEnclosingBlobs(minSized)
         val result = mutableListOf<LineBox>()
-        for (i in quads.indices) {
-            if (!keep.getOrElse(i) { true }) continue
-            var quad = quads[i]
-            val w = quad.localWidth
-            val h = quad.localHeight
-            if (w < 10f || h < 10f) continue
-            if (RotatedGeometry.isVertical(quad)) {
-                quad = RotatedGeometry.inset(quad, w * 0.05f, 0f)
+        for (quadIn in kept) {
+            val quad = if (RotatedGeometry.isVertical(quadIn)) {
+                RotatedGeometry.inset(quadIn, quadIn.localWidth * 0.05f, 0f)
+            } else {
+                quadIn
             }
             val rect = quad.toRect()
             // Upright fits stay on the exact axis-aligned path.
             result.add(if (quad.isAxisAligned()) LineBox(rect) else LineBox(rect, quad))
         }
+        val blobs = minSized.size - kept.size
         val sorted = sortDetectedLineBoxes(result)
-        Log.d(TAG, "detectRotated: ${quads.size} fitted, final ${sorted.size} boxes, rotated=${sorted.count { it.isRotated }}")
-        InferLog.add("detectRotated fitted=${quads.size} final=${sorted.size} rotated=${sorted.count { it.isRotated }}")
+        Log.d(TAG, "detectRotated: ${quads.size} fitted, $blobs blob(s) filtered, final ${sorted.size} boxes, rotated=${sorted.count { it.isRotated }}")
+        InferLog.add("detectRotated fitted=${quads.size} blobs=$blobs final=${sorted.size} rotated=${sorted.count { it.isRotated }}")
         return sorted
     }
 

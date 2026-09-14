@@ -257,4 +257,88 @@ class RotatedGeometryTest {
         assertTrue(rotated.isRotated)
         assertEquals(quad, rotated.quad)
     }
+
+    // ── blob filtering ──────────────────────────────────────────────────────
+
+    /** Same shape as [JpDictQuad.fromRect], turned [deg] degrees clockwise
+     *  about the rect's centre. Built here rather than via fitQuad so the
+     *  expected containment is plain from the coordinates. */
+    private fun rotatedRect(rect: JpDictRect, deg: Float): JpDictQuad {
+        val rad = Math.toRadians(deg.toDouble())
+        val c = Math.cos(rad).toFloat()
+        val s = Math.sin(rad).toFloat()
+        val cx = (rect.left + rect.right) / 2f
+        val cy = (rect.top + rect.bottom) / 2f
+        fun p(x: Float, y: Float): QuadPoint {
+            val dx = x - cx
+            val dy = y - cy
+            return QuadPoint(cx + dx * c - dy * s, cy + dx * s + dy * c)
+        }
+        return JpDictQuad(
+            p(rect.left.toFloat(), rect.top.toFloat()),
+            p(rect.right.toFloat(), rect.top.toFloat()),
+            p(rect.right.toFloat(), rect.bottom.toFloat()),
+            p(rect.left.toFloat(), rect.bottom.toFloat()),
+        )
+    }
+
+    @Test
+    fun aFrameEnclosingTwoSmallerLinesIsDropped() {
+        val blob = JpDictQuad.fromRect(JpDictRect(0, 0, 300, 300))
+        val lineA = JpDictQuad.fromRect(JpDictRect(10, 10, 210, 35))
+        val lineB = JpDictQuad.fromRect(JpDictRect(10, 100, 210, 125))
+        assertEquals(listOf(lineA, lineB), RotatedGeometry.filterEnclosingBlobs(listOf(blob, lineA, lineB)))
+    }
+
+    @Test
+    fun aFrameEnclosingTwoSmallerLinesIsDroppedWhenTiltedToo() {
+        val blob = rotatedRect(JpDictRect(0, 0, 300, 300), 30f)
+        val lineA = rotatedRect(JpDictRect(20, 20, 220, 45), 30f)
+        val lineB = rotatedRect(JpDictRect(20, 120, 220, 145), 30f)
+        assertEquals(listOf(lineA, lineB), RotatedGeometry.filterEnclosingBlobs(listOf(blob, lineA, lineB)))
+    }
+
+    @Test
+    fun aFrameEnclosingOnlyOneLineIsKept() {
+        val blob = JpDictQuad.fromRect(JpDictRect(0, 0, 300, 300))
+        val lineA = JpDictQuad.fromRect(JpDictRect(10, 10, 210, 35))
+        assertEquals(listOf(blob, lineA), RotatedGeometry.filterEnclosingBlobs(listOf(blob, lineA)))
+    }
+
+    @Test
+    fun enclosedMarksAndCrumbsAreNotLines() {
+        val blob = JpDictQuad.fromRect(JpDictRect(0, 0, 300, 300))
+        // Two 30x30 squares: small, but not Line-shaped.
+        val markA = JpDictQuad.fromRect(JpDictRect(10, 10, 40, 40))
+        val markB = JpDictQuad.fromRect(JpDictRect(100, 100, 130, 130))
+        assertEquals(listOf(blob, markA, markB), RotatedGeometry.filterEnclosingBlobs(listOf(blob, markA, markB)))
+    }
+
+    @Test
+    fun aFrameEnclosingAComparablySizedFrameIsKept() {
+        val outer = JpDictQuad.fromRect(JpDictRect(0, 0, 300, 300))
+        // 250x250 = 0.69 of the outer area: smaller, but not substantially.
+        val innerA = JpDictQuad.fromRect(JpDictRect(10, 10, 260, 260))
+        val innerB = JpDictQuad.fromRect(JpDictRect(20, 20, 240, 40))
+        assertEquals(listOf(outer, innerA, innerB), RotatedGeometry.filterEnclosingBlobs(listOf(outer, innerA, innerB)))
+    }
+
+    @Test
+    fun disjointLinesAreNeverDropped() {
+        val lines = listOf(
+            JpDictQuad.fromRect(JpDictRect(0, 0, 200, 30)),
+            JpDictQuad.fromRect(JpDictRect(0, 50, 200, 80)),
+            JpDictQuad.fromRect(JpDictRect(0, 100, 200, 130)),
+        )
+        assertEquals(lines, RotatedGeometry.filterEnclosingBlobs(lines))
+    }
+
+    @Test
+    fun aDroppedBlobLeavesTheEnclosedLinesInOrder() {
+        val blob = JpDictQuad.fromRect(JpDictRect(0, 0, 400, 300))
+        val lineA = JpDictQuad.fromRect(JpDictRect(5, 5, 205, 30))
+        val lineB = JpDictQuad.fromRect(JpDictRect(5, 50, 205, 75))
+        val far = JpDictQuad.fromRect(JpDictRect(500, 500, 700, 530))
+        assertEquals(listOf(lineA, lineB, far), RotatedGeometry.filterEnclosingBlobs(listOf(lineA, blob, lineB, far)))
+    }
 }
