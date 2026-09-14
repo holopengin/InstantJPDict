@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  #78: the lock control's OPEN padlock — the state the lock is in when it is NOT
+  holding anything, and what a press turns on.
+
+  The pair of this file with proto_ic_lock_closed.xml is the whole point now that
+  both states are the SAME cyan (the emoji each used to be could not be tinted at
+  all). The body is IDENTICAL to the shut one — same rect, same coordinates, so the
+  control does not appear to shift when the state changes and the two glyphs read as
+  one symbol in two states rather than two different symbols. The SHACKLE is what
+  differs, and it differs the way a real padlock does:
+
+    shut:  M8.5,10.5 V8 A3.5,3.5 0 0 1 15.5,8 V10.5   — both legs into the body
+    open:  M11.5,10.5 V8.5 A4,4  0 0 1 19.5,8.5        — the far leg is lifted CLEAR
+
+  Here the loop leaves the body's top edge at x 11.5, arcs over, and stops at
+  (19.5, 8.5): one unit PAST the body's right edge (18.5) and two units above its top
+  edge (10.5), so the gap between the shackle's far end and the body is open sky at
+  any size the control is drawn at. The body is what carries "padlock at a glance";
+  the gap is what says which state.
+
+  Authored here, monochrome mask, no licence consequence — see
+  proto_ic_lock_closed.xml for both, in full.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+  <!-- The body: identical to the shut glyph's, so only the shackle changes. -->
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M7.5,10.5 H16.5 A2,2 0 0 1 18.5,12.5 V19.5 A2,2 0 0 1 16.5,21.5 H7.5 A2,2 0 0 1 5.5,19.5 V12.5 A2,2 0 0 1 7.5,10.5 Z"/>
+
+  <!-- The shackle, OPEN: one leg on the body, the far end lifted clear of it. -->
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:pathData="M11.5,10.5 V8.5 A4,4 0 0 1 19.5,8.5"/>
+</vector>

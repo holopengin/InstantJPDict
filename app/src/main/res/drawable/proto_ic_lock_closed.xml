@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  #78: the lock control's SHUT padlock — the state the lock is IN when it is holding
+  the window and the stream still.
+
+  AUTHORED HERE, in this repo, for this control. Two reasons, and they are the two
+  the ask had to weigh:
+
+   - It is MONOCHROME by construction. The emoji this replaces (U+1F512, and U+1F513
+     for the other state) was drawn by the device's COLOUR emoji font, which paints
+     its own palette and ignores the TextView's text colour — so the control could
+     not be the chrome's cyan. Forcing the text presentation with a variation
+     selector (U+FE0E) was checked against this device and is not an option there:
+     the pulled fonts show the only font covering U+1F512/U+1F513 is NotoColorEmoji
+     (range 1f4ff-1f53d), while the monochrome Noto Sans Symbols subsets stop at
+     1F251 / 1F0DF — there is no text-presentation glyph to select.
+   - It carries NO LICENCE CONSEQUENCE. This is this repo's own art, like
+     R.drawable.logo, and the bundled-licence index (app/licenses/components.tsv,
+     verified by :app:verifyLicenseIndex) does not cover res/ at all: it indexes the
+     app, the resolved Gradle runtime classpath and the Rust crate closure, and the
+     verifier's coverage rule is over the classpath modules. Nothing was taken from
+     an icon set, so nothing has to be noticed.
+
+  It is a MASK, deliberately: white fill and stroke and no tint of its own, because
+  the caller tints it with the app's chrome cyan (ProtoCameraActivity,
+  CHROME_GLYPH_COLOR) so the colour has one home. What is decided here is only the
+  SHAPE — and the shape is what tells the two states apart now that the colour is the
+  same in both (see proto_ic_lock_open.xml): here BOTH shackle legs reach the body.
+  At 24dp the body is 13 x 11 units of a 24-unit box, so the control stays legible at
+  the 52dp chrome size it is drawn at.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+  <!-- The body: x 5.5..18.5, y 10.5..21.5, corners r2. -->
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M7.5,10.5 H16.5 A2,2 0 0 1 18.5,12.5 V19.5 A2,2 0 0 1 16.5,21.5 H7.5 A2,2 0 0 1 5.5,19.5 V12.5 A2,2 0 0 1 7.5,10.5 Z"/>
+
+  <!-- The shackle, SHUT: both legs come down to the body's top edge (y 10.5). -->
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:pathData="M8.5,10.5 V8 A3.5,3.5 0 0 1 15.5,8 V10.5"/>
+</vector>

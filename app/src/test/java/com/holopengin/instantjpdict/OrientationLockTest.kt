@@ -203,12 +203,19 @@ class OrientationLockTest {
     /** The state has to be visible, and the two readouts are the glyph and the words. */
     @Test
     fun theControlSaysWhichStateItIsIn() {
-        assertEquals("U+1F512 LOCK", "\uD83D\uDD12", OrientationLock.glyphFor(locked = true))
-        assertEquals("U+1F513 OPEN LOCK", "\uD83D\uDD13", OrientationLock.glyphFor(locked = false))
+        // The glyph is a DRAWABLE now, not a text glyph: the emoji pair this used to draw
+        // could not be tinted the chrome's cyan at all (see [OrientationLock.iconFor]).
+        // What is still phone-free to pin is that the two states are two DIFFERENT
+        // drawables — the visual distinction the control's whole readout rests on — and
+        // that each of them resolves (an id of 0 would mean R had named nothing).
+        val lockedGlyph = OrientationLock.iconFor(locked = true)
+        val unlockedGlyph = OrientationLock.iconFor(locked = false)
+        assertTrue("the shut padlock must name a drawable (got $lockedGlyph)", lockedGlyph != 0)
+        assertTrue("the open padlock must name a drawable (got $unlockedGlyph)", unlockedGlyph != 0)
         assertNotEquals(
             "a locked control and a free one must not look identical",
-            OrientationLock.glyphFor(locked = true),
-            OrientationLock.glyphFor(locked = false)
+            lockedGlyph,
+            unlockedGlyph
         )
         for (locked in listOf(true, false)) {
             val description = OrientationLock.descriptionFor(locked)

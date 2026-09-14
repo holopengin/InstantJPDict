@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -18,6 +19,7 @@ import android.view.Surface
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -115,8 +117,19 @@ import java.util.concurrent.Executors
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
  *    as an accidental zoom.
+ *  - The CHROME is one style in one size: the back control, the orientation lock and the
+ *    framing control are all a [CHROME_CONTROL_DP] (52dp) square with the same
+ *    semi-transparent dark fill and cyan outline ([chromeBackground]), each with a
+ *    MONOCHROME CYAN glyph — the app's own cyan ([CHROME_GLYPH_COLOR], the value the
+ *    share activity's chrome uses). The back control's glyph is still a text arrow, which
+ *    takes the text colour; the other two carry vector drawables authored in this repo
+ *    (res/drawable/proto_ic_lock_closed, _open, proto_ic_zoom) because a padlock has no
+ *    monochrome form in the app's fonts — the emoji it used to be came out in the colour
+ *    emoji font's own palette and ignored the text colour — and because art authored here
+ *    is outside what the bundled-licence index covers, where art taken from an icon set
+ *    would need a notice and an index entry.
  *  - The SHUTTER is the app's own OCR-button graphic — the cyan circle on black with the
- *    cyan 辞典 ([androidx.core.content.ContextCompat]-loaded `R.drawable.logo`, the same
+ *    cyan 辞典 ([androidx.core.ContextCompat]-loaded `R.drawable.logo`, the same
  *    drawable the accessibility service's floating trigger draws), in the same square
  *    footprint the labelled button had. It is a graphic and not a new asset: a new
  *    bundled asset has to satisfy the licence index the build verifies. With no label
@@ -126,7 +139,7 @@ import java.util.concurrent.Executors
  *    ([PreviewView.ScaleType.FIT_CENTER]) — a portrait view with a landscape
  *    4:3 sensor frame, so the live image is a band across the middle of the
  *    screen and what the reticle is laid over is exactly what the capture will
- *    contain. The Zoom button switches to
+ *    contain. The framing control (the button that used to read "Zoom") switches to
  *    [PreviewView.ScaleType.FILL_CENTER], which fills the screen like an
  *    ordinary camera app by showing only the middle slice of the frame — and
  *    the photo handed to the model is cropped to that same slice
@@ -192,9 +205,10 @@ class ProtoCameraActivity : AppCompatActivity() {
      * is re-decided when the hold changes (see [applyControlAnchors]) — the views
      * are not rebuilt on a turn, `configChanges` means this activity is never
      * recreated, so the LayoutParams have to be re-applied to the views that are
-     * already there.
+     * already there. Also kept because its description follows its state
+     * ([applyZoomAppearance]).
      */
-    private lateinit var zoomButton: Button
+    private lateinit var zoomButton: ImageView
 
     /**
      * The orientation lock's control (the padlock in the corner of the window). Kept
@@ -203,7 +217,7 @@ class ProtoCameraActivity : AppCompatActivity() {
      * is already there — and because its own LOOK is the state readout
      * ([applyLockAppearance]).
      */
-    private lateinit var lockButton: Button
+    private lateinit var lockButton: ImageView
 
     /**
      * True while the orientation lock is holding the VIEW still — the user's own
@@ -416,7 +430,7 @@ class ProtoCameraActivity : AppCompatActivity() {
             tag = "proto_corner"
             orientation = LinearLayout.VERTICAL
         }
-        val backSide = (BACK_BUTTON_DP * resources.displayMetrics.density).roundToInt()
+        val backSide = (CHROME_CONTROL_DP * resources.displayMetrics.density).roundToInt()
         corner.addView(backButton(), LinearLayout.LayoutParams(backSide, backSide))
         root.addView(
             corner,
@@ -480,47 +494,40 @@ class ProtoCameraActivity : AppCompatActivity() {
             setOnClickListener { capture() }
         }
         setShutterEnabled(false)
-        // Both controls are added with their square footprint and NO anchor: where
+        // All three controls are added with their square footprint and NO anchor: where
         // they sit is decided in one place, [applyControlAnchors], because the anchor
         // depends on which way up the window is and has to be re-decided when that
         // changes. The views themselves are never rebuilt.
         //
         // One side for both dimensions, because this is a shutter, not a label:
         // WRAP_CONTENT made it a wide, short pill, and one square side keeps it
-        // square whatever the label measures — CAPTURE_BUTTON_DP is the single knob
-        // for the size of both controls.
+        // square whatever the label measures — [CAPTURE_BUTTON_DP] is the single knob
+        // for the shutter, and [CHROME_CONTROL_DP] the single knob for the chrome
+        // (the back control, the lock and the framing control).
         val controlSide = (CAPTURE_BUTTON_DP * resources.displayMetrics.density).roundToInt()
-        zoomButton = Button(this).apply {
-            tag = "proto_zoom"
-            text = "Zoom"
-            minWidth = 0
-            minHeight = 0
-            setOnClickListener { togglePreviewFraming() }
-        }
-        root.addView(zoomButton, FrameLayout.LayoutParams(controlSide, controlSide))
+        // The framing control is CHROME now (the rest of the ask this branch is on): the
+        // same 52dp square, the same fill-and-outline background and the same cyan glyph
+        // treatment the back and lock controls use, with a magnifier in place of the
+        // "Zoom" label. It keeps its own anchor and its own margins — see
+        // [applyControlAnchors] for what was decided about those, and [CHROME_CONTROL_DP]
+        // for why a corner affordance is not shutter-sized.
+        val chromeSide = (CHROME_CONTROL_DP * resources.displayMetrics.density).roundToInt()
+        zoomButton = chromeGlyphControl("proto_zoom", chromeSide) { togglePreviewFraming() }
+        applyZoomAppearance()
+        root.addView(zoomButton, FrameLayout.LayoutParams(chromeSide, chromeSide))
         root.addView(captureButton, FrameLayout.LayoutParams(controlSide, controlSide))
 
         // The orientation lock. Chrome, not a shutter: the same 52dp square, dark fill
-        // and cyan glyph the back control uses — and the same GLYPH route, because a
-        // new bundled asset would have to satisfy the licence index the build verifies
-        // (see the shutter above, which is why it reuses R.drawable.logo). Its anchor
-        // is decided with the others in [applyControlAnchors]; its look is the state
-        // readout, written by [applyLockAppearance] and nowhere else.
-        val lockSide = (LOCK_CONTROL_DP * resources.displayMetrics.density).roundToInt()
-        lockButton = CenteredButton(this).apply {
-            tag = "proto_lock"
-            textSize = BACK_GLYPH_TEXT_SIZE_SP
-            setTextColor(BACK_GLYPH_COLOR)
-            includeFontPadding = false
-            isAllCaps = false
-            minWidth = 0
-            minHeight = 0
-            setPadding(0, 0, 0, 0)
-            gravity = Gravity.CENTER
-            setOnClickListener { toggleOrientationLock() }
-        }
+        // and cyan glyph the back control uses. Its glyph is this repo's OWN vector
+        // (R.drawable.proto_ic_lock_closed / _open) rather than a text glyph or an asset
+        // from an icon set: the licence index the build verifies is not touched by art
+        // authored here, and a vector can be tinted the chrome's cyan where the emoji
+        // padlock this replaces could not (see [applyChromeGlyph]). Its anchor is decided
+        // with the others in [applyControlAnchors]; its look is the state readout,
+        // written by [applyLockAppearance] and nowhere else.
+        lockButton = chromeGlyphControl("proto_lock", chromeSide) { toggleOrientationLock() }
         applyLockAppearance()
-        root.addView(lockButton, FrameLayout.LayoutParams(lockSide, lockSide))
+        root.addView(lockButton, FrameLayout.LayoutParams(chromeSide, chromeSide))
 
         // Which way up the WINDOW came up, BEFORE it is first laid out, and the
         // controls are anchored for it in the same breath — that is what makes a
@@ -601,14 +608,18 @@ class ProtoCameraActivity : AppCompatActivity() {
      * Styled like the share activity's chrome — a text glyph on a semi-transparent
      * dark fill with the app's cyan outline — rather than a bundled asset: a new
      * asset would have to satisfy the app's licence index, a glyph does not. 52dp
-     * is the chrome size there; the camera's 84dp squares are its shutter-sized
-     * primary controls, which a corner affordance is not.
+     * is the chrome size there ([CHROME_CONTROL_DP]); the camera's 84dp squares are
+     * its shutter-sized primary controls, which a corner affordance is not.
+     *
+     * It keeps its TEXT glyph (U+2190) while the lock and the framing control carry
+     * vectors: an arrow drawn by the app's fonts takes the text colour, so it is
+     * already monochrome and already cyan, and there is nothing to gain by drawing it.
      */
     private fun backButton(): Button = CenteredButton(this).apply {
         tag = "proto_back"
         text = BACK_GLYPH
         contentDescription = "Back"
-        setTextColor(BACK_GLYPH_COLOR)
+        setTextColor(CHROME_GLYPH_COLOR)
         textSize = BACK_GLYPH_TEXT_SIZE_SP
         includeFontPadding = false
         isAllCaps = false
@@ -618,6 +629,49 @@ class ProtoCameraActivity : AppCompatActivity() {
         gravity = Gravity.CENTER
         background = chromeBackground()
         setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+    }
+
+    /**
+     * One chrome glyph control: the [CHROME_CONTROL_DP] square the back control and the
+     * lock share — [chromeBackground]'s dark semi-transparent fill with the app's cyan
+     * outline — with a DRAWABLE glyph on it instead of a text one, centred in a
+     * [CHROME_GLYPH_DP] box. The glyph itself is the caller's and is written by
+     * [applyChromeGlyph] (so it can follow a state), and the description is the caller's
+     * for the same reason.
+     *
+     * A VECTOR drawable and not a text glyph, for the two controls whose glyph has to be
+     * monochrome cyan and has no such glyph in the app's fonts: the lock's padlock was an
+     * EMOJI (U+1F512/U+1F513), which the device's colour emoji font paints in its own
+     * palette and ignores the text colour for, and there is no text-presentation form of
+     * either codepoint on this device to fall back to (see proto_ic_lock_closed.xml).
+     */
+    private fun chromeGlyphControl(tag: String, sidePx: Int, onClick: () -> Unit): ImageView =
+        ImageView(this).apply {
+            this.tag = tag
+            // The drawable is the glyph, not the background: the vector is a white mask
+            // and is scaled into the padded box rather than cropped, so a glyph whose
+            // aspect is not square still fits.
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val pad = (
+                (sidePx - (CHROME_GLYPH_DP * resources.displayMetrics.density).roundToInt()) / 2f
+                ).roundToInt()
+            setPadding(pad, pad, pad, pad)
+            background = chromeBackground()
+            setOnClickListener { onClick() }
+        }
+
+    /**
+     * A chrome control's glyph, in one place: the drawable, and THE APP'S OWN CYAN
+     * applied as a tint. The tint is why the vectors exist — the emoji this replaced
+     * could not be tinted at all — and it is applied here rather than baked into the
+     * drawables so the colour has one home ([CHROME_GLYPH_COLOR], the constant the back
+     * control's own arrow already draws in) and no second copy of the value can drift in
+     * an XML file.
+     */
+    private fun applyChromeGlyph(view: ImageView, glyphRes: Int, description: String) {
+        view.setImageResource(glyphRes)
+        view.setImageTintList(ColorStateList.valueOf(CHROME_GLYPH_COLOR))
+        view.contentDescription = description
     }
 
     /** Dark fill with the app's cyan outline, as the share activity's chrome uses. */
@@ -699,14 +753,18 @@ class ProtoCameraActivity : AppCompatActivity() {
     /**
      * Where the shutter and the framing control sit, for the WINDOW on screen.
      *
-     * PORTRAIT is the layout this prototype has always had, unchanged: the shutter
-     * centred on the bottom edge, the framing control in the bottom-right corner,
-     * both 84dp squares, at the raw-pixel margins they were first placed with
-     * ([CONTROL_BOTTOM_MARGIN_PX] / [ZOOM_END_MARGIN_PX] — kept as pixels on
-     * purpose, because portrait has been judged in the hand and a unit conversion
-     * would move both controls on the phone it was judged on). Portrait takes no
-     * insets, then or now: the corner stack is the control that carries them there,
-     * and the bottom margin has always been that raw 48px.
+     * PORTRAIT is the layout this prototype has always had, and it still puts things
+     * where it always did: the shutter centred on the bottom edge, the framing control
+     * in the bottom-right corner, both at the raw-pixel margins they were first placed
+     * with ([CONTROL_BOTTOM_MARGIN_PX] / [ZOOM_END_MARGIN_PX] — kept as pixels on
+     * purpose, because portrait has been judged in the hand and a unit conversion would
+     * move both controls on the phone it was judged on). The framing control is a
+     * [CHROME_CONTROL_DP] square now instead of a shutter-sized one, and it KEEPS those
+     * margins (see [CHROME_CONTROL_DP]): a margin here is the gap to the WINDOW's edge,
+     * not to the shutter, so the corner the hand judged is unmoved and the smaller square
+     * only opens the clearances around it. Portrait takes no insets, then or now: the
+     * corner stack is the control that carries them there, and the bottom margin has
+     * always been that raw 48px.
      *
      * LANDSCAPE moves both to the window's RIGHT edge — in a landscape window the
      * short edges are the left and right ones, so the right edge is where a thumb
@@ -717,12 +775,14 @@ class ProtoCameraActivity : AppCompatActivity() {
      *     asked for by name ("the right side of the screen when landscape");
      *   - the FRAMING control goes in the bottom-right corner — still under that
      *     thumb, and clear of the shutter: what the framing control needs below the
-     *     centred shutter (its own 84dp, its margin, and the navigation bar when a
+     *     centred shutter (its own 52dp, its margin, and the navigation bar when a
      *     three-button device puts it along that bottom edge) fits in the space a
-     *     1080px-tall landscape window leaves there. That calculation is where the
-     *     framing control's own margin came from; see [applyControlAnchors] for how
-     *     the zoom control's margins are swapped in landscape so that it keeps the
-     *     same PHYSICAL corner rather than the same relative one.
+     *     1080px-tall landscape window leaves there, and fits with more room now that
+     *     the control is 52dp rather than 84dp (see [LANDSCAPE_EDGE_MARGIN_DP] for the
+     *     arithmetic). That calculation is where the framing control's own margin came
+     *     from; see [applyControlAnchors] for how the zoom control's margins are swapped
+     *     in landscape so that it keeps the same PHYSICAL corner rather than the same
+     *     relative one.
      * The right system-bar inset is added to both, and the bottom one to the framing
      * control, because in landscape the navigation bar lies along a long edge — the
      * edge these two now hug — which is the same reason the corner stack takes
@@ -761,6 +821,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         }
         val density = resources.displayMetrics.density
         val side = (CAPTURE_BUTTON_DP * density).roundToInt()
+        val chromeSide = (CHROME_CONTROL_DP * density).roundToInt()
         if (controlsLandscape) {
             val edge = (LANDSCAPE_EDGE_MARGIN_DP * density).roundToInt() + systemBarRight
             placeControl(captureButton, side, Gravity.END or Gravity.CENTER_VERTICAL, edge, 0)
@@ -771,17 +832,20 @@ class ProtoCameraActivity : AppCompatActivity() {
             // physical right edge is now off the window's top, and the 48px that was off
             // the physical bottom is now off the window's right. The top inset is folded
             // in exactly as the right one is, so the control does not sit under the
-            // status bar in landscape.
+            // status bar in landscape. Both margins are untouched by the move to 52dp,
+            // like portrait's: they are the control's gaps to the window's edges, and the
+            // clearance they need from the centred shutter only grows as the control
+            // shrinks.
             val zoomEdge = CONTROL_BOTTOM_MARGIN_PX + systemBarRight
             val zoomTop = ZOOM_END_MARGIN_PX + systemBarTop
-            placeControl(zoomButton, side, Gravity.END or Gravity.TOP, zoomEdge, 0, zoomTop)
+            placeControl(zoomButton, chromeSide, Gravity.END or Gravity.TOP, zoomEdge, 0, zoomTop)
         } else {
             placeControl(
                 captureButton, side,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, CONTROL_BOTTOM_MARGIN_PX
             )
             placeControl(
-                zoomButton, side,
+                zoomButton, chromeSide,
                 Gravity.BOTTOM or Gravity.END, ZOOM_END_MARGIN_PX, CONTROL_BOTTOM_MARGIN_PX
             )
         }
@@ -800,7 +864,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         // corner chrome like the back control, not a primary control.
         placeControl(
             lockButton,
-            (LOCK_CONTROL_DP * density).roundToInt(),
+            chromeSide,
             OrientationLock.placementFor(
                 windowLandscape = controlsLandscape,
                 marginPx = (CORNER_MARGIN_DP * density).roundToInt(),
@@ -948,6 +1012,8 @@ class ProtoCameraActivity : AppCompatActivity() {
         } else {
             PreviewView.ScaleType.FIT_CENTER
         }
+        // The description is the action a press takes, so it follows the framing.
+        applyZoomAppearance()
         Log.i(TAG, "preview framing = ${if (previewFill) "FILL_CENTER" else "FIT_CENTER"}")
     }
 
@@ -1030,18 +1096,44 @@ class ProtoCameraActivity : AppCompatActivity() {
      * it says to a screen reader, and the fill behind it.
      *
      * The glyph is the primary readout — a SHUT padlock while locked, an OPEN one while
-     * not ([OrientationLock.glyphFor]) — and the background reinforces it, because a
-     * small glyph has to be legible over whatever the camera happens to be pointing at
-     * and the emoji font may draw the padlock in its own colours rather than the
-     * chrome's cyan. Nothing else on screen states the state: the top-left status text
-     * this would otherwise have been written into was deliberately removed
-     * ([statusText]).
+     * not ([OrientationLock.iconFor]) — and it is a MONOCHROME VECTOR TINTED THE CHROME'S
+     * CYAN ([applyChromeGlyph]) rather than the emoji this used to draw, which came out
+     * in the colour emoji font's own palette whatever the text colour said. The two
+     * states are told apart by the BODY OF THE SHACKLE now that the colour is the same
+     * in both (both legs into the body = shut, the far leg lifted clear = open: see
+     * proto_ic_lock_closed.xml), and the background reinforces it, because a small glyph
+     * has to be legible over whatever the camera happens to be pointing at. Nothing else
+     * on screen states the state: the top-left status text this would otherwise have been
+     * written into was deliberately removed ([statusText]).
      */
     private fun applyLockAppearance() {
         if (!::lockButton.isInitialized) return
-        lockButton.text = OrientationLock.glyphFor(orientationLocked)
-        lockButton.contentDescription = OrientationLock.descriptionFor(orientationLocked)
+        applyChromeGlyph(
+            lockButton,
+            OrientationLock.iconFor(orientationLocked),
+            OrientationLock.descriptionFor(orientationLocked),
+        )
         lockButton.background = lockBackground(orientationLocked)
+    }
+
+    /**
+     * The framing control's state, on the control: its glyph and what it says to a
+     * screen reader.
+     *
+     * ONE glyph ([R.drawable.proto_ic_zoom] — a magnifier, the symbol the "Zoom" label
+     * already was), because this control's look did not change with its state before
+     * either: the framing it is showing is on screen as the preview, and which one that
+     * is is logged ([togglePreviewFraming]). The DESCRIPTION follows the framing, because
+     * the control is a toggle and a description names the action a press takes: it is the
+     * fit-or-fill the press would switch TO, the way the lock's says lock-or-unlock.
+     */
+    private fun applyZoomAppearance() {
+        if (!::zoomButton.isInitialized) return
+        applyChromeGlyph(
+            zoomButton,
+            R.drawable.proto_ic_zoom,
+            if (previewFill) ZOOM_FIT_DESCRIPTION else ZOOM_FILL_DESCRIPTION,
+        )
     }
 
     /**
@@ -1408,11 +1500,15 @@ class ProtoCameraActivity : AppCompatActivity() {
         private const val CAPTURE_BUTTON_DP = 84f
 
         /**
-         * PORTRAIT's margins for those two squares, in RAW PIXELS — the values they
-         * were first placed with. Deliberately not converted to dp: portrait has
+         * PORTRAIT's margins for the two bottom controls, in RAW PIXELS — the values
+         * they were first placed with. Deliberately not converted to dp: portrait has
          * been judged in the hand on a real phone, and a unit change would move both
-         * controls on that phone for no reason. The corner stack's margins below are
-         * dp, and that is the whole point of the split: this pair is frozen.
+         * controls on that phone for no reason. They are kept through the framing
+         * control's restyle as a [CHROME_CONTROL_DP] square for the same reason: a
+         * margin is the gap to the WINDOW's edge, so the corner that was judged does not
+         * move, and the smaller square only opens the clearances around it. The corner
+         * stack's margins below are dp, and that is the whole point of the split: this
+         * pair is frozen.
          */
         private const val CONTROL_BOTTOM_MARGIN_PX = 48
 
@@ -1422,20 +1518,23 @@ class ProtoCameraActivity : AppCompatActivity() {
         /**
          * LANDSCAPE's margins, in dp: new layout, so written in the unit that holds
          * up on a density this layout has never been seen at. Off the right edge for
-         * both controls, and off the bottom for the framing control. The system-bar
-         * insets are added on top of these (see [applyControlAnchors]).
+         * both controls, and the system-bar insets are added on top of these (see
+         * [applyControlAnchors]).
          *
-         * 16dp on both is also the number that keeps the two controls apart in the
-         * WORST landscape the bars can produce. A vertically centred 84dp shutter on
-         * a 1080px-tall window (1080x2400 at density 2.625 — this app's device) ends
-         * 650px down, leaving ~430px below it. The framing control needs its own
-         * 221px plus its bottom margin plus, on a three-button device, a 48dp
-         * navigation bar along that bottom edge: 126px. At a 24dp margin that is
-         * 126 + 63 + 221 = 410 of the 430, i.e. a 5dp gap; at 16dp it is 389, i.e.
-         * ~15dp. Neither overlaps, but the smaller margin is the one with room to
-         * spare when a device reports a taller bar. (The layout assumes the window
-         * is at least ~2.2 shutter-sides tall, which any phone in a landscape hold
-         * is; in a very short free-form window the two would meet.)
+         * 16dp and not 24dp is the number that keeps the two controls apart in the
+         * WORST landscape the bars can produce, and it was chosen when the framing
+         * control was still the shutter's own 84dp square. The measurement that decided
+         * it, kept because it is the reason for the number: a vertically centred 84dp
+         * shutter on a 1080px-tall window (1080x2400 at density 2.625 — this app's
+         * device) ends 650px down, leaving ~430px of edge below it. An 84dp framing
+         * control needed 221px of that plus its own margin plus, on a three-button
+         * device, a 48dp navigation bar along that edge: 126px. At a 24dp margin that
+         * was 126 + 63 + 221 = 410 of the 430, i.e. a 5dp gap; at 16dp, 389 (~15dp).
+         * The framing control is a [CHROME_CONTROL_DP] square now — 137px where it was
+         * 221px — so the same sum is 126 + 63 + 137 = 326 of the 430: the 16dp is
+         * unchanged and simply has ~40dp of room it did not have before. (The layout
+         * assumes the window is at least ~2.2 shutter-sides tall, which any phone in a
+         * landscape hold is; in a very short free-form window the two would meet.)
          */
         private const val LANDSCAPE_EDGE_MARGIN_DP = 16f
 
@@ -1447,39 +1546,68 @@ class ProtoCameraActivity : AppCompatActivity() {
         private const val SHUTTER_ALPHA_DISABLED = 0.4f
 
         /**
-         * The corner control: the same 52dp chrome size and glyph treatment the
-         * share activity's rotate pair uses, and the glyph is a text arrow rather
-         * than a drawable — a new bundled asset would have to satisfy the app's
-         * licence index (see app/licenses/components.tsv), a glyph costs nothing.
+         * The framing control's two descriptions — the words the zoom button says to a
+         * screen reader now that it has no visible label. Each is the ACTION a press
+         * takes, i.e. the framing it would switch TO, which is why there are two and why
+         * the control's description follows its state ([applyZoomAppearance]): the lock's
+         * pair is written the same way ([OrientationLock.descriptionFor]).
          */
-        private const val BACK_BUTTON_DP = 52
-        /** U+2190 LEFT ARROW. */
+        private const val ZOOM_FILL_DESCRIPTION = "Fill the screen with the preview"
+        private const val ZOOM_FIT_DESCRIPTION = "Fit the whole captured frame"
+
+        /**
+         * The chrome square: the back control, the orientation lock AND the framing
+         * control are all this one size, and it is the size the app already chose for
+         * chrome — the share activity's rotate pair and its back control are 52dp too, so
+         * the app's chrome does not change size from one screen to the next. It is
+         * deliberately NOT [CAPTURE_BUTTON_DP]: 84dp is for the control a thumb presses a
+         * hundred times a session, and a corner affordance is not that. The framing
+         * control moved onto it from 84dp, and kept its margins (see
+         * [CONTROL_BOTTOM_MARGIN_PX]).
+         */
+        private const val CHROME_CONTROL_DP = 52
+
+        /**
+         * The box a chrome control's VECTOR glyph is drawn into, in dp: the control is
+         * [CHROME_CONTROL_DP] and the rest is its padding ([chromeGlyphControl]). 26dp is
+         * the size the back control's TEXT arrow comes out at (its
+         * [BACK_GLYPH_TEXT_SIZE_SP] is 24sp, and a glyph's ink is smaller than its em
+         * box), so a drawable glyph and a text one read at the same weight on the same
+         * sized square.
+         */
+        private const val CHROME_GLYPH_DP = 26f
+
+        /** U+2190 LEFT ARROW: the back control's glyph, the one chrome glyph that stays TEXT. */
         private const val BACK_GLYPH = "\u2190"
         private const val BACK_GLYPH_TEXT_SIZE_SP = 24f
         private const val BACK_BUTTON_RADIUS_DP = 10f
-        private val BACK_GLYPH_COLOR = Color.parseColor("#00FFFF")
+
+        /**
+         * THE APP'S CHROME CYAN, in one place: the back control's text arrow, the lock's
+         * padlock and the framing control's magnifier are ALL painted with this value.
+         * It is the value the app already draws its chrome with, not a new one: the share
+         * activity's rotate pair and back control use the identical
+         * `Color.parseColor("#00FFFF")` (ROTATE_GLYPH_COLOR), and #00ffff is the cyan in
+         * the app's own R.drawable.logo and launcher drawables. There is deliberately no
+         * copy of it in res/values/colors.xml (that file holds Android Studio's unused
+         * purple/teal boilerplate), so this constant is where the app's cyan is decided
+         * and the vectors carry NO colour of their own — the glyphs are white masks and
+         * [applyChromeGlyph] tints them from here, so the two cannot drift apart.
+         */
+        private val CHROME_GLYPH_COLOR = Color.parseColor("#00FFFF")
         private val BACK_BUTTON_FILL = Color.argb(130, 25, 25, 25)
         private val BACK_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
 
-        /** The chrome outline's width, in dp: the back control and the lock control. */
+        /** The chrome outline's width, in dp: the back control, the lock and the framing control. */
         private const val CHROME_STROKE_DP = 1.5f
-
-        /**
-         * The orientation lock's control: the SAME 52dp chrome square as the back
-         * control, at the other corner — a corner affordance and not a shutter-sized
-         * primary control, which is why it is not [CAPTURE_BUTTON_DP]. Its glyph is a
-         * text one too ([OrientationLock.glyphFor]): a new bundled asset would have to
-         * satisfy the licence index the build verifies, and a padlock does not need
-         * drawing.
-         */
-        private const val LOCK_CONTROL_DP = 52
 
         /**
          * The lock control's fill and outline while the lock is HELD, as opposed to
          * [BACK_BUTTON_FILL] / [BACK_BUTTON_STROKE] while it is not: a cyan wash and an
          * OPAQUE cyan outline, so "held" is legible over any photo at arm's length. The
-         * state is also in the glyph ([OrientationLock.glyphFor]) and in the log
-         * ([lockLine]) — the two readouts a glance cannot check from a screenshot.
+         * state is also in the glyph's SHAPE ([OrientationLock.iconFor] — the glyph colour
+         * is the same in both states now) and in the log ([lockLine]) — the two readouts a
+         * glance cannot check from a screenshot.
          */
         private val LOCK_HELD_FILL = Color.argb(190, 0, 70, 70)
         private val LOCK_HELD_STROKE = Color.argb(255, 0, 255, 255)

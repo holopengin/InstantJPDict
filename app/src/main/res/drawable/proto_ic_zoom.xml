@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  #78: the framing control's glyph — the control the maintainer calls the ZOOM
+  button, and the one this file replaces for: it had the text label "Zoom", sized for
+  an 84dp shutter-sized square. It is now the same 52dp chrome square as the back and
+  lock controls, so it needs a glyph instead of a word (see
+  ProtoCameraActivity.applyZoomAppearance / CHROME_CONTROL_DP).
+
+  A magnifier, because that is the symbol the word "Zoom" already was and the only
+  thing on this control that does not change: the framing it switches between (the
+  whole captured frame letterboxed in, vs the screen filled by the middle slice of
+  it) is the same readout as before — a single state on screen, no second look — and
+  the state is not stated on the control. What the control SAYS is its
+  contentDescription, which names the action a press takes.
+
+  One glyph rather than a pair (the lock has a pair, and needs it — see
+  proto_ic_lock_open.xml): this control's look did not change with its state before
+  either, so nothing is lost, and the two shapes I would have had to tell apart
+  (letterboxed-in-a-frame vs filled) are far subtler at 26dp than a padlock's shackle
+  gap is. Reported as a decision in the handoff, not as a claim.
+
+  Like the padlocks: authored here, a monochrome white mask the caller tints the
+  chrome's cyan, and no licence consequence — see proto_ic_lock_closed.xml for both,
+  in full.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+  <!-- The glass: a circle r6 centred (10.5,10.5), stroked, so the inside stays clear. -->
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:pathData="M16.5,10.5 A6,6 0 1 1 4.5,10.5 A6,6 0 1 1 16.5,10.5 Z"/>
+
+  <!-- The handle, off the glass at 45° and running to the corner. -->
+  <path
+      android:fillColor="#00000000"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2"
+      android:strokeLineCap="round"
+      android:pathData="M15.2,15.2 L20,20"/>
+</vector>

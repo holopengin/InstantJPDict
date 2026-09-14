@@ -67,10 +67,10 @@ import android.view.Gravity
  * foldable is the case to re-check on a device.
  *
  * The CONTROL is here too, because it is decided from the same handful of facts and
- * every one of them is a plain function of ints and booleans: what it says
- * ([glyphFor], [descriptionFor]), where it sits ([placementFor]) and which
- * system-bar edges that corner has to clear. That is what lets [OrientationLockTest]
- * pin all of it without a phone.
+ * every one of them is a plain function of ints and booleans: what it shows
+ * ([iconFor]), what it says ([descriptionFor]), where it sits ([placementFor]) and
+ * which system-bar edges that corner has to clear. That is what lets
+ * [OrientationLockTest] pin all of it without a phone.
  */
 object OrientationLock {
 
@@ -163,17 +163,44 @@ object OrientationLock {
     }
 
     /**
-     * What the control shows: a padlock that is shut while [locked] and open while
-     * not. Text glyphs, not bundled assets — a new asset would have to satisfy the
-     * app's licence index (`app/licenses/components.tsv`, checked by the build's
-     * `verifyLicenseIndex` step), and this feature needs nothing drawn.
+     * What the control shows: a padlock that is SHUT while [locked] and OPEN while not,
+     * as a drawable resource the caller puts on the control and tints the chrome's cyan.
      *
-     * The pair is the chrome's own grammar: the share activity's rotate pair says
-     * which way with ⟳/⟲, this one says held-or-not with two forms of one symbol, so
-     * the state reads at a glance and not from a label the maintainer would have to
-     * read.
+     * A VECTOR drawn in this repo, not a text glyph and not an asset from an icon set —
+     * and the state of both, written out because each half was checked rather than
+     * assumed:
+     *
+     *  - Text is out. The pair used to be the emoji U+1F512 / U+1F513, and an emoji is
+     *    drawn by the device's COLOUR emoji font, which paints its own palette and
+     *    ignores the text colour — so "tint the padlock the chrome's cyan" was not
+     *    possible that way. Forcing the text presentation instead (appending U+FE0E to
+     *    the codepoint) was checked against this device's own fonts and is not possible
+     *    there either: the only font covering U+1F512/U+1F513 is NotoColorEmoji
+     *    (1f4ff-1f53d), while the monochrome Noto Sans Symbols subsets stop at 1F251 /
+     *    1F0DF, so there is no text-presentation glyph for the selector to select.
+     *  - An icon set is out on licence grounds. A bundled THIRD-PARTY asset is a
+     *    component the app has to notice: it would need a licence text and a notice
+     *    under app/src/main/assets/licenses/ and a row in app/licenses/components.tsv,
+     *    and the index that carries all that is what `:app:verifyLicenseIndex` verifies
+     *    (a `preBuild` dependency) — so getting it wrong fails the build, and getting it
+     *    right means attributing a padlock. Nothing was taken from anywhere: the two
+     *    drawables are this repo's own, like `R.drawable.logo`, and the verifier's
+     *    coverage rule is over the resolved Gradle runtime classpath, so res/ art
+     *    authored here needs no entry at all.
+     *
+     * WHICH GLYPH IS WHICH is the only thing this function decides, and it is the
+     * distinction that has to survive the colour going monochrome: SHUT while [locked]
+     * (both shackle legs into the body), OPEN while not (the far leg lifted clear of it,
+     * so the loop is visibly open). Both drawables are 24dp vectors whose BODY is
+     * identical, so the control does not shift; what changes is the shackle and the fill
+     * the activity draws behind it (`ProtoCameraActivity.lockBackground`).
+     *
+     * The pair is the chrome's own grammar: the share activity's rotate pair says which
+     * way with ⟳/⟲, this one says held-or-not with two forms of one symbol, so the state
+     * reads at a glance and not from a label the maintainer would have to read.
      */
-    fun glyphFor(locked: Boolean): String = if (locked) LOCKED_GLYPH else UNLOCKED_GLYPH
+    fun iconFor(locked: Boolean): Int =
+        if (locked) R.drawable.proto_ic_lock_closed else R.drawable.proto_ic_lock_open
 
     /**
      * What the control says to a screen reader — the ACTION a press takes, because
@@ -236,12 +263,6 @@ object OrientationLock {
             bottomMargin = marginPx + bars.bottom,
         )
     }
-
-    /** U+1F512 LOCK: the state a press turns ON. */
-    private const val LOCKED_GLYPH = "\uD83D\uDD12"
-
-    /** U+1F513 OPEN LOCK: the state a press turns OFF. */
-    private const val UNLOCKED_GLYPH = "\uD83D\uDD13"
 
     private const val LOCK_DESCRIPTION = "Lock orientation"
     private const val UNLOCK_DESCRIPTION = "Unlock orientation"
