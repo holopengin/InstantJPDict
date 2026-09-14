@@ -14,7 +14,6 @@ import com.holopengin.instantjpdict.util.PitchAccent
 import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.google.gson.Gson
 import uniffi.nav_graph_core.*
-import kotlin.math.roundToInt
 
 data class LineResult(
     var text: String,
@@ -44,14 +43,20 @@ data class LineResult(
 
     /** #53: the source-pixel glyph size the overlay draws this Line at. The
      *  default path is the old inline expression (the largest char box
-     *  height); the rotated path measures in the Line's own frame, because
-     *  its char boxes are AABBs of rotated cells and would oversize the
-     *  glyphs. */
+     *  height); the rotated path measures the upright frame's CROSS axis,
+     *  because its char boxes are AABBs of rotated cells and would oversize
+     *  the glyphs.
+     *
+     *  The upright frame's cross axis is `cropH` for a horizontal Line and
+     *  `cropW` for a vertical one — the same axis `computeCharBoxes` treats as
+     *  the char height/short side. Dividing `cropH` by `seqLenTotal` for the
+     *  vertical case (as an earlier revision did) yields the per-timestep step
+     *  in model pixels, ~6x smaller than a glyph, and rendered tategaki text
+     *  at a fraction of its size. */
     fun glyphSizePx(): Int = if (quad == null) {
         charBoxes.maxOfOrNull { it.height() } ?: 0
     } else if (isVertical) {
-        if (seqLenTotal > 0) (cropH.toFloat() / seqLenTotal).roundToInt().coerceAtLeast(1)
-        else charBoxes.maxOfOrNull { it.height() } ?: 0
+        cropW.coerceAtLeast(1)
     } else {
         cropH.coerceAtLeast(1)
     }
