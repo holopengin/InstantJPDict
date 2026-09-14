@@ -193,6 +193,18 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      */
     private var containerView: FrameLayout? = null
 
+    /**
+     * The layout wait [refitForNewContainer] has registered, if one is in flight.
+     *
+     * Kept as state so it can be released from every way the wait can end — the layout
+     * that carries the new container size, a later turn superseding it, and the
+     * activity going away ([onDestroy]) — rather than only from the branch inside the
+     * listener that gets as far as re-fitting. A listener left registered would fire on
+     * some later, unrelated layout (an IME resize, a panel) and re-fit the composite
+     * against a size the current configuration does not report.
+     */
+    private var refitLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
+
     private var overlayView: OcrOverlayView? = null
 
     /** The activity's own rotate pair, placed in the overlay view's chrome
@@ -431,6 +443,10 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * `onBackPressed()` override, which the dispatcher bypasses.)
      */
     override fun onDestroy() {
+        // Any pending layout wait is released first. The activity is going away, so no
+        // re-fit can follow, and a listener left on the container's observer would keep
+        // this object alive behind it.
+        unregisterRefitLayoutListener()
         overlayView?.onClosed()
         overlayView = null
         overlayScope.cancel()
@@ -518,6 +534,9 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     private fun refitForNewContainer() {
         val container = containerView ?: return
         if (surfaceWidth <= 0 || surfaceHeight <= 0) return
+        // A wait left over from an earlier turn is SUPERSEDED, not stacked: two live
+        // listeners would re-fit twice for one layout.
+        unregisterRefitLayoutListener()
         val observer = container.viewTreeObserver
         val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
@@ -526,11 +545,28 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                 if (width <= 0 || height <= 0) return
                 val metrics = resources.displayMetrics
                 if (width != metrics.widthPixels || height != metrics.heightPixels) return
-                if (observer.isAlive) observer.removeOnGlobalLayoutListener(this)
+                // The wait is over here, whatever the re-fit then turns out to be —
+                // another layout cannot supply what is missing (the overlay view or the
+                // base image), so the listener is not left registered for one.
+                unregisterRefitLayoutListener()
                 refitComposite(width, height)
             }
         }
+        refitLayoutListener = listener
         observer.addOnGlobalLayoutListener(listener)
+    }
+
+    /**
+     * Release the layout wait [refitForNewContainer] registered, if one is. Called from
+     * the layout that carries the new container size, from a turn that supersedes an
+     * older wait, and from [onDestroy]; the listener is therefore never left on the
+     * container's observer.
+     */
+    private fun unregisterRefitLayoutListener() {
+        val listener = refitLayoutListener ?: return
+        refitLayoutListener = null
+        val observer = containerView?.viewTreeObserver ?: return
+        if (observer.isAlive) observer.removeOnGlobalLayoutListener(listener)
     }
 
     /**
