@@ -154,6 +154,30 @@ class OrientationManifestTest {
     }
 
     /**
+     * The lock's RELEASE end, held to the declaration rather than to a second policy:
+     * [OrientationLock]'s free value IS the value this activity's manifest declares for
+     * itself, so un-freezing the viewfinder cannot drift into an orientation invented in
+     * code. The held value is the platform's "hold the rotation already in effect" — see
+     * [OrientationLock] — and the assertion that the two differ lives in
+     * `OrientationLockTest`.
+     */
+    @Test
+    fun theOrientationLockReleasesBackToTheValueTheViewfinderDeclares() {
+        val declared = orientationValue(activityTag(".ProtoCameraActivity"))
+        assertEquals(
+            "the viewfinder's declaration is the lock's release value; " +
+                "this test fails if either side is edited without the other: $declared",
+            "fullSensor",
+            declared
+        )
+        assertEquals(
+            "and the constant that stands for that declaration is the one the lock hands back",
+            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR,
+            OrientationLock.requestedOrientationFor(locked = false)
+        )
+    }
+
+    /**
      * The end of the chain: the OCR view declares the SAME platform value the
      * viewfinder declares for itself, read out of this same manifest. That is what
      * makes the OCR view's orientation the camera's own notion of it rather than a

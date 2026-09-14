@@ -44,6 +44,13 @@ import android.view.Surface
  *    does, and a flat phone moves nothing";
  *  - the `Surface` and `Configuration` constants are compile-time constants, so
  *    the tests read them inlined rather than through the stub Android classes.
+ *
+ * A THIRD NOTION lives beside these two rather than in this file: the orientation
+ * LOCK ([OrientationLock]) is not another reading of the phone — it is the switch
+ * that stops BOTH of the readings above from following it, and it is kept separate
+ * on purpose. These two functions stay what they are, readings with no state, and
+ * the lock answers its own questions (the value the WINDOW is told, the value the
+ * STREAM is frozen at, and where its control sits) in one pure place of its own.
  */
 object DeviceHold {
 

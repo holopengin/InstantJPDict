@@ -90,6 +90,27 @@ import java.util.concurrent.Executors
  *    buttons moved while nothing on screen had. The STREAM is unchanged: it still
  *    follows the sensor, because a capture must be oriented for the hand holding
  *    the phone. See [DeviceHold] for the two notions.
+ *  - The LOCK is the third orientation notion and the only one the user can turn
+ *    on: a padlock control that holds the WINDOW and the STREAM together where they
+ *    are, so the phone can be held at an awkward angle (over a book, lying down)
+ *    without the view flipping under the hand. BOTH halves or neither — see
+ *    [OrientationLock] for why a window frozen on its own would leave the preview
+ *    rotating inside a window that is not (the same failure the `fullSensor`
+ *    decision above exists to avoid, and worse than no lock at all), and for the
+ *    platform value the hold is asked for with
+ *    ([android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED], which the
+ *    platform resolves to "the rotation already in effect"). The stream is frozen at
+ *    the WINDOW's rotation and not the sensor's last band, because the sensor reports
+ *    a new hold before the platform has turned the window. LIFETIME: it is this
+ *    activity's own state and nothing more — never saved, gone when the instance is
+ *    (a re-creation for a config change this activity does not declare, e.g. a font
+ *    size change, comes back unlocked and following the phone, which is today's
+ *    behaviour and not a stuck window), alive across the capture and the OCR handoff
+ *    because [handOff] deliberately does not finish this activity, and re-applied in
+ *    [onResume] so returning from the results view cannot quietly hand the window
+ *    back to the sensor. Un-freezing puts the manifest's own `fullSensor` back and
+ *    lets the sensor drive both notions again — today's behaviour, from the same
+ *    constant the manifest names.
  *  - Back camera, minimise-latency capture mode, no flash. Tapping the preview refocuses
  *    there — the ordinary camera gesture. Framing has its own square button in the
  *    bottom-right, because a tap that silently changed what the capture would contain read
@@ -176,6 +197,35 @@ class ProtoCameraActivity : AppCompatActivity() {
     private lateinit var zoomButton: Button
 
     /**
+     * The orientation lock's control (the padlock in the corner of the window). Kept
+     * as a field for the same reason [zoomButton] is: `configChanges` means the views
+     * are never rebuilt on a turn, so its anchor has to be re-applied to the view that
+     * is already there — and because its own LOOK is the state readout
+     * ([applyLockAppearance]).
+     */
+    private lateinit var lockButton: Button
+
+    /**
+     * True while the orientation lock is holding the VIEW still — the user's own
+     * state, and the single switch [OrientationLock]'s two halves are both thrown
+     * from. Nothing else in this activity may decide it, and this activity is its
+     * whole lifetime: it is never saved, it survives the capture and the OCR handoff
+     * only because [handOff] does not finish this activity, and a re-creation for a
+     * config change this activity does not declare drops it (back to following the
+     * phone, which is today's behaviour). Re-applied, not re-decided, in [onResume].
+     */
+    private var orientationLocked = false
+
+    /**
+     * The latest band the sensor reported, whatever the lock is doing — the value
+     * un-freezing hands back to the stream ([OrientationLock.streamRotationFor]), so
+     * a phone that was turned while the lock held the view does not stay pointed the
+     * wrong way after the release. Updated on every sensor callback, spent only when
+     * the lock is off.
+     */
+    private var lastSensorRotation = Surface.ROTATION_0
+
+    /**
      * True while the shutter and the framing control are anchored for a landscape
      * WINDOW, false for portrait — the state [applyControlAnchors] reads, and the
      * gate that keeps a window change from re-writing two sets of LayoutParams
@@ -187,12 +237,17 @@ class ProtoCameraActivity : AppCompatActivity() {
     private var controlsLandscape = false
 
     /**
-     * The system bars' right and bottom insets, in pixels, as the root last
-     * reported them. Only the landscape anchors use them — the right edge is the
-     * edge the navigation bar moves to in landscape — but they are kept as state
-     * because the anchors are re-applied from two directions (a turn, and an inset
-     * change) and both need the same numbers.
+     * The system bars' insets, in pixels, as the root last reported them. The
+     * landscape anchors use the right and bottom (the right edge is where the
+     * navigation bar moves in landscape), the portrait corner stack uses the left and
+     * top, and the lock control uses the inset of whichever corner it is anchored
+     * in — so all four are kept as state, because the anchors are re-applied from two
+     * directions (a turn, and an inset change) and both need the same numbers.
+     *
+     * The LEFT inset is the one the lock control added: its portrait anchor is the
+     * window's bottom-left, so the edge that can carry a bar over it is the left one.
      */
+    private var systemBarLeft = 0
     private var systemBarRight = 0
     private var systemBarBottom = 0
     private var systemBarTop = 0
@@ -229,6 +284,47 @@ class ProtoCameraActivity : AppCompatActivity() {
         // app restarted. The capture session lives as long as this activity, so having one is
         // the right test.
         if (::captureButton.isInitialized) setShutterEnabled(imageCapture != null)
+        // The lock, on the way back in — re-applied, not re-decided:
+        //  - the request is set again, because it is this activity's own word to the
+        //    window manager and nothing in between (a re-creation is not this case;
+        //    a return from the results view is) may quietly put the manifest's
+        //    fullSensor back in its place;
+        //  - the frozen stream is re-read from the WINDOW while it is still frozen,
+        //    because this activity was down with the OCR view on top and the display
+        //    belonged to THAT window, which follows the sensor: the lock's state
+        //    survives the handoff, and the pair is put back together at the rotation
+        //    the camera's window actually came back in rather than at the one it left
+        //    in. Window and stream agreeing is the property that matters — it is why
+        //    [OrientationLock] freezes the two together in the first place.
+        if (orientationLocked) {
+            setRequestedOrientation(OrientationLock.requestedOrientationFor(locked = true))
+            val window = windowRotation()
+            if (window != targetRotation) {
+                Log.i(
+                    TAG,
+                    "returning locked: the window came back in ${rotationName(window)}" +
+                        " (the stream was frozen at ${rotationName(targetRotation)})," +
+                        " stream re-frozen with it"
+                )
+                targetRotation = window
+                applyTargetRotation(window)
+            }
+            Log.i(TAG, statusText())
+        }
+        // And the ANCHORS, asked the same question for the same reason: this activity
+        // went down with the OCR view on top, and the window it comes back to can be a
+        // different way up from the one it was left in (the camera's own window is held
+        // by the lock, but the OCR view's window followed the phone while it was on
+        // top). A window turn is delivered as [onConfigurationChanged] in the ordinary
+        // case; this asks the window directly on the way in, so the controls do not
+        // depend on that delivery landing before the first frame. Guarded on a change
+        // like every other re-apply, and it is the same question and the same answer, so
+        // a delivery that does arrive writes nothing twice.
+        val landscapeNow = windowIsLandscape()
+        if (landscapeNow != controlsLandscape) {
+            controlsLandscape = landscapeNow
+            applyControlAnchors()
+        }
         // The phone can be turned while another activity is up; watch it again from here.
         if (::orientationListener.isInitialized) {
             if (orientationListener.canDetectOrientation()) {
@@ -338,20 +434,25 @@ class ProtoCameraActivity : AppCompatActivity() {
             }
             insets
         }
-        // The same system bars, taken once more for the two camera controls: in
+        // The same system bars, taken once more for the camera controls: in
         // landscape the navigation bar sits along a long edge, and the anchors below
-        // put both controls against the right one, so their margins carry the right
-        // (and the framing control the bottom) inset. Attached to the root rather
-        // than to either control because insets are dispatched down the tree from
-        // here and this is also where they are stored — one place reports them, and
-        // [applyControlAnchors] is the only place that spends them. Guarded on a
-        // change, because a re-apply inside an inset dispatch requests another
-        // layout pass.
+        // put the shutter and the framing control against the right one, so their
+        // margins carry the right inset (and the framing control the bottom one); the
+        // lock control's corner carries the inset of whichever edge it is anchored to
+        // — the LEFT in portrait, the right and bottom in landscape. All four are
+        // tracked, because which three matter follows from which way up the window is
+        // and that is [applyControlAnchors]'s decision, not this listener's. Attached
+        // to the root rather than to either control because insets are dispatched down
+        // the tree from here and this is also where they are stored — one place
+        // reports them, and [applyControlAnchors] is the only place that spends them.
+        // Guarded on a change, because a re-apply inside an inset dispatch requests
+        // another layout pass.
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            if (bars.right != systemBarRight || bars.bottom != systemBarBottom ||
-                bars.top != systemBarTop
+            if (bars.left != systemBarLeft || bars.right != systemBarRight ||
+                bars.bottom != systemBarBottom || bars.top != systemBarTop
             ) {
+                systemBarLeft = bars.left
                 systemBarRight = bars.right
                 systemBarBottom = bars.bottom
                 systemBarTop = bars.top
@@ -399,6 +500,28 @@ class ProtoCameraActivity : AppCompatActivity() {
         root.addView(zoomButton, FrameLayout.LayoutParams(controlSide, controlSide))
         root.addView(captureButton, FrameLayout.LayoutParams(controlSide, controlSide))
 
+        // The orientation lock. Chrome, not a shutter: the same 52dp square, dark fill
+        // and cyan glyph the back control uses — and the same GLYPH route, because a
+        // new bundled asset would have to satisfy the licence index the build verifies
+        // (see the shutter above, which is why it reuses R.drawable.logo). Its anchor
+        // is decided with the others in [applyControlAnchors]; its look is the state
+        // readout, written by [applyLockAppearance] and nowhere else.
+        val lockSide = (LOCK_CONTROL_DP * resources.displayMetrics.density).roundToInt()
+        lockButton = CenteredButton(this).apply {
+            tag = "proto_lock"
+            textSize = BACK_GLYPH_TEXT_SIZE_SP
+            setTextColor(BACK_GLYPH_COLOR)
+            includeFontPadding = false
+            isAllCaps = false
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
+            gravity = Gravity.CENTER
+            setOnClickListener { toggleOrientationLock() }
+        }
+        applyLockAppearance()
+        root.addView(lockButton, FrameLayout.LayoutParams(lockSide, lockSide))
+
         // Which way up the WINDOW came up, BEFORE it is first laid out, and the
         // controls are anchored for it in the same breath — that is what makes a
         // cold start into landscape come up with the controls already on the right
@@ -423,11 +546,30 @@ class ProtoCameraActivity : AppCompatActivity() {
         // themselves had turned), and it moved them for a phone laid flat, whose
         // orientation reads as portrait while the window is still landscape. The
         // anchors now follow the window ([onConfigurationChanged]); a capture
-        // still follows the hand.
+        // still follows the hand. The one thing the LOCK changes here: while it is
+        // on, this callback's reading is recorded ([lastSensorRotation]) and logged
+        // but never applied, because the stream is frozen at the window's rotation
+        // and the window itself is held — see [OrientationLock].
         orientationListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
                 val rotation = surfaceRotationFor(orientation)
+                // Recorded whatever the lock is doing: this is what un-freezing hands
+                // back to the stream, so a phone that was turned while the lock held
+                // the view does not stay pointed the wrong way after the release. The
+                // listener stays ENABLED while locked for the same reason — the line
+                // below is the log readout that says the lock is what is holding the
+                // view, and not a dead sensor.
+                lastSensorRotation = rotation
                 if (rotation == targetRotation) return
+                if (orientationLocked) {
+                    Log.i(
+                        TAG,
+                        "sensor turned: orientation $orientation -> ${rotationName(rotation)}," +
+                            " but the orientation lock holds the view at " +
+                            "${rotationName(targetRotation)} — window and stream both frozen"
+                    )
+                    return
+                }
                 val was = targetRotation
                 targetRotation = rotation
                 Log.i(
@@ -483,7 +625,10 @@ class ProtoCameraActivity : AppCompatActivity() {
         shape = GradientDrawable.RECTANGLE
         cornerRadius = BACK_BUTTON_RADIUS_DP * resources.displayMetrics.density
         setColor(BACK_BUTTON_FILL)
-        setStroke((1.5f * resources.displayMetrics.density).roundToInt(), BACK_BUTTON_STROKE)
+        setStroke(
+            (CHROME_STROKE_DP * resources.displayMetrics.density).roundToInt(),
+            BACK_BUTTON_STROKE
+        )
     }
 
     /**
@@ -583,16 +728,37 @@ class ProtoCameraActivity : AppCompatActivity() {
      * edge these two now hug — which is the same reason the corner stack takes
      * insets in the first place.
      *
-     * This is the ONLY place either control's LayoutParams are written, so a WINDOW
+     * The LOCK control is anchored here as well, and its anchor is the ASK verbatim:
+     * the window's bottom-LEFT in portrait and its bottom-RIGHT in landscape, each
+     * with the system-bar inset of the corner it sits in (left in portrait; right and
+     * bottom in landscape, where the bar lies along that bottom edge). The decision
+     * itself — corner and insets — is [OrientationLock.placementFor]'s, which is a pure
+     * function so [OrientationLockTest] can pin it; this function only writes it.
+     * What the anchor is, and what it is not: it is the WINDOW's corner, which is the
+     * corner the ask names, and a landscape hold makes the window's bottom edge a
+     * different PHYSICAL edge in each of the two landscape quarters — so in one of
+     * them this control ends up at the far end of the right edge from the zoom
+     * control, which keeps its physical corner. That is reported rather than silently
+     * changed: the ask says window corners, and the physical-corner treatment is the
+     * maintainer's call.
+     *
+     * This is the ONLY place any control's LayoutParams are written, so a WINDOW
      * turn ([onConfigurationChanged]) and an inset change cannot half-update the
      * layout, and the params are rebuilt rather than mutated so no margin can
      * survive from an anchor it no longer belongs to (a `marginEnd` left behind on a
      * `CENTER_HORIZONTAL` control shifts it off centre). Nothing else calls it: the
      * SENSOR deliberately does not, because the anchors are the window's and not the
-     * hold's (see [DeviceHold]).
+     * hold's (see [DeviceHold]) — and the LOCK does not either, because freezing the
+     * window is not moving the controls: the lock's own layout is the same size at the
+     * same edge either way, and its state is shown on the control itself
+     * ([applyLockAppearance]) rather than by moving it.
      */
     private fun applyControlAnchors() {
-        if (!::captureButton.isInitialized || !::zoomButton.isInitialized) return
+        if (!::captureButton.isInitialized || !::zoomButton.isInitialized ||
+            !::lockButton.isInitialized
+        ) {
+            return
+        }
         val density = resources.displayMetrics.density
         val side = (CAPTURE_BUTTON_DP * density).roundToInt()
         if (controlsLandscape) {
@@ -619,13 +785,39 @@ class ProtoCameraActivity : AppCompatActivity() {
                 Gravity.BOTTOM or Gravity.END, ZOOM_END_MARGIN_PX, CONTROL_BOTTOM_MARGIN_PX
             )
         }
+        // The LOCK control, in the corner the ask names and no other: the window's
+        // bottom-LEFT in portrait, its bottom-RIGHT in landscape.
+        // [OrientationLock.placementFor] owns that decision — which corner, and which
+        // system-bar inset each corner carries (left in portrait, right and bottom in
+        // landscape) — so the geometry is a JVM test and not a phone, exactly as the
+        // FILL_CENTER crop's is [PreviewCrop]'s. It is the same split the two
+        // shutter-sized controls above use, and the insets are folded in there for the
+        // same reason: this window is edge-to-edge and a raw margin would leave a slice
+        // of the control under a bar that swallows the touches.
+        //
+        // Its margin is the chrome's own off-corner 12dp ([CORNER_MARGIN_DP], the one
+        // the back control uses at the other corner), not a shutter-sized one: this is
+        // corner chrome like the back control, not a primary control.
+        placeControl(
+            lockButton,
+            (LOCK_CONTROL_DP * density).roundToInt(),
+            OrientationLock.placementFor(
+                windowLandscape = controlsLandscape,
+                marginPx = (CORNER_MARGIN_DP * density).roundToInt(),
+                bars = OrientationLock.SystemBarEdges(
+                    left = systemBarLeft,
+                    right = systemBarRight,
+                    bottom = systemBarBottom,
+                ),
+            ),
+        )
         Log.i(
             TAG,
-            "controls anchored ${if (controlsLandscape) {
-                "landscape (right edge), insets ${systemBarRight}/${systemBarBottom}/${systemBarTop}"
-            } else {
-                "portrait (bottom edge)"
-            }}"
+            "controls anchored " +
+                (if (controlsLandscape) "landscape (right edge)" else "portrait (bottom edge)") +
+                ", insets l/r/b/t " +
+                "${systemBarLeft}/${systemBarRight}/${systemBarBottom}/${systemBarTop}" +
+                ", lock ${if (orientationLocked) "locked" else "free"}"
         )
     }
 
@@ -651,6 +843,25 @@ class ProtoCameraActivity : AppCompatActivity() {
     }
 
     /**
+     * The same thing for the lock control, whose anchor arrives as
+     * [OrientationLock.placementFor]'s [OrientationLock.ControlPlacement] rather than
+     * as loose margins — which is what lets the portrait case carry a START margin
+     * (bottom-left) and the landscape case an end one (bottom-right) without either
+     * ever being written where it does not belong. Same fresh LayoutParams, same four
+     * margins, so the "no margin survives from an anchor it no longer belongs to" rule
+     * above holds for the control that moves corner to corner.
+     */
+    private fun placeControl(view: View, side: Int, placement: OrientationLock.ControlPlacement) {
+        view.layoutParams = FrameLayout.LayoutParams(side, side).apply {
+            gravity = placement.gravity
+            marginStart = placement.startMargin
+            marginEnd = placement.endMargin
+            this.topMargin = placement.topMargin
+            this.bottomMargin = placement.bottomMargin
+        }
+    }
+
+    /**
      * Tells both bound use cases which way up the camera's output is. One value,
      * set on both, from one physical hold — that is what makes what is on screen
      * and what lands in the file agree.
@@ -661,6 +872,12 @@ class ProtoCameraActivity : AppCompatActivity() {
      * changes — so this is a property set, not an unbind/rebind of the camera.
      * Before the bind lands the use cases are null and the value is carried in
      * [targetRotation], which [startCamera] applies once they exist.
+     *
+     * The value is the sensor's while nothing is frozen ([applyTargetRotation] from
+     * the orientation listener) and the WINDOW's while the orientation lock is on
+     * ([toggleOrientationLock], [onResume]) — one method, because both are just "the
+     * rotation this viewfinder's output is being written for" and a second setter
+     * would be a second place for the pair to disagree.
      */
     private fun applyTargetRotation(rotation: Int) {
         previewUseCase?.targetRotation = rotation
@@ -735,13 +952,157 @@ class ProtoCameraActivity : AppCompatActivity() {
     }
 
     /**
+     * One press of the lock: the whole feature, in one place, and BOTH halves of it
+     * together — see [OrientationLock] for why both and not one.
+     *
+     * WHAT IT READS. [windowRotation] — the rotation the WINDOW is in right now — and
+     * deliberately neither the sensor's last band ([lastSensorRotation]) nor the number
+     * the stream already carries ([targetRotation]). Those three usually agree, and the
+     * cases where they do not are the ones that matter: the sensor reports a new hold
+     * before the platform has played the rotation animation, so `targetRotation` can be
+     * the NEW hold while the window is still in the OLD one — and
+     * `SCREEN_ORIENTATION_LOCKED` holds the OLD one, because the platform resolves it to
+     * the rotation already in effect ([OrientationLock]). Freezing the stream at the
+     * sensor's new band there is precisely a preview turning inside a window that does
+     * not, which is the failure this whole feature has to avoid.
+     *
+     * WHAT IT FREEZES. Both, from that one number: the window is asked for
+     * [OrientationLock.requestedOrientationFor] and the stream is given
+     * [OrientationLock.streamRotationFor]. The window's rotation is read BEFORE the
+     * request, because the request is what holds the window where it is.
+     *
+     * WHAT IT DOES NOT DO. It does not re-anchor anything — the lock control is the same
+     * square at the same edge either way, and its state shows on the control itself
+     * ([applyLockAppearance]) rather than by moving it. It does not save anything (see
+     * [orientationLocked] for the lifetime). And it logs both lines the in-hand check
+     * needs, because the on-screen status text was removed on this branch: the lock's own
+     * line ([lockLine]) and the standing state line ([statusText]).
+     */
+    private fun toggleOrientationLock() {
+        orientationLocked = !orientationLocked
+        val window = windowRotation()
+        setRequestedOrientation(OrientationLock.requestedOrientationFor(orientationLocked))
+        val target = OrientationLock.streamRotationFor(
+            locked = orientationLocked,
+            frozenRotation = window,
+            sensorRotation = lastSensorRotation,
+        )
+        if (target != targetRotation) {
+            Log.i(
+                TAG,
+                "stream rotation ${rotationName(targetRotation)} -> ${rotationName(target)}" +
+                    " (${if (orientationLocked) {
+                        "frozen with the window"
+                    } else {
+                        "back to the sensor"
+                    }})"
+            )
+            targetRotation = target
+            applyTargetRotation(target)
+        }
+        applyLockAppearance()
+        Log.i(TAG, lockLine())
+        Log.i(TAG, statusText())
+    }
+
+    /**
+     * The lock's own line, and the reason it is a line of its own: logcat is the
+     * readout for the state (the on-screen status text was removed on this branch, see
+     * [statusText]), so the three things the in-hand check needs are spelled out —
+     * whether the lock is on, what the WINDOW was told, and what the STREAM was told.
+     * Read beside the sensor's "sensor turned …" line, that is the whole proof that a
+     * locked view did not move when the phone did; read beside [statusText], it says
+     * what the pair is holding.
+     */
+    private fun lockLine(): String = if (orientationLocked) {
+        "orientation LOCK ON: window held at ${rotationName(targetRotation)}" +
+            " (requestedOrientation " +
+            "${OrientationLock.orientationName(OrientationLock.requestedOrientationFor(true))})," +
+            " stream frozen at the same ${rotationName(targetRotation)} — the sensor moves neither"
+    } else {
+        "orientation lock OFF: window follows the sensor again (requestedOrientation " +
+            "${OrientationLock.orientationName(OrientationLock.requestedOrientationFor(false))})," +
+            " stream follows the sensor (${rotationName(targetRotation)})"
+    }
+
+    /**
+     * The lock control's state, on the control, written in one place: the glyph, what
+     * it says to a screen reader, and the fill behind it.
+     *
+     * The glyph is the primary readout — a SHUT padlock while locked, an OPEN one while
+     * not ([OrientationLock.glyphFor]) — and the background reinforces it, because a
+     * small glyph has to be legible over whatever the camera happens to be pointing at
+     * and the emoji font may draw the padlock in its own colours rather than the
+     * chrome's cyan. Nothing else on screen states the state: the top-left status text
+     * this would otherwise have been written into was deliberately removed
+     * ([statusText]).
+     */
+    private fun applyLockAppearance() {
+        if (!::lockButton.isInitialized) return
+        lockButton.text = OrientationLock.glyphFor(orientationLocked)
+        lockButton.contentDescription = OrientationLock.descriptionFor(orientationLocked)
+        lockButton.background = lockBackground(orientationLocked)
+    }
+
+    /**
+     * The lock control's fill: the chrome's own semi-transparent dark fill with the cyan
+     * outline while the lock is OFF, and a cyan-washed fill with an opaque cyan outline
+     * while it is ON. The unlocked case is literally [chromeBackground], the same
+     * drawable the back control draws, so "not locked" is the absence of a mark rather
+     * than a second style to learn; the locked case is that drawable with two colours
+     * changed, so the control reads as held at a glance from arm's length — which is the
+     * distance the maintainer judges this from.
+     */
+    private fun lockBackground(locked: Boolean): GradientDrawable {
+        val background = chromeBackground()
+        if (!locked) return background
+        background.setColor(LOCK_HELD_FILL)
+        background.setStroke(
+            (CHROME_STROKE_DP * resources.displayMetrics.density).roundToInt(),
+            LOCK_HELD_STROKE
+        )
+        return background
+    }
+
+    /**
+     * The rotation the WINDOW is in, which is the value the lock freezes the stream at
+     * ([OrientationLock.streamRotationFor]) and the value [onResume] reconciles the pair
+     * with on the way back from the results view.
+     *
+     * Read from the display rather than from [resources.configuration], which answers
+     * only the FAMILY (portrait/landscape) and not which of the four quarters the window
+     * is in — and the quarter is exactly what the stream is told, so the family would be
+     * a guess at the value this method exists to have right.
+     *
+     * A context with no display at all (never an Activity, but the platform throws
+     * rather than answering null in that case) falls back to [targetRotation]: whenever
+     * the window follows the sensor the two are the same answer, so the fallback is the
+     * value the lock would have frozen anyway, and the log says it happened.
+     */
+    private fun windowRotation(): Int = try {
+        display?.rotation ?: targetRotation
+    } catch (t: Throwable) {
+        Log.w(
+            TAG,
+            "no display rotation to read; freezing at the stream's ${rotationName(targetRotation)}", t
+        )
+        targetRotation
+    }
+
+    /**
      * The viewfinder's state as one log line — which way up the camera's output is
-     * being told to sit and which framing the preview is showing. This used to be
-     * the top-left status line; the readout is diagnostic, so it goes to logcat
-     * instead of onto the preview.
+     * being told to sit, whether the orientation lock is holding it there, and which
+     * framing the preview is showing. This used to be the top-left status line; the
+     * readout is diagnostic, so it goes to logcat instead of onto the preview, and the
+     * lock's state is one of the things it has to carry now that the on-screen text is
+     * gone (see [lockLine] for the line the lock logs for itself).
      */
     private fun statusText(): String = "viewfinder state: targetRotation " +
-        "${rotationName(targetRotation)}, framing ${if (previewFill) {
+        "${rotationName(targetRotation)}, ${if (orientationLocked) {
+            "orientation lock ON (the window is held here and the stream is frozen with it)"
+        } else {
+            "orientation lock off (window and stream both follow the phone)"
+        }}, framing ${if (previewFill) {
             "FILL_CENTER (screen filled; the photo sent is this crop)"
         } else {
             "FIT_CENTER (whole photo visible, and sent whole)"
@@ -1100,7 +1461,35 @@ class ProtoCameraActivity : AppCompatActivity() {
         private val BACK_BUTTON_FILL = Color.argb(130, 25, 25, 25)
         private val BACK_BUTTON_STROKE = Color.argb(150, 0, 255, 255)
 
-        /** Off the corner, so the back control clears the system bars. */
+        /** The chrome outline's width, in dp: the back control and the lock control. */
+        private const val CHROME_STROKE_DP = 1.5f
+
+        /**
+         * The orientation lock's control: the SAME 52dp chrome square as the back
+         * control, at the other corner — a corner affordance and not a shutter-sized
+         * primary control, which is why it is not [CAPTURE_BUTTON_DP]. Its glyph is a
+         * text one too ([OrientationLock.glyphFor]): a new bundled asset would have to
+         * satisfy the licence index the build verifies, and a padlock does not need
+         * drawing.
+         */
+        private const val LOCK_CONTROL_DP = 52
+
+        /**
+         * The lock control's fill and outline while the lock is HELD, as opposed to
+         * [BACK_BUTTON_FILL] / [BACK_BUTTON_STROKE] while it is not: a cyan wash and an
+         * OPAQUE cyan outline, so "held" is legible over any photo at arm's length. The
+         * state is also in the glyph ([OrientationLock.glyphFor]) and in the log
+         * ([lockLine]) — the two readouts a glance cannot check from a screenshot.
+         */
+        private val LOCK_HELD_FILL = Color.argb(190, 0, 70, 70)
+        private val LOCK_HELD_STROKE = Color.argb(255, 0, 255, 255)
+
+        /**
+         * Off the corner, so the corner controls clear the system bars: the back
+         * control at the top-left, and the lock control at whichever bottom corner the
+         * window puts it in ([OrientationLock.placementFor], which adds the inset of
+         * each edge that corner lies on).
+         */
         private const val CORNER_MARGIN_DP = 12f
 
         /**
