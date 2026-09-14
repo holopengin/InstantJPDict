@@ -1592,7 +1592,7 @@ class ProtoCameraActivity : AppCompatActivity() {
          * says the same about the 48px). One constant for both anchors, so the two holds
          * cannot drift apart.
          */
-        private const val SHUTTER_RAISE_PX = 32
+        private const val SHUTTER_RAISE_PX = 64
 
         /**
          * LANDSCAPE's margins, in dp: new layout, so written in the unit that holds
