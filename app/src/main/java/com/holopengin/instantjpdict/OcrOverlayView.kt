@@ -360,6 +360,7 @@ class OcrOverlayView(
             setBackgroundColor(Color.argb(200, 0, 0, 0))
             setPadding(20, 10, 20, 10)
             textSize = 12f
+            OverlayFont.apply(context, this)
             text = "Initializing OCR..."
         }
         val debugParams = FrameLayout.LayoutParams(
@@ -1021,6 +1022,7 @@ class OcrOverlayView(
                 text = charState.text
                 setTextColor(if (charState.isSelected) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
                 textSize = estimatedTextSize
+                OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 setBackgroundColor(if (charState.isSelected) android.graphics.Color.YELLOW else android.graphics.Color.argb(255, 65, 65, 65))
@@ -1122,7 +1124,7 @@ class OcrOverlayView(
         controller.lastHighlightedCoords.forEach { coords ->
             (textViews[coords] as? android.widget.TextView)?.let { tv ->
                 tv.setTextColor(android.graphics.Color.parseColor("#FF7777"))
-                tv.typeface = android.graphics.Typeface.DEFAULT
+                OverlayFont.apply(context, tv)
             }
         }
     }
@@ -1139,7 +1141,7 @@ class OcrOverlayView(
         controller.lastHighlightedCoords.forEach { coords ->
             (textViews[coords] as? android.widget.TextView)?.let { tv ->
                 tv.setTextColor(android.graphics.Color.YELLOW)
-                tv.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                OverlayFont.apply(context, tv, bold = true)
             }
         }
     }
@@ -1247,6 +1249,7 @@ class OcrOverlayView(
                 setTextColor(Color.GRAY)
                 gravity = Gravity.CENTER
                 textSize = 16f
+                OverlayFont.apply(context, this)
                 setPadding(0, 150, 0, 0)
             })
             return
@@ -1286,6 +1289,7 @@ class OcrOverlayView(
                     text = name
                     setTextColor(Color.GRAY)
                     textSize = 12f
+                    OverlayFont.apply(context, this)
                     gravity = Gravity.END
                     setPadding(0, 8, 0, 0)
                 })
@@ -1315,6 +1319,7 @@ class OcrOverlayView(
                 text = "${chain.surface} → $term"
                 setTextColor(Color.LTGRAY)
                 textSize = 12f
+                OverlayFont.apply(context, this)
                 setPadding(0, 0, 12, 0)
                 includeFontPadding = false
             })
@@ -1347,7 +1352,7 @@ class OcrOverlayView(
                     text = hw.kanji
                     setTextColor(Color.CYAN)
                     textSize = 48f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    OverlayFont.apply(context, this, bold = true)
                     setPadding(0, 0, 30, 0)
                 })
                 val readingStack = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -1376,7 +1381,7 @@ class OcrOverlayView(
             pairs.forEachIndexed { i, (kanji, reading) ->
                 flow.addView(createRubyView(kanji, reading, reserveRubySpace = reserveRubySpace))
                 if (i < pairs.size - 1) {
-                    flow.addView(TextView(context).apply { text = "、"; setTextColor(Color.GRAY); textSize = 24f; setPadding(5, 0, 5, 0) })
+                    flow.addView(TextView(context).apply { text = "、"; setTextColor(Color.GRAY); textSize = 24f; OverlayFont.apply(context, this); setPadding(5, 0, 5, 0) })
                 }
             }
             headwordList.addView(flow)
@@ -1389,6 +1394,7 @@ class OcrOverlayView(
                     group.pitchPositions.map { PitchAccentLine.Item(group.reading, it) }
                 }
                 PitchAccentLine.build(context, items, pitchTextSizePx)?.let { line ->
+                    OverlayFont.apply(context, line)
                     headwordList.addView(line, LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1571,6 +1577,7 @@ class OcrOverlayView(
                 text = "⌨"
                 setTextColor(android.graphics.Color.GRAY)
                 textSize = estimatedTextSize
+                OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 setBackgroundColor(android.graphics.Color.argb(255, 40, 40, 40))
@@ -1616,6 +1623,7 @@ class OcrOverlayView(
             val textView = TextView(context).apply {
                 text = cand.char.toString(); setTextColor(android.graphics.Color.WHITE); textSize = estimatedTextSize; gravity = Gravity.CENTER
                 includeFontPadding = false
+                OverlayFont.apply(context, this)
                 if (cand.isSelected) { setBackgroundColor(android.graphics.Color.YELLOW); setTextColor(android.graphics.Color.BLACK) }
                 else {
                     setBackgroundColor(android.graphics.Color.argb(255, 85, 85, 85))
@@ -1717,8 +1725,8 @@ class OcrOverlayView(
         val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0)); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
         val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(60, 60, 60, 60); gravity = Gravity.CENTER_HORIZONTAL; elevation = 201f; setOnClickListener { } }
         panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); val size = (resources.displayMetrics.density * 120).toInt(); layoutParams = LinearLayout.LayoutParams(size, size); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
-        panel.addView(TextView(context).apply { text = "Enter character manually"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; setPadding(0, 30, 0, 10) })
-        val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 36f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN) }
+        panel.addView(TextView(context).apply { text = "Enter character manually"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; OverlayFont.apply(context, this); setPadding(0, 30, 0, 10) })
+        val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 36f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN); OverlayFont.apply(context, this) }
         panel.addView(editText, LinearLayout.LayoutParams(250, LinearLayout.LayoutParams.WRAP_CONTENT))
         panel.addView(Button(context).apply { text = "Confirm"; setOnClickListener { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) } } }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 20 })
         blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -1749,7 +1757,7 @@ class OcrOverlayView(
             text = tag
             setTextColor(Color.WHITE)
             textSize = 10f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            OverlayFont.apply(context, this, bold = true)
             setPadding(12, 2, 12, 2)
             background = GradientDrawable().apply { 
                 setColor(color)
@@ -1802,7 +1810,7 @@ class OcrOverlayView(
             text = term
             setTextColor(Color.CYAN)
             textSize = if (isMini) 15f else 32f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            OverlayFont.apply(context, this, bold = true)
             includeFontPadding = false
             setPadding(0, 0, 0, 0)
         }
@@ -1818,6 +1826,7 @@ class OcrOverlayView(
                 text = reading
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
+                OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -1843,6 +1852,7 @@ class OcrOverlayView(
                 text = label
                 setTextColor(Color.GRAY)
                 textSize = 12f
+                OverlayFont.apply(context, this)
                 setPadding(0, 0, 12, 0)
                 includeFontPadding = false
             })
@@ -1851,6 +1861,7 @@ class OcrOverlayView(
                 setTextColor(Color.LTGRAY)
                 // Same size as the furigana rows (non-mini ruby).
                 textSize = 13f
+                OverlayFont.apply(context, this)
                 includeFontPadding = false
                 setLineSpacing(0f, kunOnLineSpacingMult)
             })
@@ -1879,6 +1890,7 @@ class OcrOverlayView(
                 text = ruby
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
+                OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -1899,9 +1911,10 @@ class OcrOverlayView(
             isBaselineAligned = true
 
             addView(TextView(context).apply {
-                text = " "
+                text = " "
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
+                OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -1940,6 +1953,7 @@ class OcrOverlayView(
                     text = "${sense.index}. "
                     setTextColor(Color.WHITE)
                     textSize = 15f
+                    OverlayFont.apply(context, this)
                     setPadding(0, 0, 10, 0)
                 })
                 
@@ -1969,6 +1983,7 @@ class OcrOverlayView(
                         text = sb.toString()
                         setTextColor(Color.WHITE)
                         textSize = 15f
+                        OverlayFont.apply(context, this)
                         includeFontPadding = false
                     })
                     i = j
@@ -1993,8 +2008,8 @@ class OcrOverlayView(
                         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 15, 0, 15) }
                     }
                     if (node.japanese != null) {
-                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; setPadding(0, 0, 0, 10) })
-                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f }) }
+                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.apply(context, this); setPadding(0, 0, 0, 10) })
+                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.apply(context, this) }) }
                     } else if (node.content != null) {
                         val flow = FlowLayout(context)
                         renderDefinition(flow, node.content)

@@ -169,6 +169,23 @@ class MainActivity : AppCompatActivity() {
             LicenseDialog.show(this)
         }
 
+        // #84: the overlay's face. This is user-visible rendering, so the control
+        // sits on the front screen rather than in the debug block. The overlay
+        // reads the pref when it builds its text (LineOverlayView / OcrOverlayView),
+        // so the next lookup picks a change up; the default is the sans face the
+        // overlay always drew.
+        layout.addView(CheckBox(this).apply {
+            text = "Serif font (mincho) in the OCR overlay"
+            isChecked = OverlayFont.face(this@MainActivity) == OverlayFont.FACE_SERIF
+            textSize = 14f
+            setPadding(0, 16, 0, 16)
+            setOnCheckedChangeListener { _, checked ->
+                val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
+                OverlayFont.setFace(this@MainActivity, face)
+                Log.d("MainActivity", "overlay_font_face=$face")
+            }
+        })
+
         // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
         // and no preference read (see KanaSizeFix). The small/large form of っ/つ, ゃ/や, ゅ/ゆ,
         // ょ/よ is decided by a byte-CNN that reads five characters of context on each side,
