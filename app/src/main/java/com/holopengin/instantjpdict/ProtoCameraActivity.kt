@@ -195,6 +195,7 @@ class ProtoCameraActivity : AppCompatActivity() {
      */
     private var systemBarRight = 0
     private var systemBarBottom = 0
+    private var systemBarTop = 0
 
     /**
      * The decode / rotate / crop of one FILL_CENTER handoff. One thread, because
@@ -348,9 +349,12 @@ class ProtoCameraActivity : AppCompatActivity() {
         // layout pass.
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            if (bars.right != systemBarRight || bars.bottom != systemBarBottom) {
+            if (bars.right != systemBarRight || bars.bottom != systemBarBottom ||
+                bars.top != systemBarTop
+            ) {
                 systemBarRight = bars.right
                 systemBarBottom = bars.bottom
+                systemBarTop = bars.top
                 applyControlAnchors()
             }
             insets
@@ -570,9 +574,10 @@ class ProtoCameraActivity : AppCompatActivity() {
      *     thumb, and clear of the shutter: what the framing control needs below the
      *     centred shutter (its own 84dp, its margin, and the navigation bar when a
      *     three-button device puts it along that bottom edge) fits in the space a
-     *     1080px-tall landscape window leaves there, which is where the margin
-     *     constant's 16dp comes from rather than from taste — see
-     *     [LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP].
+     *     1080px-tall landscape window leaves there. That calculation is where the
+     *     framing control's own margin came from; see [applyControlAnchors] for how
+     *     the zoom control's margins are swapped in landscape so that it keeps the
+     *     same PHYSICAL corner rather than the same relative one.
      * The right system-bar inset is added to both, and the bottom one to the framing
      * control, because in landscape the navigation bar lies along a long edge — the
      * edge these two now hug — which is the same reason the corner stack takes
@@ -592,9 +597,18 @@ class ProtoCameraActivity : AppCompatActivity() {
         val side = (CAPTURE_BUTTON_DP * density).roundToInt()
         if (controlsLandscape) {
             val edge = (LANDSCAPE_EDGE_MARGIN_DP * density).roundToInt() + systemBarRight
-            val floor = (LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP * density).roundToInt() + systemBarBottom
             placeControl(captureButton, side, Gravity.END or Gravity.CENTER_VERTICAL, edge, 0)
-            placeControl(zoomButton, side, Gravity.END or Gravity.BOTTOM, edge, floor)
+            // Zoom goes to the TOP of the right edge in landscape, which is the same
+            // PHYSICAL corner it occupies in portrait (bottom-right): the quarter turn
+            // carries the picture's right edge to the window's top. The margins are the
+            // portrait ones swapped for the same reason — the 24px that was off the
+            // physical right edge is now off the window's top, and the 48px that was off
+            // the physical bottom is now off the window's right. The top inset is folded
+            // in exactly as the right one is, so the control does not sit under the
+            // status bar in landscape.
+            val zoomEdge = CONTROL_BOTTOM_MARGIN_PX + systemBarRight
+            val zoomTop = ZOOM_END_MARGIN_PX + systemBarTop
+            placeControl(zoomButton, side, Gravity.END or Gravity.TOP, zoomEdge, 0, zoomTop)
         } else {
             placeControl(
                 captureButton, side,
@@ -608,7 +622,7 @@ class ProtoCameraActivity : AppCompatActivity() {
         Log.i(
             TAG,
             "controls anchored ${if (controlsLandscape) {
-                "landscape (right edge), insets ${systemBarRight}/${systemBarBottom}"
+                "landscape (right edge), insets ${systemBarRight}/${systemBarBottom}/${systemBarTop}"
             } else {
                 "portrait (bottom edge)"
             }}"
@@ -620,11 +634,19 @@ class ProtoCameraActivity : AppCompatActivity() {
      * caller folds the insets in). A fresh LayoutParams every time, deliberately:
      * see [applyControlAnchors].
      */
-    private fun placeControl(view: View, side: Int, anchor: Int, endMargin: Int, bottomMargin: Int) {
+    private fun placeControl(
+        view: View,
+        side: Int,
+        anchor: Int,
+        endMargin: Int,
+        bottomMargin: Int,
+        topMargin: Int = 0,
+    ) {
         view.layoutParams = FrameLayout.LayoutParams(side, side).apply {
             gravity = anchor
             marginEnd = endMargin
             this.bottomMargin = bottomMargin
+            this.topMargin = topMargin
         }
     }
 
@@ -1055,7 +1077,6 @@ class ProtoCameraActivity : AppCompatActivity() {
          * is; in a very short free-form window the two would meet.)
          */
         private const val LANDSCAPE_EDGE_MARGIN_DP = 16f
-        private const val LANDSCAPE_ZOOM_BOTTOM_MARGIN_DP = 16f
 
         /** What the shutter says to a screen reader, now that it has no label. */
         private const val SHUTTER_DESCRIPTION = "Capture"
