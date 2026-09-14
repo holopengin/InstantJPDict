@@ -396,7 +396,21 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         overlayView?.onClosed()
         overlayView = null
         overlayScope.cancel()
-        if (::engine.isInitialized) engine.close()
+        // The nets must NOT be closed while a pass is inside them. This method's own note
+        // below records why: `cancel()` stops a coroutine, not a native detect, so a pass
+        // can still be reading what it was handed — and it is also still executing inside
+        // ncnn. Closing there tears down a Net under a running convolution, which faults
+        // inside ncnn ("pool allocator destroyed too early"; SIGSEGV at 0x0 on an OpenMP
+        // worker, seen twice on the device when a re-creation landed mid-pass). So the
+        // close is deferred onto the pass's own completion, which cannot fire until its
+        // non-suspending native work has returned. With no pass in flight there is
+        // nothing to wait for.
+        val passInFlight = currentPass
+        if (passInFlight == null) {
+            if (::engine.isInitialized) engine.close()
+        } else {
+            passInFlight.invokeOnCompletion { if (::engine.isInitialized) engine.close() }
+        }
         super.onDestroy()
         // The composed and base bitmaps are deliberately neither recycled nor
         // nulled — here or as the rotate pump replaces them.
