@@ -58,7 +58,11 @@ class RotatedLineResultTest {
     }
 
     @Test
-    fun rotatedVerticalGlyphSizeIsTheLocalTimestepLength() {
+    fun rotatedVerticalGlyphSizeIsTheUprightFramesCrossAxis() {
+        // A vertical Line's glyphs are as tall as the upright frame is wide
+        // (the cross axis computeCharBoxes treats as char height) — NOT
+        // cropH/seqLenTotal, which is the per-timestep step in model pixels
+        // and rendered tategaki ~6x too small.
         val quad = JpDictQuad.fromRect(JpDictRect(0, 0, 20, 80))
         val l = line(
             isVertical = true,
@@ -67,7 +71,7 @@ class RotatedLineResultTest {
             cropH = 80,
             quad = quad,
         )
-        assertEquals(10, l.glyphSizePx())
+        assertEquals(20, l.glyphSizePx())
     }
 
     @Test
