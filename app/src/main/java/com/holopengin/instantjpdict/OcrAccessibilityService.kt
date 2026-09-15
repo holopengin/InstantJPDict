@@ -113,9 +113,11 @@ class OcrAccessibilityService : AccessibilityService() {
                     // without locking: USER_PRESENT never follows, so the
                     // button would stay GONE until the next unlock. (#60)
                     // Stay hidden on the keyguard itself; USER_PRESENT shows it.
+                    // B1/#86: through the shared predicate, not an inline copy —
+                    // the rule lives in [shouldShowOnScreenOn] with its test.
                     ensureFloatingButton()
                     val km = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
-                    if (!km.isKeyguardLocked) showFloatingButton()
+                    if (shouldShowOnScreenOn(km.isKeyguardLocked)) showFloatingButton()
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     ensureFloatingButton()

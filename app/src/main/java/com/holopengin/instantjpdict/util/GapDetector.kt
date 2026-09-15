@@ -175,12 +175,14 @@ class GapDetector(
  *  - `rawAlternatives[t]` is the top-N list for timestep `t`.
  *  - **The head's emitted character for a timestep is its FIRST entry** —
  *    `reDecodeLineResult` takes `alts.firstOrNull()` as the argmax
- *    (`OcrEngine.kt:2158`), the same way `ctcDecodeTopK` takes `indexed[0]`.
+ *    (`OcrEngine.kt`, `reDecodeLineResult`), the same way `ctcDecodeTopK` takes
+ *    `indexed[0]`.
  *  - **Blank is stored as the `'\u3000'` entry** — `decodeChar(0)` (blank) and
- *    `decodeChar(18708)` both return `'\u3000'` (`OcrEngine.kt:1705-1713`), and
- *    `reDecodeLineResult` reads `blankScore` by matching that character
- *    (`OcrEngine.kt:2159`). If that ever changes, this walk and the
- *    confident/contest split break together — hence the test.
+ *    `decodeChar(18708)` both return `'\u3000'` (`OcrEngine.kt`, `decodeChar`), and
+ *    `reDecodeLineResult` reads `blankScore` by matching that character. If that
+ *    ever changes, this walk and the confident/contest split break together —
+ *    hence the test. (The line references this used to carry rotted; named
+ *    symbols and tests are the guard now.)
  *  - Collapse rules mirror `reDecodeLineResult` exactly: a blank timestep *resets*
  *    the previous character (so a repeat after a blank is emitted), a space never
  *    collapses, and any other character collapses only against the immediately

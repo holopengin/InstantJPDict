@@ -512,6 +512,10 @@ class OcrEngine(private val context: Context) {
         val resizeH = mask.resizeH
         val origW = mask.origW.toFloat()
         val origH = mask.origH.toFloat()
+        // A7/#86: hoisted out of the full-image scan. The getter is a live
+        // SharedPreferences read (map lookup + synchronized getFloat), and it was
+        // evaluated per pixel (and again in the flood-fill of every component).
+        val thresh = detThresh
 
         // 6. Connected components (contours) via flat flood-fill. The axis-aligned
         // path keeps only min/max X/Y from each component; detectRotated fits
@@ -526,9 +530,9 @@ class OcrEngine(private val context: Context) {
         for (y in 0 until outH) {
             for (x in 0 until outW) {
                 val idx = y * outW + x
-                if (visited[idx].toInt() != 0 || probArrFinal[idx] <= detThresh) continue
+                if (visited[idx].toInt() != 0 || probArrFinal[idx] <= thresh) continue
 
-                val pixelCount = floodFillComponent(probArrFinal, visited, q, idx, outW, outH, detThresh)
+                val pixelCount = floodFillComponent(probArrFinal, visited, q, idx, outW, outH, thresh)
                 if (pixelCount < 3) continue // noise filter
 
                 // Bounds of the filled component (y*W+x sits in q[0, pixelCount)).
@@ -691,6 +695,8 @@ class OcrEngine(private val context: Context) {
         val imgTop = mask.imgTop
         val scaleX = mask.scaleX
         val scaleY = mask.scaleY
+        // A7/#86: one prefs read for the whole scan, as in [detect].
+        val thresh = detThresh
 
         val visited = ByteArray(outH * outW)
         val q = IntArray(outH * outW)
@@ -709,9 +715,9 @@ class OcrEngine(private val context: Context) {
         for (y in 0 until outH) {
             for (x in 0 until outW) {
                 val idx = y * outW + x
-                if (visited[idx].toInt() != 0 || prob[idx] <= detThresh) continue
+                if (visited[idx].toInt() != 0 || prob[idx] <= thresh) continue
 
-                val pixelCount = floodFillComponent(prob, visited, q, idx, outW, outH, detThresh)
+                val pixelCount = floodFillComponent(prob, visited, q, idx, outW, outH, thresh)
                 if (pixelCount < 3) continue
 
                 // Boundary pixels: any of the 8 neighbours outside the mask. The
@@ -731,7 +737,7 @@ class OcrEngine(private val context: Context) {
                             val nx = cx + dx
                             val ny = cy + dy
                             if (nx !in 0 until outW || ny !in 0 until outH ||
-                                prob[ny * outW + nx] <= detThresh
+                                prob[ny * outW + nx] <= thresh
                             ) {
                                 boundary = true
                                 break

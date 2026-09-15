@@ -294,7 +294,7 @@ class MainActivity : AppCompatActivity() {
         }
         tuningContainer.addView(tuningHeader)
         val tuningHelp = TextView(this).apply {
-            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart overlay or re-run OCR to apply. LONG_SIDE fixed at 960 (model input)."
+            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart overlay or re-run OCR to apply. Det input is ${OcrEngine.DET_MODEL_SIZE}×${OcrEngine.DET_MODEL_SIZE} (LONG_SIDE is clamped to it)."
             textSize = 11f
             setPadding(0, 0, 0, 12)
         }
@@ -648,9 +648,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    result.fold(
+                    // A3/#86: the failure message is the fold's result, so it must be
+                    // assigned — as a bare expression the status line kept showing
+                    // "Installing pitch dictionary: N entries…" after a failed import.
+                    tvStatus.text = result.fold(
                         onSuccess = { count ->
-                            tvStatus.text = if (PitchAccent.isEnabled(this@MainActivity)) {
+                            if (PitchAccent.isEnabled(this@MainActivity)) {
                                 "Pitch dictionary installed: $count entries"
                             } else {
                                 "Pitch dictionary installed: $count entries " +

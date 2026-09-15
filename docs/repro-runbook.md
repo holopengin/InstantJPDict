@@ -31,7 +31,7 @@ what the first nuke-and-pave run must pin down.
 
 ```bash
 git clone <repo> && cd InstantJPDict
-git checkout wayfinder-ncnn-port   # or main, once merged
+git checkout master   # or the branch under repro, as it was named in the report
 git lfs install --local && git lfs pull
 git lfs ls-files  # every *.bin/*.safetensors/*.onnx/cal-images.tar.gz must be real bytes, not 133-byte pointers
 ```

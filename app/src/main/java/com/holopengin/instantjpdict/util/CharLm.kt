@@ -12,7 +12,8 @@ import java.nio.ByteOrder
  * ## File format (`assets/lm/char_lm.bin`, written by `tools/pack_char_lm.py`)
  *
  * ```
- * header  12 bytes  magic "CLM1", entry count (u32), max order (u32)   — little endian
+ * header  16 bytes  magic "CLM1", entry count (u32), max order (u32), unigram mass
+ *                   (u32)                                                   — little endian
  * record  10 bytes  n-gram: up to 4 UTF-16 code units, zero-padded on the right,
  *                   then the count saturated at 65535
  * ```
