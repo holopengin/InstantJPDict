@@ -455,16 +455,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // can still be reading what it was handed — and it is also still executing inside
         // ncnn. Closing there tears down a Net under a running convolution, which faults
         // inside ncnn ("pool allocator destroyed too early"; SIGSEGV at 0x0 on an OpenMP
-        // worker, seen twice on the device when a re-creation landed mid-pass). So the
-        // close is deferred onto the pass's own completion, which cannot fire until its
-        // non-suspending native work has returned. With no pass in flight there is
-        // nothing to wait for.
-        val passInFlight = currentPass
-        if (passInFlight == null) {
-            if (::engine.isInitialized) engine.close()
-        } else {
-            passInFlight.invokeOnCompletion { if (::engine.isInitialized) engine.close() }
-        }
+        // worker, seen twice on the device when a re-creation landed mid-pass). The shared
+        // [closeEngineBehindPass] defers the close onto the pass's own completion, which
+        // cannot fire until its non-suspending native work has returned; with no pass in
+        // flight there is nothing to wait for. See [EngineClose] for the crash note.
+        closeEngineBehindPass(currentPass) { if (::engine.isInitialized) engine.close() }
         super.onDestroy()
         // The composed and base bitmaps are deliberately neither recycled nor
         // nulled — here or as the rotate pump replaces them.

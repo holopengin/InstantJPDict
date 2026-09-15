@@ -59,6 +59,7 @@ import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -85,6 +86,13 @@ class OcrAccessibilityService : AccessibilityService() {
     private var floatingButtonRequested = true
     /** #57: the shared OCR overlay surface; null when no overlay is showing. */
     private var overlayView: OcrOverlayView? = null
+    /**
+     * A1/#86: the overlay pass currently inside the nets, or null when none has
+     * run. Kept so [onDestroy] can defer `ocrEngine.close()` behind it — a
+     * cancellation cannot interrupt a non-suspending native detect, and closing
+     * under one is the crash documented in [closeEngineBehindPass].
+     */
+    private var ocrPass: Job? = null
     private lateinit var ocrEngine: OcrEngine
     private val controller = OcrOverlayStateController()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -449,7 +457,8 @@ class OcrAccessibilityService : AccessibilityService() {
         val view = OcrOverlayView(this, host)
         overlayView = view
         windowManager?.addView(view, params)
-        view.startOcr()
+        // A1/#86: the returned pass gates the deferred engine close in [onDestroy].
+        ocrPass = view.startOcr()
     }
 
     override fun onKeyEvent(event: KeyEvent?): Boolean {
@@ -545,7 +554,12 @@ class OcrAccessibilityService : AccessibilityService() {
         ownViewCallbacks = null
         hideScreenshotOverlay()
         floatingView?.let { if (it.isAttachedToWindow) windowManager?.removeView(it) }
-        ocrEngine.close()
+        // A1/#86: never close the nets while a pass is inside them. A service can be
+        // destroyed mid-pass (toggled off, rebound, data change); `hideScreenshotOverlay`
+        // cancels the overlay scope, but cancellation stops a coroutine, not the native
+        // detect it is blocked in. The same guard as the share activity's onDestroy —
+        // both run through [closeEngineBehindPass] so they cannot drift again.
+        closeEngineBehindPass(ocrPass) { ocrEngine.close() }
     }
 
     private companion object {
