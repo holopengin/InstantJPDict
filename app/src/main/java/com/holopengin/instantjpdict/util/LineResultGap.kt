@@ -12,7 +12,7 @@ import com.holopengin.instantjpdict.OcrEngine
  * **where** a character was dropped, this says what the line looks like once the
  * placeholder is materialised there. It is pure data — no UI, no model, no
  * dictionary; the placeholder is deliberately un-lookupable downstream
- * (`OcrOverlayStateController.kt:366` returns `null` for a character index whose
+ * ([OcrOverlayStateController.lookup] returns `null` for a character index whose
  * text is `GAP_CHAR`, which is exactly the "clickable blank, no definition"
  * behaviour), so nothing here needs to change that file.
  *
@@ -43,8 +43,7 @@ import com.holopengin.instantjpdict.OcrEngine
  * @param column the CTC timestep column for the new position (the value the
  *   detector's fallback geometry worked in), inserted into `charCols`.
  * @param gapAlternatives the synthetic alternatives entry for the placeholder.
- *   Defaults to the convention the decode paths already use for a reversible
- *   blank: `GAP_CHAR` at score 0 (`OcrEngine.kt:1596`, `:2173`).
+ *   Defaults to the placeholder convention: `GAP_CHAR` at score 0.
  */
 fun LineResult.withGapCharAt(
     index: Int,
@@ -107,7 +106,8 @@ fun LineResult.withGapCharAt(
 
 /**
  * Alias for [withGapCharAt] under the name the subtask used. Same behaviour,
- * same arguments.
+ * same arguments. Test-only (the #44 gap-insertion tests are written against
+ * this name); production and the detector use [withGapCharAt].
  */
 fun LineResult.withGapAt(
     index: Int,

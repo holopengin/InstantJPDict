@@ -38,9 +38,10 @@ object LicenseIndex {
      *
      *   name | licence | version | licence text file(s) | notice file | provenance
      *
-     * `-` means "absent" for version, notice and provenance; the version goes into
-     * [LicenseEntry.textFiles] as a comma-separated list and may be empty for a
-     * component whose only notice is its notice file (public-domain data).
+     * `-` means "absent" for version, notice and provenance; the licence text
+     * file(s) in column 4 go into [LicenseEntry.textFiles] as a comma-separated
+     * list and may be empty for a component whose only notice is its notice file
+     * (public-domain data).
      *
      * A malformed line throws rather than being skipped: the file is generated, so
      * a line that does not parse means the file in the APK is not the one the

@@ -37,6 +37,7 @@ import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
@@ -104,9 +105,7 @@ class MainActivity : AppCompatActivity() {
         // bar.
         root.addView(Button(this).apply {
             text = "Camera"
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, ProtoCameraActivity::class.java))
-            }
+            setOnClickListener { openCamera() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -168,6 +167,23 @@ class MainActivity : AppCompatActivity() {
         addButton(layout, "Licenses") {
             LicenseDialog.show(this)
         }
+
+        // #84: the overlay's face. This is user-visible rendering, so the control
+        // sits on the front screen rather than in the debug block. The overlay
+        // reads the pref when it builds its text (LineOverlayView / OcrOverlayView),
+        // so the next lookup picks a change up; the default is the sans face the
+        // overlay always drew.
+        layout.addView(CheckBox(this).apply {
+            text = "Serif font (mincho) in the OCR overlay"
+            isChecked = OverlayFont.face(this@MainActivity) == OverlayFont.FACE_SERIF
+            textSize = 14f
+            setPadding(0, 16, 0, 16)
+            setOnCheckedChangeListener { _, checked ->
+                val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
+                OverlayFont.setFace(this@MainActivity, face)
+                Log.d("MainActivity", "overlay_font_face=$face")
+            }
+        })
 
         // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
         // and no preference read (see KanaSizeFix). The small/large form of っ/つ, ゃ/や, ゅ/ゆ,
@@ -279,7 +295,7 @@ class MainActivity : AppCompatActivity() {
         }
         tuningContainer.addView(tuningHeader)
         val tuningHelp = TextView(this).apply {
-            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart overlay or re-run OCR to apply. LONG_SIDE fixed at 960 (model input)."
+            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart overlay or re-run OCR to apply. Det input is ${OcrEngine.DET_MODEL_SIZE}×${OcrEngine.DET_MODEL_SIZE} (LONG_SIDE is clamped to it)."
             textSize = 11f
             setPadding(0, 0, 0, 12)
         }
@@ -298,25 +314,26 @@ class MainActivity : AppCompatActivity() {
             val longSide = OcrEngine.DEF_DET_LONG_SIDE
             val xOver = prefs.getFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
             val squish = prefs.getFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
-            val line = "live: detThresh=${String.format("%.2f", thresh)} unclip=${String.format("%.2f", unclip)} longSide=$longSide xOver=${String.format("%.2f", xOver)} squish=${String.format("%.1f", squish)}"
+            // F5/#86: Locale.ROOT, so the decimal separator in this debug readout
+            // does not follow the phone's locale (lint's DefaultLocale).
+            val line = "live: detThresh=${String.format(Locale.ROOT, "%.2f", thresh)} unclip=${String.format(Locale.ROOT, "%.2f", unclip)} longSide=$longSide xOver=${String.format(Locale.ROOT, "%.2f", xOver)} squish=${String.format(Locale.ROOT, "%.1f", squish)}"
             liveSummary.text = line
         }
         refreshLiveSummary()
 
         // helper to add one tunable row: label + live value + SeekBar + EditText + Apply
-        fun addTunable(
-            label: String,
-            prefKey: String,
-            default: Float,
-            min: Float,
-            max: Float,
-            step: Float,
-            isInt: Boolean
-        ) {
+        fun addTunable(row: TuningRow) {
+            val label = row.label
+            val prefKey = row.key
+            val default = row.default
+            val min = row.min
+            val max = row.max
+            val step = row.step
+            val isInt = row.isInt
             val steps = ((max - min) / step).roundToInt().coerceAtLeast(1)
             fun valueForProgress(p: Int): Float = min + p * step
             fun progressForValue(v: Float): Int = ((v - min) / step).roundToInt().coerceIn(0, steps)
-            fun formatValue(v: Float): String = if (isInt) v.roundToInt().toString() else String.format("%.2f", v)
+            fun formatValue(v: Float): String = if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
 
             val curRaw: Float = if (isInt) {
                 prefs.getInt(prefKey, default.roundToInt()).toFloat()
@@ -473,16 +490,7 @@ class MainActivity : AppCompatActivity() {
             tuningContainer.addView(container)
         }
 
-        addTunable("PPOCR_DET_THRESH", OcrEngine.PREF_DET_THRESH, OcrEngine.DEF_DET_THRESH, 0.05f, 0.60f, 0.01f, false)
-        addTunable("PPOCR_DET_UNCLIP_RATIO", OcrEngine.PREF_DET_UNCLIP, OcrEngine.DEF_DET_UNCLIP, 0.5f, 3.0f, 0.01f, false)
-        addTunable("X_OVERLAP_THRESHOLD", OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP, 0.0f, 1.0f, 0.01f, false)
-        addTunable("REC_SQUISH_FACTOR", OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH, 0.2f, 1.0f, 0.1f, false)
-        addTunable("OVERLAY_SCREENSHOT_ALPHA", OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA, 0.3f, 1.0f, 0.05f, false)
-        // Certainty required before the kana size model may rewrite a character. The measured
-        // tradeoff over 7,620 confusable bench positions: 0.01 -> 12 fixed / 4 broken,
-        // 0.03 -> 22/12, 0.10 -> 29/24.
-        addTunable("KANA_SIZE_EPSILON", KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON, 0.005f, 0.50f, 0.005f, false)
-        addTunable("CROSSHAIR_GAP", ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP, 0.005f, 0.10f, 0.005f, false)
+        DebugTuning.rows.forEach { addTunable(it) }
 
         addButton(tuningContainer, "Copy inference log") {
             val text = InferLog.dump()
@@ -493,24 +501,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         addButton(tuningContainer, "Reset all tuning to defaults") {
-            prefs.edit()
-                .putFloat(OcrEngine.PREF_DET_THRESH, OcrEngine.DEF_DET_THRESH)
-                .putFloat(OcrEngine.PREF_DET_UNCLIP, OcrEngine.DEF_DET_UNCLIP)
-                .putFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
-                .putFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
-                .putFloat(OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA)
-                // The kana-size ε tunable belongs here too: a control the reset does not know
-                // about is a bug, so the reset lists every addTunable above.
-                .putFloat(KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON)
-                .putFloat(ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP)
-                // The three feature switches moved into this block with the tunables, so the
-                // reset owns them now as well: a control the reset does not know about is a
-                // bug here. They are booleans with their own defaults, not addTunable rows.
-                .putBoolean(PitchAccent.PREF_PITCH_ENABLED, PitchAccent.DEF_PITCH_ENABLED)
-                .putBoolean(DoubleTapZoom.PREF_ENABLED, DoubleTapZoom.DEF_ENABLED)
-                .putBoolean(BlankGaps.PREF_ENABLED, BlankGaps.DEF_ENABLED)
-                .putBoolean(OcrEngine.PREF_DET_ROTATED, OcrEngine.DEF_DET_ROTATED)
-                .apply()
+            // G1/#86: one source for the controls and the reset. Every row/feature the
+            // debug screen built comes from [DebugTuning], so there is no list here to
+            // keep in step (which is exactly how a new control used to survive a reset).
+            val editor = prefs.edit()
+            DebugTuning.rows.forEach { row ->
+                if (row.isInt) editor.putInt(row.key, row.default.roundToInt())
+                else editor.putFloat(row.key, row.default)
+            }
+            DebugTuning.features.forEach { editor.putBoolean(it.key, it.default) }
+            editor.apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
             Log.d("MainActivity", "all tuning reset to defaults")
             // Recreate to refresh SeekBars and the feature checkboxes
@@ -519,6 +519,77 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         ensureBundledPitchDictionary()
+
+        // #82: the app shortcut (res/xml/shortcuts.xml). Cold launches — the app
+        // was not running — arrive here with the shortcut's action, and this is
+        // where it becomes the viewfinder. The dictionary screen this activity
+        // just built is an artefact of the routing, not somewhere the user asked
+        // to be, so the router removes itself: with nothing of ours beneath the
+        // camera, Back returns to whatever was on screen before (home, another
+        // app, or the task below) instead of dropping the user into the
+        // dictionary. Warm re-entry (onNewIntent) keeps this activity, because
+        // there the dictionary IS the screen the user came from.
+        if (openCameraFrom(intent)) finish()
+    }
+
+    /**
+     * #82: the second way into this activity, for the case this activity is
+     * ALREADY the top of the task — manifest `singleTop` names this activity, so
+     * the platform reuses the instance and delivers the shortcut here instead of
+     * stacking a second dictionary screen under the camera.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // No finish() here: this instance was already the top of the task, so
+        // it is the previous activity Back should return to.
+        openCameraFrom(intent)
+    }
+
+    /**
+     * #82: the router between the shortcut's action and the viewfinder. The
+     * static declaration can carry an action and nothing else, so the rule is
+     * equality with [CameraShortcut.ACTION_OPEN_CAMERA] — see [CameraShortcut] for
+     * why the shortcut reaches the camera through this activity rather than
+     * naming the viewfinder directly — and any other launch of this activity
+     * (the ordinary MAIN tap) is untouched.
+     *
+     * The action is CLEARED from the intent it arrived on. The client record
+     * keeps this same instance and re-delivers it when the platform re-creates
+     * the activity (a rotation, a UI-mode change, an explicit recreate()), so
+     * without the clear the next onCreate would read the shortcut again and open
+     * a second viewfinder over the one the user is looking at. Clearing it on the
+     * framework's own instance — not on a copy — is what makes the request
+     * one-shot.
+     *
+     * A passive restore after process death is deliberately NOT guarded: the
+     * system server's copy of the intent still carries the action, but a
+     * `savedInstanceState` test cannot tell that restore apart from a cold
+     * shortcut launch into a dead-but-tasked app, and refusing the camera on a
+     * real activation would be the worse failure.
+     */
+    private fun openCameraFrom(intent: Intent): Boolean {
+        if (!CameraShortcut.opensCamera(intent.action)) return false
+        intent.action = null
+        Log.d("MainActivity", "camera shortcut: opening the viewfinder")
+        openCamera()
+        return true
+    }
+
+    /** The one way into the viewfinder: the pinned control and the shortcut both land here.
+     *
+     * A9/#86: launched with CLEAR_TOP|SINGLE_TOP. The gamepad shortcut can fire while a
+     * viewfinder is already on top; `singleTop` on MainActivity does not reuse an
+     * instance that is below the camera, so the platform would push a second
+     * MainActivity whose onCreate pushes a second viewfinder — leaving the first
+     * beneath it, and Back landing on the previous camera rather than the dictionary.
+     * CLEAR_TOP|SINGLE_TOP makes the duplicate launch collapse onto the existing
+     * viewfinder: the new MainActivity is cleared, nothing is stacked. */
+    private fun openCamera() {
+        startActivity(
+            Intent(this, ProtoCameraActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
     }
 
     private fun addButton(parent: android.view.ViewGroup, text: String, onClick: () -> Unit) {
@@ -573,9 +644,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    result.fold(
+                    // A3/#86: the failure message is the fold's result, so it must be
+                    // assigned — as a bare expression the status line kept showing
+                    // "Installing pitch dictionary: N entries…" after a failed import.
+                    tvStatus.text = result.fold(
                         onSuccess = { count ->
-                            tvStatus.text = if (PitchAccent.isEnabled(this@MainActivity)) {
+                            if (PitchAccent.isEnabled(this@MainActivity)) {
                                 "Pitch dictionary installed: $count entries"
                             } else {
                                 "Pitch dictionary installed: $count entries " +

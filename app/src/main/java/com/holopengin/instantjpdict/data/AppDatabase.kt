@@ -36,7 +36,11 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "instant_jp_dict_db"
                 ).addMigrations(MIGRATION_3_4)
-                    .fallbackToDestructiveMigration()
+                    // F5/#86: the explicit parameter the no-arg overload was replaced
+                    // by; `true` is the old behaviour (drop every table on a schema
+                    // mismatch). The hand-written MIGRATION_3_4 above is what kept
+                    // user-imported dictionaries across the version-4 upgrade.
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance

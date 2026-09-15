@@ -175,21 +175,25 @@ class GapDetector(
  *  - `rawAlternatives[t]` is the top-N list for timestep `t`.
  *  - **The head's emitted character for a timestep is its FIRST entry** —
  *    `reDecodeLineResult` takes `alts.firstOrNull()` as the argmax
- *    (`OcrEngine.kt:2158`), the same way `ctcDecodeTopK` takes `indexed[0]`.
+ *    (`OcrEngine.kt`, `reDecodeLineResult`), the same way `ctcDecodeTopK` takes
+ *    `indexed[0]`.
  *  - **Blank is stored as the `'\u3000'` entry** — `decodeChar(0)` (blank) and
- *    `decodeChar(18708)` both return `'\u3000'` (`OcrEngine.kt:1705-1713`), and
- *    `reDecodeLineResult` reads `blankScore` by matching that character
- *    (`OcrEngine.kt:2159`). If that ever changes, this walk and the
- *    confident/contest split break together — hence the test.
+ *    `decodeChar(18708)` both return `'\u3000'` (`OcrEngine.kt`, `decodeChar`), and
+ *    `reDecodeLineResult` reads `blankScore` by matching that character. If that
+ *    ever changes, this walk and the confident/contest split break together —
+ *    hence the test. (The line references this used to carry rotted; named
+ *    symbols and tests are the guard now.)
  *  - Collapse rules mirror `reDecodeLineResult` exactly: a blank timestep *resets*
  *    the previous character (so a repeat after a blank is emitted), a space never
  *    collapses, and any other character collapses only against the immediately
  *    preceding emitted character.
  *
  * Returns an empty array for input that derives nothing; the caller compares the
- * size against `text.length` and gives up when they disagree (which happens when
- * `blankThreshold > 0` surfaced a character at a blank timestep — use
- * [LineResult.charCols] there, it is populated for every emitted character).
+ * size against `text.length` and gives up when they disagree — which is what a
+ * materialised [GAP_CHAR] placeholder (#44) produces, since the walk sees the
+ * decode's characters and not the later insertion. Those lines carry
+ * [LineResult.charCols] for every emitted character, and that is the geometry to
+ * fall back to.
  */
 internal fun timestepColumns(raw: List<List<Pair<Char, Float>>>): FloatArray {
     val cols = ArrayList<Float>(raw.size)

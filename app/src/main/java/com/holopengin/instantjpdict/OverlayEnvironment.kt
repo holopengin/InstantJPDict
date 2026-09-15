@@ -1,11 +1,14 @@
 package com.holopengin.instantjpdict
 
 import android.content.Context
+import android.util.Log
 import com.google.gson.Gson
 import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.ComponentTable
 import com.holopengin.instantjpdict.util.Deinflector
+import com.holopengin.instantjpdict.util.InferLog
 import com.holopengin.instantjpdict.util.KanaOrthography
+import com.holopengin.instantjpdict.util.KanaSoundChanges
 import com.holopengin.instantjpdict.util.KanjiVariants
 import com.holopengin.instantjpdict.util.OovCandidates
 import kotlinx.coroutines.CoroutineScope
@@ -39,22 +42,57 @@ object OverlayEnvironment {
         // cheap but not free, so it happens once off the main thread; until it lands (and
         // if it fails) the popup shows the head's own list, exactly as before.
         scope.launch {
-            val table = withContext(Dispatchers.IO) {
-                runCatching { ComponentTable.load(context) }.getOrNull()
-            } ?: return@launch
+            // A4/#86: the three normaliser tables used to sit behind this load, so a
+            // ComponentTable failure silently disabled the #75 pre-reform kana fold, the
+            // #81 historical-kana normaliser and the #44 kanji-variant fold for BOTH
+            // hosts. They do not depend on the component table, so they install first
+            // and independently; only the OOV wiring below needs the table.
             withContext(Dispatchers.IO) {
+                // B2/#86: warm the selected overlay face here, off the main thread. The
+                // first Typeface.createFromAsset parses 5.8/8.1 MB of TTF, and it used to
+                // happen inside the first overlay line (LineOverlayView's field
+                // initialiser, on Main) — a jank inside the very lookup it was drawn for.
+                // OverlayFont caches behind its own lock and falls back to the platform
+                // sans on a broken APK, so this cannot fail the wiring.
+                OverlayFont.typeface(context)
                 runCatching { KanjiVariants.install(context) }
+                    .onFailure { warn("KanjiVariants.install", it) }
                 // #75: pre-reform orthography for the lookup query. Loaded here rather than
                 // in either host so the share activity normalises exactly like the overlay.
                 runCatching { KanaOrthography.install(context) }
+                    .onFailure { warn("KanaOrthography.install", it) }
+                // #81: historical sound changes, composed after the #75 table.
+                runCatching { KanaSoundChanges.install(context) }
+                    .onFailure { warn("KanaSoundChanges.install", it) }
             }
-            controller.installOovSuggestions(OovCandidates(table))
+            val table = withContext(Dispatchers.IO) {
+                runCatching { ComponentTable.load(context) }
+                    .onFailure { warn("ComponentTable.load", it) }
+                    .getOrNull()
+            }
+            if (table != null) {
+                controller.installOovSuggestions(OovCandidates(table))
+            }
             // The 14 MB packed model behind the blank's candidate ranking. Mapped the same
             // way and off the main thread; a failure here only narrows the blank's list.
+            // It ranks candidates but shares no input with the component table, so it
+            // loads even when that table failed.
             controller.installCharLm(
                 withContext(Dispatchers.IO) {
-                    runCatching { CharLm.load(context) }.getOrNull()
+                    runCatching { CharLm.load(context) }
+                        .onFailure { warn("CharLm.load", it) }
+                        .getOrNull()
                 })
         }
     }
+
+    /** A4/#86: an install/load failure used to be swallowed by `runCatching`. Surface
+     *  it in logcat and in the in-app InferLog, which is what a device report can be
+     *  read back through. */
+    private fun warn(what: String, e: Throwable) {
+        Log.w(TAG, "$what failed", e)
+        InferLog.add("$what failed: ${e.message}")
+    }
+
+    private const val TAG = "OverlayEnvironment"
 }

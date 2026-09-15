@@ -3,7 +3,6 @@ package com.holopengin.instantjpdict
 import android.content.Context
 import android.util.Log
 import com.holopengin.instantjpdict.util.InferLog
-import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -81,20 +80,12 @@ class RecNcnn private constructor(private val handle: Long, val targetW: Int) {
 
         fun create(context: Context, targetW: Int = 64, numThreads: Int = 1): RecNcnn? {
             ensureLoaded()
-            val cache = File(context.cacheDir, "ncnn")
-            cache.mkdirs()
             // Single dynamic-width model (#23) — targetW only sizes seqLen/buffers now.
-            val paramName = "rec_dyn.param"
-            val binName = "rec_dyn.bin"
-            val paramFile = File(cache, paramName)
-            val binFile = File(cache, binName)
-            try {
-                context.assets.open("PP-OCRv6_small_ncnn/$paramName").use { ins -> paramFile.outputStream().use { ins.copyTo(it) } }
-                context.assets.open("PP-OCRv6_small_ncnn/$binName").use { ins -> binFile.outputStream().use { ins.copyTo(it) } }
-            } catch (e: Exception) {
-                Log.e(TAG, "copy asset PP-OCRv6_small_ncnn/$paramName failed", e)
-                return null
-            }
+            // A8/#86: copied once per installed APK, not once per engine.
+            val paramFile = materialiseModelAsset(context, "PP-OCRv6_small_ncnn/rec_dyn.param", "rec_dyn.param")
+                ?: return null
+            val binFile = materialiseModelAsset(context, "PP-OCRv6_small_ncnn/rec_dyn.bin", "rec_dyn.bin")
+                ?: return null
             val h = create(paramFile.absolutePath, binFile.absolutePath, targetW, numThreads)
             if (h == 0L) {
                 Log.e(TAG, "RecNcnn.create failed for W=$targetW")

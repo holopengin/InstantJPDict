@@ -1,2 +1,9 @@
 [target.aarch64-linux-android]
 linker = "aarch64-linux-android21-clang"
+# F1/#86: Android 15/16 devices may run 16 KB pages, and the loader refuses a
+# library whose LOAD segments are aligned below the page size (max-page-size
+# defaults to 4 KB on this toolchain). Every other .so in the APK is built with
+# the NDK's default 16 KB; this keeps the Rust one in step. build_nav_graph.sh
+# asserts the result, so a future toolchain change that ignores this flag fails
+# the build instead of shipping a 4 KB library again.
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

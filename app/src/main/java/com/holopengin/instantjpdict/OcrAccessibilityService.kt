@@ -59,6 +59,7 @@ import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -85,7 +86,21 @@ class OcrAccessibilityService : AccessibilityService() {
     private var floatingButtonRequested = true
     /** #57: the shared OCR overlay surface; null when no overlay is showing. */
     private var overlayView: OcrOverlayView? = null
+    /**
+     * A1/#86: the overlay pass currently inside the nets, or null when none has
+     * run. Kept so [onDestroy] can defer `ocrEngine.close()` behind it — a
+     * cancellation cannot interrupt a non-suspending native detect, and closing
+     * under one is the crash documented in [closeEngineBehindPass].
+     */
+    private var ocrPass: Job? = null
     private lateinit var ocrEngine: OcrEngine
+    /**
+     * A8/#86: the engine is constructed on `Dispatchers.IO` (asset copies + two
+     * native net loads), so this is that construction. [showScreenshotOverlay]
+     * joins it before an overlay can read `ocrEngine`, and [onDestroy] waits on
+     * it before closing, so a construction the teardown outran is still closed.
+     */
+    private var engineReady: Job? = null
     private val controller = OcrOverlayStateController()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
@@ -105,9 +120,11 @@ class OcrAccessibilityService : AccessibilityService() {
                     // without locking: USER_PRESENT never follows, so the
                     // button would stay GONE until the next unlock. (#60)
                     // Stay hidden on the keyguard itself; USER_PRESENT shows it.
+                    // B1/#86: through the shared predicate, not an inline copy —
+                    // the rule lives in [shouldShowOnScreenOn] with its test.
                     ensureFloatingButton()
                     val km = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
-                    if (!km.isKeyguardLocked) showFloatingButton()
+                    if (shouldShowOnScreenOn(km.isKeyguardLocked)) showFloatingButton()
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     ensureFloatingButton()
@@ -125,7 +142,13 @@ class OcrAccessibilityService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
-        ocrEngine = OcrEngine(this)
+        // A8/#86: built off the main thread. An AccessibilityService's onCreate must
+        // not spend hundreds of milliseconds copying model assets and loading nets —
+        // the system is waiting on this call. The first reader is [showScreenshotOverlay],
+        // which joins [engineReady] before it can touch the engine.
+        engineReady = serviceScope.launch {
+            withContext(Dispatchers.IO) { ocrEngine = OcrEngine(this@OcrAccessibilityService) }
+        }
         OverlayEnvironment.prepare(this, controller, serviceScope)
 
         val filter = IntentFilter().apply {
@@ -403,6 +426,24 @@ class OcrAccessibilityService : AccessibilityService() {
 
     private fun showScreenshotOverlay(image: Bitmap) {
         if (overlayView != null) return
+        // A8/#86: the engine is built off the main thread, so a trigger in the
+        // service's first moments can arrive before it exists. Wait for the build
+        // rather than reading an uninitialised lateinit — the capture bitmap is
+        // already in hand, and the wait is only the tail of work that used to block
+        // onCreate. A trigger after the build (every later one) takes the direct path.
+        val ready = engineReady
+        if (ready != null && !ready.isCompleted) {
+            serviceScope.launch {
+                ready.join()
+                if (!isDestroyed && overlayView == null) showScreenshotOverlayNow(image)
+            }
+            return
+        }
+        showScreenshotOverlayNow(image)
+    }
+
+    private fun showScreenshotOverlayNow(image: Bitmap) {
+        if (overlayView != null) return
         controller.resetState()
         Log.d("OcrAccessibilityService", "showScreenshotOverlay detThresh=${OcrEngine.getDetThresh(this)} longSide=${OcrEngine.getDetLongSide(this)}")
 
@@ -449,7 +490,8 @@ class OcrAccessibilityService : AccessibilityService() {
         val view = OcrOverlayView(this, host)
         overlayView = view
         windowManager?.addView(view, params)
-        view.startOcr()
+        // A1/#86: the returned pass gates the deferred engine close in [onDestroy].
+        ocrPass = view.startOcr()
     }
 
     override fun onKeyEvent(event: KeyEvent?): Boolean {
@@ -545,7 +587,24 @@ class OcrAccessibilityService : AccessibilityService() {
         ownViewCallbacks = null
         hideScreenshotOverlay()
         floatingView?.let { if (it.isAttachedToWindow) windowManager?.removeView(it) }
-        ocrEngine.close()
+        // A1/#86: never close the nets while a pass is inside them. A service can be
+        // destroyed mid-pass (toggled off, rebound, data change); `hideScreenshotOverlay`
+        // cancels the overlay scope, but cancellation stops a coroutine, not the native
+        // detect it is blocked in. The same guard as the share activity's onDestroy —
+        // both run through [closeEngineBehindPass] so they cannot drift again.
+        //
+        // A8/#86: the engine is constructed off the main thread now, so the teardown
+        // can outrun the build. Wait for [engineReady] first (a constructor has no
+        // suspension points, so it always finishes) — otherwise an engine that appears
+        // just after this method would never be closed.
+        val ready = engineReady
+        if (ready != null && !ready.isCompleted) {
+            ready.invokeOnCompletion {
+                if (::ocrEngine.isInitialized) closeEngineBehindPass(ocrPass) { ocrEngine.close() }
+            }
+        } else {
+            closeEngineBehindPass(ocrPass) { if (::ocrEngine.isInitialized) ocrEngine.close() }
+        }
     }
 
     private companion object {

@@ -31,7 +31,7 @@ what the first nuke-and-pave run must pin down.
 
 ```bash
 git clone <repo> && cd InstantJPDict
-git checkout wayfinder-ncnn-port   # or main, once merged
+git checkout master   # or the branch under repro, as it was named in the report
 git lfs install --local && git lfs pull
 git lfs ls-files  # every *.bin/*.safetensors/*.onnx/cal-images.tar.gz must be real bytes, not 133-byte pointers
 ```
@@ -221,6 +221,17 @@ cp /tmp/rec_dyn/rec_dyn.param /tmp/rec_dyn/rec_dyn.bin \
 
 Acceptance: APK installs, bench sample texts match the #16/#23 record,
 `smokeDetOnly` passes the <15s gate.
+
+## Deliberately kept diagnostics with no entry point
+
+`KanaSizeNcnn.selfCheck` and `KanaSizeNcnn.probeWithTrace` (the kana-size model's
+ten published validation vectors, and its step-by-step trace) have had no
+production caller since the "Check kana size model" button was removed from the
+debug screen — deliberately, that screen is user-facing (see the comment in
+`MainActivity`). Nothing calls them today, not even a test: to run them, add a
+temporary debug entry point or an `androidTest` and call the method. The
+asset/JNI/ARM-float proof they carry is kept for the next time the kana model or
+its conversion changes (#44, #86/E2).
 
 ## Known wart: legacy meiki blobs vs LFS rule
 

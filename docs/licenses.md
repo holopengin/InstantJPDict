@@ -1,10 +1,10 @@
 # Bundled licences and attribution (#70)
 
 Everything the APK bundles that carries a licence — the app's own licence, its
-Gradle dependencies, the vendored native libraries, the OCR/kana models and the
-dictionary data derived from upstream corpora — ships inside the APK under
-`app/src/main/assets/licenses/`, with an index and an in-app viewer reached from
-the **Licenses** button on the main screen.
+Gradle dependencies, the vendored native libraries, the OCR/kana models, the
+overlay fonts (#84) and the dictionary data derived from upstream corpora —
+ships inside the APK under `app/src/main/assets/licenses/`, with an index and an
+in-app viewer reached from the **Licenses** button on the main screen.
 
 No network is involved, in the viewer or anywhere in this feature: the app declares
 no `INTERNET` permission and none was added.
@@ -88,7 +88,7 @@ dependency, and every one of those was checked against its own published POM.
 | Component | Licence | Text shipped | Verified from |
 |---|---|---|---|
 | InstantJPDict (the app) | AGPL-3.0-only | `texts/agpl-3.0.txt` | repo `LICENSE`, copied by the generator |
-| 78 Gradle runtime modules (AndroidX, Material, Gson, Kotlin stdlib, coroutines, jspecify, error_prone_annotations, guava listenablefuture) | Apache-2.0 | `texts/apache-2.0.txt` | each module's own POM `<licenses>` (Google Maven / Maven Central), 2026-09-13 |
+| 87 Gradle runtime modules (AndroidX, Material, Gson, Kotlin stdlib, coroutines, jspecify, error_prone_annotations, guava listenablefuture) | Apache-2.0 | `texts/apache-2.0.txt` | each module's own POM `<licenses>` (Google Maven / Maven Central), 2026-09-13 |
 | JNA 5.14.0 (`@aar`, ships `libjnidispatch.so`) | LGPL-2.1-or-later OR Apache-2.0 — Apache-2.0 elected | `texts/apache-2.0.txt`, `texts/lgpl-2.1.txt` | its POM `<licenses>`; note in `notices/jna.txt` |
 | ncnn (fork `vgf89/ncnn@a2b8507f`, upstream `Tencent/ncnn`) | BSD-3-Clause | `texts/bsd-3-clause-ncnn.txt` | `LICENSE.txt` at the pinned commit, fetched 2026-09-13 |
 | PP-OCRv6 small det + rec models + `vocab.json` | Apache-2.0 | `texts/apache-2.0.txt` | HF model cards `PaddlePaddle/PP-OCRv6_small_{det_onnx,rec_safetensors}`: `license: apache-2.0` |
@@ -98,9 +98,12 @@ dependency, and every one of those was checked against its own published POM.
 | Kanjium pitch accents `kanjium_pitch_accents.zip` | CC BY-SA 4.0 | `texts/cc-by-sa-4.0.txt` | upstream `LICENSE.txt` at the pinned commit |
 | Unihan variants `kanji_variants.txt` | Unicode License V3 | `texts/unicode-licence-v3.txt` | `unicode.org/license.txt`, UCD 17.0.0 |
 | JMdict oK/rK tags (same table) | CC BY-SA 4.0 (EDRDG) | `texts/cc-by-sa-4.0.txt`, `texts/edrdg-licence.txt` | EDRDG licence statement |
+| Historical kana sound-change rules (#81) | Public domain (著作権法第13条第2号) | none needed — notice only | 文化庁 内閣告示 昭和21年第33号「現代かなづかい」/ 昭和61年第1号「現代仮名遣い」, URLs in `notices/historical-kana-sound-changes.txt` |
 | Yomichan/Yomitan deinflection rules `deinflect.json` | GPL-3.0-only | `texts/gpl-3.0.txt` | JSON-identical to upstream `ext/data/deinflect.json`; `yomidevs/yomitan` is GPL-3.0 |
 | `libnav_graph_core.so` — 67-crate Rust closure (uniffi and friends) | per crate; MPL-2.0 for the uniffi family, MIT/Apache-2.0 otherwise | `texts/mpl-2.0.txt` + each crate's own licence file in `texts/rust/` | `cargo metadata` over the pinned `Cargo.lock`; texts copied from the crates' published sources |
 | `libomp.so` (LLVM OpenMP runtime from the NDK toolchain) | Apache-2.0 WITH LLVM-exception | `texts/apache-2.0-with-llvm-exception.txt` | LLVM's `LICENSE.TXT`; `libomp.so` packaged from NDK 28.2.13676358 |
+| Noto Sans JP `fonts/NotoSansJP-Regular.ttf` (overlay face, #84) | OFL-1.1 | `texts/ofl-1.1.txt` | `google/fonts ofl/notosansjp/NotoSansJP[wght].ttf`, sha256 `c2f3b4d4…`; static Regular instance via fontTools `varLib.instancer wght=400`; `vert`/`vrt2` verified with fontTools |
+| Noto Serif JP `fonts/NotoSerifJP-Regular.ttf` (overlay face, #84) | OFL-1.1 | `texts/ofl-1.1.txt` | `google/fonts ofl/notoserifjp/NotoSerifJP[wght].ttf`, sha256 `2fd527ba…`; static Regular instance via fontTools `varLib.instancer wght=400`; `vert`/`vrt2` verified with fontTools |
 
 Canonical text sources (fetched once, 2026-09-13, recorded here because these are the
 files whose wording the index's labels are asserting):
@@ -117,6 +120,7 @@ files whose wording the index's labels are asserting):
 | `cc-by-sa-4.0.txt` | `https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt` |
 | `unicode-licence-v3.txt` | `https://www.unicode.org/license.txt` |
 | `edrdg-licence.txt` | `https://www.edrdg.org/edrdg/licence.html`, converted to plain text |
+| `ofl-1.1.txt` | `https://openfontlicense.org/documents/OFL.txt` (the official OFL 1.1 text; per-font copyright lines live in the notices) |
 
 ## The viewer
 
@@ -131,6 +135,37 @@ acknowledgement on a separate screen reached from a menu, not on a launch screen
 ("It is not sufficient just to mention it on a start-up/launch page of the app").
 KRADFILE and JMdict-derived data ship in `assets/components` and `assets/variants`,
 so that requirement applies here and this dialog is the screen that meets it.
+
+## Bundled overlay fonts (#84)
+
+The OCR overlay's rendered text — the glyphs over the screenshot, the dictionary
+panel, alternatives, neighbour chips and the pitch line — is painted in either
+Noto Sans JP or Noto Serif JP, chosen by the "Serif font (mincho) in the OCR
+overlay" setting on the main screen. The choice is not resolved through the
+device's font configuration: Android guarantees a family name resolves, not that
+the serif family carries Japanese glyphs, so `Typeface.SERIF` could silently
+fall back to sans. Both faces therefore ship in the APK:
+
+```
+app/src/main/assets/fonts/NotoSansJP-Regular.ttf    5,766,828 bytes
+app/src/main/assets/fonts/NotoSerifJP-Regular.ttf   8,079,912 bytes
+```
+
+Both are static Regular instances of the upstream variable fonts
+(`wght=400` via `fontTools.varLib.instancer`) because the variable default is
+Thin/ExtraLight and shipping the variables would add 9.6 MB + 13.6 MB instead
+of the 5.8 MB + 8.1 MB above. Nothing is subset — the overlay draws dictionary text of arbitrary
+breadth — so the whole ~17,900-glyph faces ship. The notices
+(`notices/noto-sans-jp.txt`, `notices/noto-serif-jp.txt`) record the upstream
+file, its SHA-256, the exact instancing call, the copyright lines and the
+licence; the shared text is `texts/ofl-1.1.txt`.
+
+The vertical path matters here (#47): `LineOverlayView` renders vertical lines
+with `Paint.fontFeatureSettings = "'vert' 1"`, so the bundled faces must carry
+the vertical GSUB substitutions. Verified with fontTools before committing —
+`vert` (378+1+4 glyphs) and `vrt2` (378 glyphs) present and registered under
+`DFLT`/`hani`/`kana`/`latn`, with `vhea`/`vmtx` present — and re-checked on every
+test run by `OverlayFontTest`, which parses the committed sfnt/GSUB headers.
 
 ## Out of scope
 

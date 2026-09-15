@@ -45,9 +45,8 @@ pub fn build_nav_graph(boxes: Vec<BoundingBox>) -> NavGraph {
 
     // Greedy assignment Phase 1
     let mut edges: Vec<[usize; 4]> = (0..n).map(|i| {
-        greedy_assignment(i, n, &n1[i], &s1[i], &e1[i], &w1[i])
+        greedy_assignment(n, &n1[i], &s1[i], &e1[i], &w1[i])
     }).collect();
-    let initial_edges = edges.clone();
 
     // ── Phase 2: global (unlimited distance, no wrap) ──
     let (n2, s2, e2, w2) = build_phase2(&positions, n, DIR_MIN, CONE45, W2);
@@ -64,7 +63,7 @@ pub fn build_nav_graph(boxes: Vec<BoundingBox>) -> NavGraph {
 /// Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if slot is empty.
 #[uniffi::export]
 pub fn navigate(graph: &NavGraph, idx: i32, dir: i32) -> Option<i32> {
-    if idx < 0 || idx >= graph.n || dir < 0 || dir >= 4 { return None; }
+    if !(0..graph.n).contains(&idx) || !(0..4).contains(&dir) { return None; }
     let flat_idx = (idx * 4 + dir) as usize;
     let target = graph.edges[flat_idx];
     if target >= graph.n { None } else { Some(target) }
@@ -76,6 +75,10 @@ pub fn get_edges(graph: &NavGraph) -> Vec<i32> {
 }
 
 // ── helper functions ──
+
+/// Per-node candidates for one direction: `(node index, cost)`, sorted by cost.
+/// Phase 1 builds the same shape for N/S/E/W.
+type Adjacency = Vec<Vec<(usize, f32)>>;
 
 fn torus_dx(x1: f32, x2: f32) -> f32 { let r = (x1 - x2).abs(); r.min(1.0 - r) }
 fn torus_dy(y1: f32, y2: f32) -> f32 { let r = (y1 - y2).abs(); r.min(1.0 - r) }
@@ -91,8 +94,8 @@ fn direction_check(dir: usize, xi: f32, yi: f32, xj: f32, yj: f32) -> Option<(f3
 
 fn build_phase1(
     pos: &[(f32, f32)], n: usize, max_dist: f32, dir_min: f32, cone45: f32, w: f32,
-) -> (Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>) {
-    let mut nl: Vec<Vec<(usize, f32)>> = Vec::with_capacity(n);
+) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
+    let mut nl: Adjacency = Vec::with_capacity(n);
     let mut sl = Vec::with_capacity(n);
     let mut el = Vec::with_capacity(n);
     let mut wl = Vec::with_capacity(n);
@@ -103,9 +106,8 @@ fn build_phase1(
         let mut sv = Vec::new();
         let mut ev = Vec::new();
         let mut wv = Vec::new();
-        for j in 0..n {
+        for (j, &(xj, yj)) in pos.iter().enumerate() {
             if i == j { continue; }
-            let (xj, yj) = pos[j];
             let dx = (xi - xj).abs();
             let dy = (yi - yj).abs();
             let dist = (dx * dx + dy * dy).sqrt();
@@ -130,15 +132,14 @@ fn build_phase1(
 
 fn build_phase2(
     pos: &[(f32, f32)], n: usize, dir_min: f32, cone45: f32, w2: f32,
-) -> (Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>) {
+) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
     let mut nl = Vec::with_capacity(n); let mut sl = Vec::with_capacity(n);
     let mut el = Vec::with_capacity(n); let mut wl = Vec::with_capacity(n);
     for i in 0..n {
         let (xi, yi) = pos[i];
         let mut nv = Vec::new(); let mut sv = Vec::new(); let mut ev = Vec::new(); let mut wv = Vec::new();
-        for j in 0..n {
+        for (j, &(xj, yj)) in pos.iter().enumerate() {
             if i == j { continue; }
-            let (xj, yj) = pos[j];
             for (d, list) in [(0, &mut nv), (1, &mut sv), (2, &mut ev), (3, &mut wv)] {
                 if let Some((prim, off)) = direction_check(d, xi, yi, xj, yj) {
                     if prim < dir_min { continue; }
@@ -158,15 +159,14 @@ fn build_phase2(
 
 fn build_phase3(
     pos: &[(f32, f32)], n: usize, _dir_min: f32, _cone45: f32, w2: f32, wrap: f32,
-) -> (Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>, Vec<Vec<(usize, f32)>>) {
+) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
     let mut nl = Vec::with_capacity(n); let mut sl = Vec::with_capacity(n);
     let mut el = Vec::with_capacity(n); let mut wl = Vec::with_capacity(n);
     for i in 0..n {
         let (xi, yi) = pos[i];
         let mut nv = Vec::new(); let mut sv = Vec::new(); let mut ev = Vec::new(); let mut wv = Vec::new();
-        for j in 0..n {
+        for (j, &(xj, yj)) in pos.iter().enumerate() {
             if i == j { continue; }
-            let (xj, yj) = pos[j];
             let tx = torus_dx(xi, xj);
             let ty = torus_dy(yi, yj);
             // North wrapped: yj > yi (going up past y=0 wraps to y≈1)
@@ -200,7 +200,7 @@ fn build_phase3(
 }
 
 fn fill_empty(
-    edges: &mut Vec<[usize; 4]>, n: usize,
+    edges: &mut [[usize; 4]], n: usize,
     north: &[Vec<(usize, f32)>], south: &[Vec<(usize, f32)>],
     east: &[Vec<(usize, f32)>], west: &[Vec<(usize, f32)>],
 ) {
@@ -219,7 +219,7 @@ fn fill_empty(
 }
 
 fn greedy_assignment(
-    _i: usize, n: usize,
+    n: usize,
     north: &[(usize, f32)], south: &[(usize, f32)],
     east: &[(usize, f32)], west: &[(usize, f32)],
 ) -> [usize; 4] {

@@ -78,6 +78,10 @@ data class JpDictQuad(
         kotlin.math.abs(tiltDeg) <= tolDeg
 
     companion object {
+        /** The upright frame for [rect] with the corner order the fit builds on
+         *  (`c0..c3`). **Test-only**: production quads come from [RotatedGeometry]
+         *  fitting component pixels; the rotated-geometry tests use this factory to
+         *  pin the corner order without a detect (kept deliberately, #86/E1). */
         fun fromRect(rect: JpDictRect): JpDictQuad = JpDictQuad(
             QuadPoint(rect.left.toFloat(), rect.top.toFloat()),
             QuadPoint(rect.right.toFloat(), rect.top.toFloat()),
@@ -108,57 +112,6 @@ data class LineBox(
 
 fun JpDictRect.toAndroidRect(): Rect = Rect(left, top, right, bottom)
 fun Rect.toJpDictRect(): JpDictRect = JpDictRect(left, top, right, bottom)
-
-data class CharCandidate(
-    val char: Char,
-    val score: Float,
-    val box: FloatArray, // [x1, y1, x2, y2] relative to chunk
-    val alternatives: List<Pair<Char, Float>>
-) {
-    fun getGlobalRect(isVertical: Boolean, cropW: Int, cropH: Int, cropX: Int, cropY: Int, effectiveW: Int, effectiveH: Int): JpDictRect {
-        val rx1 = box[0]
-        val ry1 = box[1]
-        val rx2 = box[2]
-        val ry2 = box[3]
-
-        val x1: Float
-        val y1: Float
-        val x2: Float
-        val y2: Float
-
-        if (isVertical) {
-            x1 = (rx1 / 32f) * cropW + cropX
-            y1 = (ry1 / effectiveH.toFloat()) * cropH + cropY
-            x2 = (rx2 / 32f) * cropW + cropX
-            y2 = (ry2 / effectiveH.toFloat()) * cropH + cropY
-        } else {
-            x1 = (rx1 / effectiveW.toFloat()) * cropW + cropX
-            y1 = (ry1 / 32f) * cropH + cropY
-            x2 = (rx2 / effectiveW.toFloat()) * cropW + cropX
-            y2 = (ry2 / 32f) * cropH + cropY
-        }
-
-        return JpDictRect(Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2))
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is CharCandidate) return false
-        if (char != other.char) return false
-        if (score != other.score) return false
-        if (!box.contentEquals(other.box)) return false
-        if (alternatives != other.alternatives) return false
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = char.hashCode()
-        result = 31 * result + score.hashCode()
-        result = 31 * result + box.contentHashCode()
-        result = 31 * result + alternatives.hashCode()
-        return result
-    }
-}
 
 interface DictionaryProvider {
     suspend fun findByTexts(texts: List<String>): List<DictionaryEntry>
@@ -229,8 +182,6 @@ object JpDictKeyEvent {
     
     const val KEYCODE_BUTTON_A = 96
     const val KEYCODE_BUTTON_B = 97
-    const val KEYCODE_BUTTON_X = 99
-    const val KEYCODE_BUTTON_Y = 100
     const val KEYCODE_BUTTON_L1 = 102
     const val KEYCODE_BUTTON_R1 = 103
     const val KEYCODE_BUTTON_L2 = 104

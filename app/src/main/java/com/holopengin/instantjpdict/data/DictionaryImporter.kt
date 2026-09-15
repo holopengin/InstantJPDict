@@ -27,13 +27,18 @@ class DictionaryImporter(private val context: Context) {
         try {
             val inputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(Exception("Failed to open input stream"))
+            // A6/#86: `importZipStream` closes the stream it is handed on its success
+            // path only; `use` releases it here too when a bank throws before that —
+            // the old shape leaked the content stream on every failed/aborted import.
             Result.success(
-                importZipStream(
-                    BufferedInputStream(inputStream),
-                    fileName.removeSuffix(".zip"),
-                    onProgress,
-                    builtIn = false,
-                )
+                inputStream.use {
+                    importZipStream(
+                        BufferedInputStream(it),
+                        fileName.removeSuffix(".zip"),
+                        onProgress,
+                        builtIn = false,
+                    )
+                }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Import failed", e)
@@ -61,13 +66,17 @@ class DictionaryImporter(private val context: Context) {
                 }
             }
             val inputStream = context.assets.open(assetPath)
+            // A6/#86: same shape as [importZip] — release the asset stream on the
+            // failure path too, not only at the end of a successful import.
             Result.success(
-                importZipStream(
-                    BufferedInputStream(inputStream),
-                    assetPath.substringAfterLast('/').removeSuffix(".zip"),
-                    onProgress,
-                    builtIn = true,
-                )
+                inputStream.use {
+                    importZipStream(
+                        BufferedInputStream(it),
+                        assetPath.substringAfterLast('/').removeSuffix(".zip"),
+                        onProgress,
+                        builtIn = true,
+                    )
+                }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Bundled import failed", e)

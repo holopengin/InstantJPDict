@@ -150,7 +150,10 @@ object KanaSizeFix {
         var flipped = 0
         val declined = ArrayList<Pair<Triple<Int, Int, Char>, Float>>()
         for ((k, c) in cands.withIndex()) {
-            val p = probBig(logits[k])
+            // C1/#86: one sigmoid in the project — [KanaSizeNcnn.probBig]. This used to
+            // duplicate the formula privately, so a model-side change (a temperature)
+            // would have had to land in two places.
+            val p = KanaSizeNcnn.probBig(logits[k])
             val isSmall = KanaSizeEncoder.isSmall(c.char)
             val target = (if (isSmall) KanaSizeEncoder.bigFormOf(c.char) else SMALL_OF[c.char]) ?: continue
             val flipsIt = if (isSmall) p > 1f - epsilon else p < epsilon
@@ -190,6 +193,4 @@ object KanaSizeFix {
         lastSummary = "kana fix: %d of %d flipped".format(flipped, cands.size)
         return out
     }
-
-    private fun probBig(logit: Float): Float = 1f / (1f + kotlin.math.exp(-logit).toFloat())
 }

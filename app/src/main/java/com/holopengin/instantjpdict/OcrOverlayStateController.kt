@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.KanaOrthography
+import com.holopengin.instantjpdict.util.KanaSoundChanges
 import com.holopengin.instantjpdict.util.DeinflectionChain
 import com.holopengin.instantjpdict.util.DictionaryRedirects
 import com.holopengin.instantjpdict.util.OovCandidates
@@ -184,52 +185,6 @@ class OcrOverlayStateController {
     var currentTransY = 0f
     var currentWordLength = 0
 
-    /** Re-decode all lines with a new [blankThreshold] from cached per-timestep
-     * alternatives — no model re-run (see `OcrEngine.reDecodeLineResult`).
-     * Keeps the tapped character anchored by position, then rebuilds lookup data. */
-    fun refreshLinesWithThreshold(ocrEngine: OcrEngine, blankThreshold: Float = 0f) {
-        val oldTappedBoxCenter = if (currentTappedLineIdx != -1 && currentTappedCharIdxInLine != -1) {
-            activeLineResults.getOrNull(currentTappedLineIdx)?.charBoxes?.getOrNull(currentTappedCharIdxInLine)?.let {
-                Pair(it.centerX(), it.centerY())
-            }
-        } else null
-
-        activeLineResults.forEachIndexed { i, line ->
-            line?.let { oldLine ->
-                if (oldLine.rawAlternatives.isNotEmpty()) {
-                    // Re-decode from cached logits — no model re-run
-                    val newLine = ocrEngine.reDecodeLineResult(oldLine, blankThreshold)
-                    activeLineResults[i] = newLine
-                }
-            }
-        }
-        
-        // Re-find the tapped character by its position
-        if (oldTappedBoxCenter != null) {
-            val line = activeLineResults.getOrNull(currentTappedLineIdx)
-            if (line != null) {
-                var bestIdx = -1
-                var minDist = 1000f
-                for (j in line.charBoxes.indices) {
-                    val box = line.charBoxes[j]
-                    val dx = (box.centerX() - oldTappedBoxCenter.first).toDouble()
-                    val dy = (box.centerY() - oldTappedBoxCenter.second).toDouble()
-                    val dist = kotlin.math.sqrt(dx * dx + dy * dy).toFloat()
-                    if (dist < minDist && dist < 20) { // small radius to ensure it's the same char
-                        minDist = dist
-                        bestIdx = j
-                    }
-                }
-                if (bestIdx != -1) {
-                    currentTappedCharIdxInLine = bestIdx
-                    currentTappedIdx = getGlobalIdx(currentTappedLineIdx, currentTappedCharIdxInLine)
-                }
-            }
-        }
-
-        updateGlobalData()
-    }
-    
     var activeLineBoxes: List<LineBox> = emptyList()
     var activeAllChars = mutableListOf<String>()
     var activeAllAlternatives = mutableListOf<List<Pair<Char, Float>>>()
@@ -451,37 +406,6 @@ class OcrOverlayStateController {
                     return true
                 }
             }
-        }
-        return false
-    }
-
-    fun navigateLines(direction: Int): Boolean {
-        if (currentTappedLineIdx == -1) return false
-        val currentLine = activeLineResults[currentTappedLineIdx] ?: return false
-        val currentCharBox = currentLine.charBoxes[currentTappedCharIdxInLine]
-        val centerX = currentCharBox.centerX()
-        val centerY = currentCharBox.centerY()
-
-        var nextLineIdx = currentTappedLineIdx + direction
-        while (nextLineIdx in activeLineResults.indices) {
-            val nextLine = activeLineResults[nextLineIdx]
-            if (nextLine != null && nextLine.text.isNotEmpty()) {
-                var minInfo: Pair<Int, Double>? = null
-                for (i in nextLine.charBoxes.indices) {
-                    val box = nextLine.charBoxes[i]
-                    val dx = (box.centerX() - centerX).toDouble()
-                    val dy = (box.centerY() - centerY).toDouble()
-                    val dist = dx * dx + dy * dy
-                    if (minInfo == null || dist < minInfo.second) minInfo = i to dist
-                }
-                if (minInfo != null) {
-                    currentTappedLineIdx = nextLineIdx
-                    currentTappedCharIdxInLine = minInfo.first
-                    currentTappedIdx = getGlobalIdx(currentTappedLineIdx, currentTappedCharIdxInLine)
-                    return true
-                }
-            }
-            nextLineIdx += direction
         }
         return false
     }
@@ -865,6 +789,11 @@ class OcrOverlayStateController {
             // only add a reachable headword, never take one away. Displayed text is
             // untouched: only this query string is rewritten.
             val modernised = KanaOrthography.modernise(queryText)
+            // #81: the historical sound changes JMdict's entry-local variants cannot
+            // reach (やう->よう, けふ->きょう, 思ふ->思う). Composed after #75, so
+            // きやう -> きゃう -> きょう; both forms stay in the candidate set, so
+            // nothing #75 reached is lost, and the raw prefix is still searched.
+            val soundChanged = KanaSoundChanges.modernise(modernised)
 
             // The RAW prefix is searched alongside its folded form. The fold is a
             // substitution, so folding alone replaced the queried form outright: an old
@@ -878,7 +807,9 @@ class OcrOverlayStateController {
                 JapaneseUtil.katakanaToHiragana(queryText),
                 JapaneseUtil.collapseEmphatic(queryText),
                 modernised,
-                JapaneseUtil.katakanaToHiragana(modernised)
+                JapaneseUtil.katakanaToHiragana(modernised),
+                soundChanged,
+                JapaneseUtil.katakanaToHiragana(soundChanged)
             ).distinct()
 
             val deinflections = deinflector.deinflect(queryText)
@@ -887,6 +818,8 @@ class OcrOverlayStateController {
             // modern form is deinflected as well — additive, like the variant above.
             val modernisedDeinflections =
                 if (modernised != queryText) deinflector.deinflect(modernised) else emptyList()
+            val soundChangedDeinflections =
+                if (soundChanged != modernised) deinflector.deinflect(soundChanged) else emptyList()
             val lengthCandidates = mutableListOf<SearchCandidate>()
             variants.forEach { lengthCandidates.add(SearchCandidate(it, null, null)); allTermsToSearch.add(it) }
             deinflections.forEach {
@@ -897,6 +830,12 @@ class OcrOverlayStateController {
             }
             modernisedDeinflections.forEach {
                 if (it.term != modernised && it.reasons.isNotEmpty()) {
+                    lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
+                    allTermsToSearch.add(it.term)
+                }
+            }
+            soundChangedDeinflections.forEach {
+                if (it.term != soundChanged && it.reasons.isNotEmpty()) {
                     lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
                     allTermsToSearch.add(it.term)
                 }
@@ -979,54 +918,6 @@ class OcrOverlayStateController {
             val targetGlobalIdx = getGlobalIdx(lineIdx, charIdx) + i
             getCoordsFromGlobalIdx(targetGlobalIdx)?.let { lastHighlightedCoords.add(it) }
         }
-    }
-
-    fun calculateDisplayBoxes(line: LineResult, advances: List<Float>? = null): List<JpDictRect> {
-        val fixedSize = if (line.isVertical) {
-            line.charBoxes.map { it.height() }.maxOrNull() ?: 0
-        } else {
-            line.charBoxes.map { it.height() }.maxOrNull() ?: 0
-        }
-
-        val refinedBoxes = mutableListOf<JpDictRect>()
-        if (line.charBoxes.isNotEmpty()) {
-            refinedBoxes.add(line.charBoxes[0])
-            for (i in 1 until line.charBoxes.size) {
-                // To eliminate cumulative drift, we anchor the advance constraint to the
-                // ORIGINAL position of the previous character. This ensures that any
-                // necessary push (e.g. for punctuation) only affects the character
-                // relative to its immediate predecessor's detection, rather than
-                // snowballing across the entire line.
-                val prevOriginal = line.charBoxes[i - 1]
-                val curOriginal = line.charBoxes[i]
-                val advance = advances?.getOrNull(i - 1)?.toInt() ?: fixedSize
-                
-                if (line.isVertical) {
-                    val newTop = maxOf(prevOriginal.top + advance, curOriginal.top)
-                    refinedBoxes.add(JpDictRect(curOriginal.left, newTop, curOriginal.right, curOriginal.bottom))
-                } else {
-                    val newLeft = maxOf(prevOriginal.left + advance, curOriginal.left)
-                    refinedBoxes.add(JpDictRect(newLeft, curOriginal.top, curOriginal.right, curOriginal.bottom))
-                }
-            }
-        }
-
-        val result = mutableListOf<JpDictRect>()
-        for (i in refinedBoxes.indices) {
-            val box = refinedBoxes[i]
-            // Calculate center using refined boundaries.
-            // The right/bottom edges remain at their original detected positions.
-            val centerX = (box.left.toDouble() + box.right.toDouble()) / 2.0
-            val centerY = (box.top.toDouble() + box.bottom.toDouble()) / 2.0
-
-            val left = (centerX - fixedSize / 2.0).toInt()
-            val top = (centerY - fixedSize / 2.0).toInt()
-            val right = left + fixedSize
-            val bottom = top + fixedSize
-            
-            result.add(JpDictRect(left, top, right, bottom))
-        }
-        return result
     }
 
     fun formatDictionaryResults(

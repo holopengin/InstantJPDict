@@ -31,6 +31,10 @@ import android.content.Context
  * `tools/build_kana_variants.py` for the extraction and the per-pair citation in
  * the PROVENANCE file.
  *
+ * `tools/kana_sound_changes_bench.py` re-implements this normaliser (and
+ * [KanaSoundChanges]) in Python for the #81 measurements; the two must move
+ * together. Last compared 2026-09-15 (#86/C4).
+ *
  * **What is deliberately NOT folded.** Measurement, not taste (2,000-line Aozora
  * bench slice, 350 lines of 旧仮名; counts in the #75 commit message):
  *

@@ -14,8 +14,8 @@ see [licenses.md](licenses.md) and the **Licenses** button on the main screen
 ## Pitch accents — `pitch/kanjium_pitch_accents.zip`
 
 Yomitan term-meta-bank v3 dictionary of Tokyo pitch accents, in-app behind the
-**Show pitch accent in dictionary popup** checkbox (see #43). Installed with the
-**Install Bundled Pitch Dictionary** button, which needs no network.
+**Show pitch accent in dictionary popup** checkbox (see #43). Vendored and
+installed at startup, needing no network.
 
 | | |
 |---|---|
@@ -66,9 +66,10 @@ plain presence check on the title would have treated a partial import as done,
 and a button was only needed to paper over that.
 
 `builtIn` was added in schema version 4 with a hand-written migration. Note that
-the database is otherwise configured with `fallbackToDestructiveMigration()`,
-which would have silently wiped every user-imported dictionary on upgrade — the
-migration exists to prevent exactly that.
+the database is otherwise configured with
+`fallbackToDestructiveMigration(dropAllTables = true)`, which would have silently
+wiped every user-imported dictionary on upgrade — the migration exists to prevent
+exactly that.
 
 ### Installation is idempotent
 
@@ -131,14 +132,15 @@ candidate is a `〜く` verb and 「と咲いて」「と働いて」「と呟�
 ordinary Japanese. The components are the discriminator; the n-gram is only the
 tie-break.
 
-## Character n-gram language model — not yet vendored
+## Character n-gram language model — `lm/char_lm.bin`
 
 A character n-gram model trained on public-domain Japanese prose, used by the
 correction layer (#44) to rank the component-filtered candidates a dropped or
 substituted rare kanji leaves behind, and as the prior that can overrule a
-*confidently* wrong recogniser. **No asset is committed yet**: the model is
-conditional on a later measurement, so what ships today is the generator, the
-format and the `--measure` mode.
+*confidently* wrong recogniser. It is **shipped and always loaded**: the packed
+asset is committed, `OverlayEnvironment` loads it at overlay startup (off the main
+thread, like the other tables), and there is no setting — a load failure only
+narrows the blank's candidate list, it does not break the lookup.
 
 | | |
 |---|---|
@@ -146,7 +148,9 @@ format and the `--measure` mode.
 | Source (ja Wikipedia, optional) | `dumps.wikimedia.org/jawiki/latest/jawiki-latest-pages-articles.xml.bz2` |
 | License (Aozora) | Public domain (Aozora Bunko) |
 | License (ja Wikipedia) | CC BY-SA 4.0 — attribution must travel in the `PROVENANCE.txt` sidecar when the asset is built |
-| Generator | `tools/build_char_lm.py` |
+| Entries | 1,427,755 (order 4, min count ≥ 5 on the highest order) |
+| Shipped asset | `app/src/main/assets/lm/char_lm.bin` — 14.3 MB, 16-byte header + 10-byte records |
+| Generators | `tools/build_char_lm.py` (text table), `tools/pack_char_lm.py` (binary) |
 
 Regenerate:
 
@@ -154,6 +158,10 @@ Regenerate:
 # default = the measured plateau: order 4, min-count >= 5, first 5M Aozora chars
 python3 tools/build_char_lm.py --aozora-chars 5000000 \
   --out build/char_lm_order4_min5.tsv     # writes the table + .provenance.txt
+
+# pack the table into the asset the app binary-searches; --verify re-reads it
+python3 tools/pack_char_lm.py --table build/char_lm_order4_min5.tsv \
+  --out app/src/main/assets/lm/char_lm.bin --verify
 
 # reproduce the (order x prune x corpus) size/quality table on a rendered bench
 python3 tools/build_char_lm.py --measure --corpus both \
@@ -166,7 +174,18 @@ SHA-256, printed by the tool. Do not edit the table by hand — rerun the tool.
 
 ### Format
 
-One `<n-gram><TAB><count>` line per n-gram, LF endings, UTF-8, sorted by
+The shipped asset is the **packed binary** (`tools/pack_char_lm.py`): a 16-byte
+header — magic `CLM1`, entry count, max order, unigram mass — then 10-byte
+records, each an n-gram of up to 4 UTF-16 code units zero-padded on the right
+plus its count saturated at 65535. Records are sorted by the n-gram's own
+code-unit order, so a prefix sorts immediately before its extensions and one
+binary search finds an entry of any order; `util/CharLm.kt` reads the asset once
+(14 MB into a heap buffer) at overlay startup and binary-searches it with no
+per-lookup allocation. The packer's sidecar records the
+entry count, the saturation count and the skipped supplementary-plane n-grams.
+
+The text table it is packed from — the intermediate form the generator emits —
+is one `<n-gram><TAB><count>` line per n-gram, LF endings, UTF-8, sorted by
 (order, then codepoint). For a next-character lookup the n-gram's leading
 `n-1` characters are the **context** and its final character is the candidate,
 so the line is literally `context<TAB>count`. Orders 1..`--order` are all
@@ -179,10 +198,11 @@ because the highest order cannot be scored without its context counts.
 
 Accuracy is flat from ~7 MB to 40 MB across the corpus/order/prune grid, so the
 shipped model is the smallest model on the plateau: **order 4, min-count ≥ 5,
-Aozora** — ~1.44M entries, ~7.2 MB packed (the 5 B/entry convention used in the
-sizing table), ~17 MB as UTF-8 text. Adding ja Wikipedia bought nothing for the
-tested error classes (rare literary and variant kanji live in novels, not
-encyclopedia prose), so the default corpus is Aozora alone.
+Aozora** — ~1.44M entries, ~17 MB as UTF-8 text, 14.3 MB as the packed
+10-byte-record asset (the sizing table's 5 B/entry estimate was for a denser
+record layout that the binary-search format does not use). Adding ja Wikipedia
+bought nothing for the tested error classes (rare literary and variant kanji
+live in novels, not encyclopedia prose), so the default corpus is Aozora alone.
 
 Two traps are documented in the generator and worth repeating, because both
 produced silent garbage before they were handled: a Wikipedia dump returns

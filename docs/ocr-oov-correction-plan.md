@@ -19,6 +19,28 @@ character LM and a kanji variant table; the KRADFILE component table already shi
 
 ---
 
+## Status update — 2026-09-15 (#86 audit)
+
+The measurements below stand, but three of the plan's status claims have been overtaken
+by the code; read them with this correction:
+
+- **The Step 1 setting is gone.** "Suggest similar characters in the alternatives list"
+  no longer exists: `util/OovSuggestions.kt` is always on, so a stored
+  `oov_suggestions_enabled=false` from an older install is inert. The shipped behaviour
+  is unconditional, pinned by `UnconditionalFeaturesTest`.
+- **`kana_size_fix_enabled` is likewise inert** — `util/KanaSizeFix.kt` reads no such
+  preference and the page correction cannot be turned off.
+- **The character LM is no longer conditional.** `assets/lm/char_lm.bin` is committed and
+  `OverlayEnvironment` loads it at startup; `docs/bundled-dictionaries.md` now describes
+  the shipped format and its gates.
+- **Blank surfacing was removed (#86, A5).** No live caller ever passed a non-zero
+  threshold, the cached re-decode used a second, unrelated formula against logits, and
+  `refreshLinesWithThreshold` had no production call site. The measurements are kept in
+  `docs/blank-recovery-findings.md`; what ships for deletions is the clickable blank and
+  the component/LM candidate list below.
+
+---
+
 ## 0. Decisions already made — do not re-litigate
 
 | # | Decision |
@@ -61,7 +83,8 @@ Sequencing, with the acceptance measure for each step:
   **Implemented** (`9072515`): head ranking first and unchanged, then component neighbours at the
   measured 0.7 tier, then variant forms; one assembly path shared by the panel and keyboard
   navigation; generated entries tinted; setting "Suggest similar characters in the alternatives
-  list" (default on). A failing test during wiring caught a real flaw: the IDF fraction is relative
+  list" (default on — since removed, see the status update above). A failing test during wiring
+  caught a real flaw: the IDF fraction is relative
   to the emitted character, so a **one-component** character made every carrier a full match and
   the tier admitted hundreds — now gated on ≥2 components (`hasDiscriminatingComponents`).
 

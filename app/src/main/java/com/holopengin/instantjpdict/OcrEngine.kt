@@ -9,7 +9,6 @@ import android.graphics.Typeface
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.holopengin.instantjpdict.util.BlankRecovery
 import com.holopengin.instantjpdict.util.InferLog
 import com.holopengin.instantjpdict.util.JapaneseUtil
 import java.io.File
@@ -78,7 +77,6 @@ class OcrEngine(private val context: Context) {
          * 5.7->4.0px, max 25->15px; synth worst-case ~= legacy). Null pixels
          * (re-decode path) always take legacy. Test-flippable. */
         var BOX_LAYOUT_MODE = 1
-        const val BOX_LEGACY = 0
         const val BOX_SNAP = 1
         /** Uniform em sizing (#49, default): JP + fullwidth latin share one
          * em box, em = median center-to-center distance; halfwidth = 0.5em.
@@ -128,13 +126,7 @@ class OcrEngine(private val context: Context) {
         // Helpers for static access (no engine instance needed)
         fun getDetThresh(ctx: Context): Float =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_DET_THRESH, DEF_DET_THRESH)
-        fun getDetUnclip(ctx: Context): Float =
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_DET_UNCLIP, DEF_DET_UNCLIP)
         fun getDetLongSide(ctx: Context): Int = DEF_DET_LONG_SIDE
-        fun getXOverlap(ctx: Context): Float =
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_X_OVERLAP, DEF_X_OVERLAP)
-        fun getRecSquish(ctx: Context): Float =
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_REC_SQUISH, DEF_REC_SQUISH)
         /** #53: the rotated-rect opt-in. Read per detection run, like the tunables. */
         fun isDetRotated(ctx: Context): Boolean =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -174,7 +166,6 @@ class OcrEngine(private val context: Context) {
 
         // Recognition constants (not tunable)
         private const val REC_TARGET_H = 48
-        private const val REC_NUM_CLASSES = 18710  // 0=blank, 1..18708=chars, 18709=space (orig id space)
         // Pruned CTC-head width (#39): gemm_8 emits one out per rec_remap entry,
         // and CLASS_REMAP[new] = orig id. Deliberately NOT a constant — the width
         // is derived from the loaded remap (`recNumOutputs`), so re-pruning the
@@ -507,11 +498,20 @@ class OcrEngine(private val context: Context) {
         val probArrFinal = mask.prob
         val outW = mask.outW
         val outH = mask.outH
-        val modelSize = mask.modelSize
-        val resizeW = mask.resizeW
-        val resizeH = mask.resizeH
         val origW = mask.origW.toFloat()
         val origH = mask.origH.toFloat()
+        // C2/#86: the letterbox geometry comes off the mask, through the same
+        // accessors detectRotated uses — [DetMask] exists so the two geometry
+        // paths cannot drift apart in preprocessing, and re-deriving the formulas
+        // here (as this used to) is exactly the drift it was built to stop.
+        val imgLeft = mask.imgLeft
+        val imgTop = mask.imgTop
+        val resScaleW = mask.scaleX
+        val resScaleH = mask.scaleY
+        // A7/#86: hoisted out of the full-image scan. The getter is a live
+        // SharedPreferences read (map lookup + synchronized getFloat), and it was
+        // evaluated per pixel (and again in the flood-fill of every component).
+        val thresh = detThresh
 
         // 6. Connected components (contours) via flat flood-fill. The axis-aligned
         // path keeps only min/max X/Y from each component; detectRotated fits
@@ -526,9 +526,9 @@ class OcrEngine(private val context: Context) {
         for (y in 0 until outH) {
             for (x in 0 until outW) {
                 val idx = y * outW + x
-                if (visited[idx].toInt() != 0 || probArrFinal[idx] <= detThresh) continue
+                if (visited[idx].toInt() != 0 || probArrFinal[idx] <= thresh) continue
 
-                val pixelCount = floodFillComponent(probArrFinal, visited, q, idx, outW, outH, detThresh)
+                val pixelCount = floodFillComponent(probArrFinal, visited, q, idx, outW, outH, thresh)
                 if (pixelCount < 3) continue // noise filter
 
                 // Bounds of the filled component (y*W+x sits in q[0, pixelCount)).
@@ -547,11 +547,8 @@ class OcrEngine(private val context: Context) {
                 }
 
                 // Convert from output coords to original image coords
-                // (output space is letterbox image centered in modelSize×modelSize)
-                val imgLeft = (modelSize - resizeW) / 2f
-                val imgTop = (modelSize - resizeH) / 2f
-                val resScaleW = origW / resizeW.toFloat()
-                val resScaleH = origH / resizeH.toFloat()
+                // (output space is letterbox image centered in modelSize×modelSize).
+                // The mask's accessors hold the letterbox geometry (C2/#86).
                 val bx = ((minX - imgLeft) * resScaleW).roundToInt().coerceAtLeast(0)
                 val by = ((minY - imgTop) * resScaleH).roundToInt().coerceAtLeast(0)
                 val bx2 = ((maxX + 1 - imgLeft) * resScaleW).roundToInt()
@@ -691,6 +688,8 @@ class OcrEngine(private val context: Context) {
         val imgTop = mask.imgTop
         val scaleX = mask.scaleX
         val scaleY = mask.scaleY
+        // A7/#86: one prefs read for the whole scan, as in [detect].
+        val thresh = detThresh
 
         val visited = ByteArray(outH * outW)
         val q = IntArray(outH * outW)
@@ -709,9 +708,9 @@ class OcrEngine(private val context: Context) {
         for (y in 0 until outH) {
             for (x in 0 until outW) {
                 val idx = y * outW + x
-                if (visited[idx].toInt() != 0 || prob[idx] <= detThresh) continue
+                if (visited[idx].toInt() != 0 || prob[idx] <= thresh) continue
 
-                val pixelCount = floodFillComponent(prob, visited, q, idx, outW, outH, detThresh)
+                val pixelCount = floodFillComponent(prob, visited, q, idx, outW, outH, thresh)
                 if (pixelCount < 3) continue
 
                 // Boundary pixels: any of the 8 neighbours outside the mask. The
@@ -731,7 +730,7 @@ class OcrEngine(private val context: Context) {
                             val nx = cx + dx
                             val ny = cy + dy
                             if (nx !in 0 until outW || ny !in 0 until outH ||
-                                prob[ny * outW + nx] <= detThresh
+                                prob[ny * outW + nx] <= thresh
                             ) {
                                 boundary = true
                                 break
@@ -1123,7 +1122,7 @@ class OcrEngine(private val context: Context) {
                     decodeChar(remapClass(topPruned[t][k])) to packed[(t * TOP_K + k) * 2 + 1]
                 }
             }
-            val decoded = ctcDecodeTopK(topPruned, rawAlts, actualSeqLen, 0f)
+            val decoded = ctcDecodeTopK(topPruned, rawAlts, actualSeqLen)
             return decoded.copy(rawAlternatives = rawAlts)
         }
         if (packed != null) Log.w(TAG, "recNcnn w$modelW topK bad size ${packed.size} — full-logits fallback")
@@ -1145,7 +1144,7 @@ class OcrEngine(private val context: Context) {
             FloatArray(numOut) { c -> flatOutput[t * numOut + c] }
         }
         val rawAlts = (0 until actualSeqLen).map { t -> top15Alternatives(cropLogits[t]) }
-        val decoded = ctcDecode(cropLogits, actualSeqLen, numOut, 0f, actualSeqLen)
+        val decoded = ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen)
         return decoded.copy(rawAlternatives = rawAlts)
     }
 
@@ -1855,19 +1854,16 @@ class OcrEngine(private val context: Context) {
 
     /**
      * Greedy CTC decode: argmax per timestep, skip blank 0, collapse repeats,
-     * class 18709 → space. `blankThreshold` 0 means pure greedy (default PP-OCR
-     * behaviour); values >0 surface a non-blank char at a blank timestep when the
-     * candidate clears that probability floor *and* beats blank's own probability
-     * (see [BlankRecovery] for the measurement behind the rule), with [GAP_CHAR]
-     * kept as a selectable alternative. Emits per-char top-15 [alternatives]
-     * plus timestep columns; full per-timestep top-15 lives in
-     * [PPOcrResult.rawAlternatives] for cache re-decode.
+     * class 18709 → space. The A5/#86 audit deleted the `blankThreshold`
+     * surfacing path (see `docs/blank-recovery-findings.md`): every live caller
+     * passed 0, so this is pure greedy — the only decode the device ran. Emits
+     * per-char top-15 [alternatives] plus timestep columns; full per-timestep
+     * top-15 lives in [PPOcrResult.rawAlternatives] for cache re-decode.
      */
     private fun ctcDecode(
         cropLogits: Array<FloatArray>?,
         seqLen: Int,
         numClasses: Int,
-        blankThreshold: Float,
         seqLenTotal: Int,
     ): PPOcrResult {
         val text = StringBuilder()
@@ -1904,25 +1900,6 @@ class OcrEngine(private val context: Context) {
             // CTC: skip blank (0). Collapse repeats.
             when {
                 classIdx == 0 -> {
-                    if (blankThreshold > 0f) {
-                        // Check if a non-blank alternative has meaningful score.
-                        val topNonBlank = indexed.firstOrNull { (ch, sc) ->
-                            ch != GAP_CHAR && ch != '　' && BlankRecovery.shouldSurface(maxVal, sc, blankThreshold)
-                        }
-                        if (topNonBlank != null) {
-                            // Show the best non-blank character; put GAP_CHAR as an alternative
-                            text.append(topNonBlank.first)
-                            charCols.add(tFrac)
-                            val reordered = mutableListOf(topNonBlank)
-                            reordered.add(GAP_CHAR to 0f) // blank as selectable option
-                            for (alt in indexed) {
-                                if (alt != topNonBlank && alt.first != '\u3000' && alt !in reordered) {
-                                    reordered.add(alt)
-                                }
-                            }
-                            alts.add(reordered)
-                        }
-                    }
                     prevClass = 0
                 }
                 classIdx == 18709 -> {
@@ -1955,7 +1932,6 @@ class OcrEngine(private val context: Context) {
         topPruned: Array<IntArray>,
         topChars: List<List<Pair<Char, Float>>>,
         seqLen: Int,
-        blankThreshold: Float,
     ): PPOcrResult {
         val text = StringBuilder()
         val alts = mutableListOf<MutableList<Pair<Char, Float>>>()
@@ -1982,23 +1958,6 @@ class OcrEngine(private val context: Context) {
 
             when {
                 classIdx == 0 -> {
-                    if (blankThreshold > 0f) {
-                        val topNonBlank = indexed.firstOrNull { (ch, sc) ->
-                            ch != GAP_CHAR && ch != '　' && BlankRecovery.shouldSurface(maxVal, sc, blankThreshold)
-                        }
-                        if (topNonBlank != null) {
-                            text.append(topNonBlank.first)
-                            charCols.add(tFrac)
-                            val reordered = mutableListOf(topNonBlank)
-                            reordered.add(GAP_CHAR to 0f)
-                            for (alt in indexed) {
-                                if (alt != topNonBlank && alt.first != '　' && alt !in reordered) {
-                                    reordered.add(alt)
-                                }
-                            }
-                            alts.add(reordered)
-                        }
-                    }
                     prevClass = 0
                 }
                 classIdx == 18709 -> {
@@ -2466,11 +2425,13 @@ class OcrEngine(private val context: Context) {
     // ═════════════════════════════════════════════════════════════════════════
 
     /** Re-decode a [LineResult] from its cached [rawAlternatives] without
-     * re-running recognition. [blankThreshold] mirrors [ctcDecode]: 0 is pure
-     * greedy; >0 surfaces non-blank chars at blank timesteps (with [GAP_CHAR]
-     * as a selectable alternative). Char boxes recompute when crop geometry
-     * is known; user [overrides][LineResult.overrides] carry over. */
-    fun reDecodeLineResult(oldLine: LineResult, blankThreshold: Float): LineResult {
+     * re-running recognition. This walk is the reference the gap detector's
+     * collapse rules are written against (see [GapDetector.timestepColumns]);
+     * it is greedy, like the decoders — the A5/#86 audit deleted the
+     * `blankThreshold` surfacing path and its second, unrelated formula. Char
+     * boxes recompute when crop geometry is known; user
+     * [overrides][LineResult.overrides] carry over. */
+    fun reDecodeLineResult(oldLine: LineResult): LineResult {
         val raw = oldLine.rawAlternatives
         if (raw.isEmpty()) return oldLine
 
@@ -2490,29 +2451,10 @@ class OcrEngine(private val context: Context) {
         }
         for ((t, alts) in raw.withIndex()) {
             val top = alts.firstOrNull() ?: continue
-            val blankScore = alts.firstOrNull { (ch, _) -> ch == '\u3000' }?.second ?: top.second
             val topChar = top.first
 
             when {
                 topChar == '\u3000' -> { // blank
-                    if (blankThreshold > 0f) {
-                        val topNonBlank = alts.firstOrNull { (ch, sc) ->
-                            ch != GAP_CHAR && ch != '\u3000' && (1f / (1f + abs(blankScore - sc)) > blankThreshold)
-                        }
-                        if (topNonBlank != null) {
-                            // Show the best non-blank character; put GAP_CHAR as an alternative
-                            text.append(topNonBlank.first)
-                            charCols.add(t + fracFor(t, topNonBlank.first, topNonBlank.second))
-                            val reordered = mutableListOf(topNonBlank)
-                            reordered.add(GAP_CHAR to 0f) // blank as selectable option
-                            for (alt in alts) {
-                                if (alt != topNonBlank && alt.first != '\u3000' && alt !in reordered) {
-                                    reordered.add(alt)
-                                }
-                            }
-                            newAlts.add(reordered)
-                        }
-                    }
                     prevChar = null
                 }
                 topChar == ' ' -> {

@@ -4,17 +4,23 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.util.AttributeSet
-import android.widget.Button
+import androidx.appcompat.widget.AppCompatButton
 
 /**
  * A Button that centers its text precisely within its bounds using the actual
  * rendered text's bounding box.
+ *
+ * Extends [AppCompatButton], not the platform `Button` (F2/#86): the platform
+ * subclass is what lint's AppCompatCustomView error flags, because an app
+ * running with an AppCompat theme must let AppCompat back the widget (tint,
+ * background, text appearance). Construction and the `onDraw` draw are
+ * unchanged — every call site sets its own background anyway.
  */
 class CenteredButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = android.R.attr.buttonStyle
-) : Button(context, attrs, defStyleAttr) {
+) : AppCompatButton(context, attrs, defStyleAttr) {
 
     private val bounds = Rect()
 

@@ -1,0 +1,36 @@
+# Historical kana sound-change table (#81) — vendored, do not edit by hand.
+# variant<TAB>modern<TAB>row: 旧仮名遣い -> 現代仮名遣い.
+# Rows: ha ハ行転呼, au アウ->オウ, eu エウ->ヨウ.
+# Source and licence: kana_sound_changes.PROVENANCE.txt beside this file;
+# regenerate with tools/build_kana_sound_changes.py.
+は	わ	ha
+ひ	い	ha
+ふ	う	ha
+へ	え	ha
+か	こ	au
+が	ご	au
+さ	そ	au
+ざ	ぞ	au
+た	と	au
+だ	ど	au
+な	の	au
+は	ほ	au
+ば	ぼ	au
+ぱ	ぽ	au
+ゃ	ょ	au
+や	よ	au
+ら	ろ	au
+わ	お	au
+え	よ	eu
+け	きょ	eu
+げ	ぎょ	eu
+せ	しょ	eu
+ぜ	じょ	eu
+て	ちょ	eu
+で	じょ	eu
+ね	にょ	eu
+へ	ひょ	eu
+べ	びょ	eu
+ぺ	ぴょ	eu
+め	みょ	eu
+れ	りょ	eu

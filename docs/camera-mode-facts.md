@@ -3,6 +3,19 @@
 Read-only survey of `/home/holopengin/Projects/InstantJPDict`.
 All references are `path:line`. Facts only.
 
+> **Historical survey — marked 2026-09-15 by the #86 audit.** This was written
+> before #57 (image share) and #78 (camera mode) shipped, and nearly every
+> `path:line` below is from the monolith that has since become
+> `OcrOverlayView`; the numbers do not resolve against the current tree, and the
+> claims it makes about camera code are no longer true. It is kept as the record
+> of the survey that fed those issues, not as current fact. Current entry
+> points: `OcrAccessibilityService.showScreenshotOverlay` and
+> `ShareImageActivity` (both host `OcrOverlayView`), `OcrEngine.detectLines` /
+> `detect` / `recognizeStreaming`; the camera decisions are recorded in
+> `docs/prototype-78-camera-mode.md` and the code itself. Where this document
+> says "no camera code exists", read `ProtoCameraActivity` and
+> `ShareImageActivity`.
+
 ---
 
 ## 1. From screen grab to model input

@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">InstantJPDict</string>
+
+    <!-- #82: the static shortcut's labels (res/xml/shortcuts.xml). The platform
+         requires the short label to be a resource string, and the long label is
+         what a launcher shows when it has the room. "Camera" is the same word
+         the main screen's pinned control carries, so the shortcut and the button
+         read as one entry point. -->
+    <string name="shortcut_camera_short_label">Camera</string>
+    <string name="shortcut_camera_long_label">Open camera</string>
 </resources>
