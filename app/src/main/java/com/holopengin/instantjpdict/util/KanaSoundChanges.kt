@@ -59,6 +59,10 @@ import android.content.Context
  * **Katakana is out of scope.** The same changes would rewrite modern loanwords
  * (`クラウン` -> `クロウン`), and the legacy bench slice is hiragana; the table ships
  * hiragana rows only, while [KanaOrthography] keeps its katakana pairs.
+ *
+ * `tools/kana_sound_changes_bench.py` re-implements this normaliser (and
+ * [KanaOrthography]) in Python for the #81 measurements; the two must move
+ * together. Last compared 2026-09-15 (#86/C4).
  */
 object KanaSoundChanges {
     const val ASSET_PATH = "variants/kana_sound_changes.txt"

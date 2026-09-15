@@ -23,6 +23,14 @@ The normaliser here mirrors `KanaOrthography.modernise` (#75) and
 table is read from the committed asset, so the table itself is measured, not a
 copy. Deinflection is not modelled, as in #75's harness.
 
+Last compared by hand against `KanaOrthography.kt` and `KanaSoundChanges.kt` on
+2026-09-15 (#86/C4): the constants (`WAGYOU`, `DAKUGYOU`, `SOKUON`, `YOON`,
+`DAKUTEN_PREV`, `SOKUON_TRIGGERS`, `YOON_BASE`, `PARTICLES`, `HI_SUFFIX`,
+`HE_SUFFIX`, `HA_SUFFIX`), the context conditions and the `ha`-then-`vowels`
+pass order all match at that revision. If the Kotlin rules change, this mirror
+must change with them and the comparison re-dated — the bench numbers mean
+nothing against a different normaliser.
+
 Usage:
     python3 tools/kana_sound_changes_bench.py \\
         --bench /tmp/kana_bench2 --jmdict /tmp/JMdict_e.xml --ablate
