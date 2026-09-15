@@ -119,20 +119,110 @@ tasks.named("preBuild") {
     dependsOn("verifyNcnnBlob")
 }
 
-// Build nav_graph_core Rust library for Android (only if NDK available)
+// Build nav_graph_core Rust library for Android.
+//
+// F1/#86: this task used to swallow its own failure (`isIgnoreExitValue = true`),
+// so a machine without the toolchain silently packaged whatever `.so` was
+// committed — which is how the 4 KB-aligned library below survived all the way
+// into an APK. A failure here now fails the build: a stale artifact is never
+// quietly packaged. The build itself fails fast with a message naming the pinned
+// NDK when the toolchain is missing.
 tasks.register<Exec>("buildNavGraphCore") {
     workingDir = file("${project.rootDir}/nav_graph_core")
     commandLine("bash", "./build_nav_graph.sh")
-    // Skip if NDK not installed or if running on CI without NDK
-    isIgnoreExitValue = true
 }
 
-// Ensure Rust library is built before merging JNI libs
+// ————— F1 (#86): 16 KB page-size guard over the bundled jniLibs —————
+//
+// The shipped libnav_graph_core.so was built by NDK r27 with 4 KB-aligned LOAD
+// segments, so it would fail to load on a 16 KB-page device while every other
+// `.so` in the APK is 0x4000 or higher. build_nav_graph.sh asserts the alignment
+// of what it just built; this checks the file that is actually about to be
+// packaged, so a hand-replaced or stale `.so` cannot slip through either.
+//
+// llvm-readelf is the pinned NDK's, resolved the same way the shell script
+// resolves its NDK (env vars, then local.properties' sdk.dir, then the usual
+// roots). A machine without it gets a warning and no check rather than a failed
+// build it cannot diagnose.
+fun ndkReadelf(): File? {
+    val pinnedNdk = "28.2.13676358"
+    val toolRel = "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+    val localSdkDir = rootProject.file("local.properties")
+        .takeIf { it.isFile }
+        ?.readLines()
+        ?.firstOrNull { it.trimStart().startsWith("sdk.dir") }
+        ?.substringAfter('=')
+        ?.trim()
+    val ndkRoots = buildList {
+        System.getenv("ANDROID_NDK_HOME")?.let { add(File(it, toolRel)) }
+        listOfNotNull(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"), localSdkDir)
+            .forEach { add(File(it, "ndk/$pinnedNdk/$toolRel")) }
+    }
+    return ndkRoots.firstOrNull { it.isFile }
+}
+
+val verifyJniLibAlignment = tasks.register("verifyJniLibAlignment") {
+    group = "verification"
+    description = "Fail if a bundled .so has a LOAD segment below the 16 KB page size (#86/F1)"
+    val jniLibs = layout.projectDirectory.dir("src/main/jniLibs").asFile
+    val readelf = ndkReadelf()
+    val soFiles = if (jniLibs.isDirectory) fileTree(jniLibs) { include("**/*.so") }.files.sorted() else emptyList()
+    inputs.files(soFiles)
+    doLast {
+        if (readelf == null) {
+            logger.warn(
+                "verifyJniLibAlignment: no llvm-readelf found under the pinned NDK; " +
+                    "skipping the 16 KB alignment check"
+            )
+            return@doLast
+        }
+        val offenders = mutableListOf<String>()
+        soFiles.forEach { so ->
+            val process = ProcessBuilder(readelf.absolutePath, "-lW", so.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            val out = process.inputStream.bufferedReader().use { it.readText() }
+            val exit = process.waitFor()
+            val loadLines = out.lineSequence().map { it.trim() }.filter { it.startsWith("LOAD") }.toList()
+            val aligns = loadLines.mapNotNull { line ->
+                line.split(Regex("\\s+")).lastOrNull()?.removePrefix("0x")?.toLongOrNull(16)
+            }
+            if (exit != 0 || loadLines.isEmpty() || aligns.size != loadLines.size) {
+                offenders.add(
+                    "${so.relativeTo(jniLibs)}: llvm-readelf could not read the program headers " +
+                        "(exit $exit): ${out.trim().lineSequence().lastOrNull()}"
+                )
+            } else if (aligns.any { it < 0x4000 }) {
+                offenders.add(
+                    "${so.relativeTo(jniLibs)}: LOAD segment alignment " +
+                        aligns.joinToString { "0x" + it.toString(16) } + " (16 KB/0x4000 required)"
+                )
+            }
+        }
+        if (offenders.isNotEmpty()) {
+            throw GradleException(
+                "A bundled native library is not 16 KB-page aligned; it will not load on an\n" +
+                    "Android 15/16 device with 16 KB pages:\n" +
+                    offenders.joinToString("\n") { "  $it" } +
+                    "\n\nRebuild the library with the pinned NDK (nav_graph_core/build_nav_graph.sh\n" +
+                    "handles the Rust one) and its linker page size left at >= 0x4000. See #86/F1."
+            )
+        }
+        logger.lifecycle("verifyJniLibAlignment: ${soFiles.size} .so(s) at 16 KB alignment")
+    }
+}
+
+// Ensure Rust library is built before merging JNI libs, and check the alignment
+// of what is about to be packaged (after the Rust build, so a fresh rebuild is
+// what gets judged).
 tasks.whenTaskAdded {
     if (name.contains("mergeDebugJniLibFolders") || name.contains("mergeReleaseJniLibFolders") || name.contains("mergeBenchmarkJniLibFolders")) {
         dependsOn("buildNavGraphCore")
+        dependsOn(verifyJniLibAlignment)
+        mustRunAfter("buildNavGraphCore")
     }
 }
+verifyJniLibAlignment.configure { mustRunAfter("buildNavGraphCore") }
 
 // ————— #70: bundled licence / attribution index —————
 //
