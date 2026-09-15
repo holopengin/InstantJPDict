@@ -51,9 +51,6 @@ class ComponentTable private constructor(
      */
     val kanjiCount: Int get() = components.keys.count { isKanji(it) }
 
-    /** Number of distinct components seen in the table. */
-    val componentCount: Int get() = inverted.size
-
     /**
      * The components of [ch], or an empty list for a character the table has no entry
      * for. Never throws: an unknown character is simply no evidence, and every caller
@@ -109,9 +106,6 @@ class ComponentTable private constructor(
      * `idf.get(c, 0.0)`: it adds no weight and can never make a fraction NaN.
      */
     fun idfOf(component: Char): Float = idf[component] ?: 0f
-
-    /** All kanji in the table, ascending by codepoint (asset order). */
-    fun allKanji(): List<Char> = components.keys.toList()
 
     companion object {
 

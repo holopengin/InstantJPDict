@@ -33,6 +33,11 @@ by the code; read them with this correction:
 - **The character LM is no longer conditional.** `assets/lm/char_lm.bin` is committed and
   `OverlayEnvironment` loads it at startup; `docs/bundled-dictionaries.md` now describes
   the shipped format and its gates.
+- **Blank surfacing was removed (#86, A5).** No live caller ever passed a non-zero
+  threshold, the cached re-decode used a second, unrelated formula against logits, and
+  `refreshLinesWithThreshold` had no production call site. The measurements are kept in
+  `docs/blank-recovery-findings.md`; what ships for deletions is the clickable blank and
+  the component/LM candidate list below.
 
 ---
 

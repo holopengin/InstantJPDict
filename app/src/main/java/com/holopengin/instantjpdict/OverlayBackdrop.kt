@@ -51,8 +51,7 @@ object OverlayBackdrop {
      */
     const val SCREENSHOT_ALPHA = 0.7f
 
-    /** Axis endpoints, kept named so the experiment can flip quickly. */
-    const val SCREENSHOT_ALPHA_OPAQUE = 1.0f
+    /** Axis endpoint, kept named so the experiment can flip quickly. */
     const val SCREENSHOT_ALPHA_DIM = 0.7f
 
     /** SharedPreferences key for the experimental opacity slider. */

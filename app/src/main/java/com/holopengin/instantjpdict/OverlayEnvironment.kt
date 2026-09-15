@@ -48,6 +48,13 @@ object OverlayEnvironment {
             // hosts. They do not depend on the component table, so they install first
             // and independently; only the OOV wiring below needs the table.
             withContext(Dispatchers.IO) {
+                // B2/#86: warm the selected overlay face here, off the main thread. The
+                // first Typeface.createFromAsset parses 5.8/8.1 MB of TTF, and it used to
+                // happen inside the first overlay line (LineOverlayView's field
+                // initialiser, on Main) — a jank inside the very lookup it was drawn for.
+                // OverlayFont caches behind its own lock and falls back to the platform
+                // sans on a broken APK, so this cannot fail the wiring.
+                OverlayFont.typeface(context)
                 runCatching { KanjiVariants.install(context) }
                     .onFailure { warn("KanjiVariants.install", it) }
                 // #75: pre-reform orthography for the lookup query. Loaded here rather than

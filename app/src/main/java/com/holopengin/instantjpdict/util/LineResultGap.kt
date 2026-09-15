@@ -107,7 +107,8 @@ fun LineResult.withGapCharAt(
 
 /**
  * Alias for [withGapCharAt] under the name the subtask used. Same behaviour,
- * same arguments.
+ * same arguments. Test-only (the #44 gap-insertion tests are written against
+ * this name); production and the detector use [withGapCharAt].
  */
 fun LineResult.withGapAt(
     index: Int,

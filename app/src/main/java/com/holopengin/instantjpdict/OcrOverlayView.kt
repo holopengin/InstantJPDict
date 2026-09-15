@@ -699,8 +699,14 @@ class OcrOverlayView(
                     // view is built, because the corrected page has to be complete before the
                     // layout is derived from it.
                     val orderedLines = finishedLines.sortedBy { it.first }
-                    val correctedLines = KanaSizeFix.correctPage(
-                        context, orderedLines.map { it.second })
+                    // A8/#86: on IO, beside the recognition it follows. The first call
+                    // materialises the kana model (two assets, one native net) and runs a
+                    // native batch of one extractor per candidate; on Main that work janked
+                    // the transition into the results UI for no reason — nothing here
+                    // touches views.
+                    val correctedLines = withContext(Dispatchers.IO) {
+                        KanaSizeFix.correctPage(context, orderedLines.map { it.second })
+                    }
                     // Surface the outcome: without this the correction is invisible whether or not
                     // it fired.
                     InferLog.add(KanaSizeFix.lastSummary)
@@ -975,27 +981,6 @@ class OcrOverlayView(
             textViews[Pair(lineIdx, i)] = lineView
         }
         updateNeighborPanelForLine(rootLayout, lineIdx)
-    }
-
-    private fun refreshOcrResults() {
-        if (closed) return
-        val overlay: FrameLayout = this
-        val contentContainer = overlay.findViewWithTag<FrameLayout>("content_container") ?: return
-        val clicksLayer = contentContainer.findViewWithTag<FrameLayout>("clicks_layer") ?: return
-
-        controller.activeLineResults.forEachIndexed { index, lineResult ->
-            if (lineResult != null) {
-                addLineToResults(overlay, clicksLayer, index, lineResult)
-            }
-        }
-        updateCursor()
-
-        if (controller.isAlternativesVisible) {
-            val altContainer = overlay.findViewWithTag<FrameLayout>("alternatives_container")
-            if (altContainer != null && altContainer.childCount > 0) {
-                updateAlternativesPanelContent(altContainer, controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, overlay.width > overlay.height, overlay)
-            }
-        }
     }
 
     private fun updateNeighborPanelForLine(rootLayout: FrameLayout, lineIdx: Int) {
@@ -2171,6 +2156,11 @@ class OcrOverlayView(
      * worse than not handling back at all.
      */
     private fun unregisterBackCallback() {
+        // F2/#86: mirror [registerBackCallback]'s guard — `backCallback` can only be
+        // set on SDK 33+, but lint cannot see through the null check to prove the
+        // API call below is unreachable on API 30, and the project runs lint as a
+        // hard gate (no baseline).
+        if (android.os.Build.VERSION.SDK_INT < 33) return
         val callback = backCallback ?: return
         try {
             backDispatcher?.unregisterOnBackInvokedCallback(callback)

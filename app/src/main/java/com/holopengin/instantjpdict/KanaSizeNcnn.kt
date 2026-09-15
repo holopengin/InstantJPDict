@@ -36,11 +36,22 @@ class KanaSizeNcnn private constructor(private val handle: Long) {
             Log.e(TAG, "logits: wins=${wins.size} for n=$n positions")
             return null
         }
+        // E3/#86: the native side clamps an out-of-range base to 0
+        // (`kana_size_ncnn.cpp`, `if (base < 0 || base >= PAIRS) base = 0`), so a
+        // pair added here without the native PAIRS would score every position of the
+        // new pair as base 0 — plausible logits, silently wrong. Fail closed instead;
+        // every caller already treats null as "declined".
+        val bad = bases.indexOfFirst { it !in KanaSizeEncoder.BASE_ORDER.indices }
+        if (bad >= 0) {
+            Log.e(
+                TAG,
+                "logits: base ${bases[bad]} at position $bad is outside BASE_ORDER " +
+                    "(${KanaSizeEncoder.BASE_ORDER.size})"
+            )
+            return null
+        }
         return batch(handle, wins, bases, n)
     }
-
-    /** Probability the pair is the *big* form, from the logit. */
-    fun probBig(logit: Float): Float = 1f / (1f + kotlin.math.exp(-logit).toFloat())
 
     /**
      * Run the model author's ten published vectors through this device's own encoder and JNI.
@@ -78,6 +89,11 @@ class KanaSizeNcnn private constructor(private val handle: Long) {
     companion object {
         private const val TAG = "KanaSizeNcnn"
         const val WINDOW_BYTES = KanaSizeEncoder.WINDOW_BYTES   // 40
+
+        /** Probability the pair is the *big* form, from the logit. The one sigmoid in
+         *  the project (#86/C1): [com.holopengin.instantjpdict.util.KanaSizeFix] used
+         *  to carry a private copy of this formula. */
+        fun probBig(logit: Float): Float = 1f / (1f + kotlin.math.exp(-logit).toFloat())
 
         private const val PARAM_ASSET = "kana_size/nb_all.param"
         private const val BIN_ASSET = "kana_size/nb_all.bin"

@@ -128,6 +128,15 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      *  the OCR run. Cancelled in [onDestroy]. */
     private val overlayScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private lateinit var engine: OcrEngine
+
+    /**
+     * A8/#86: the engine is constructed on `Dispatchers.IO` now (it copies model
+     * assets and loads two native nets), so this is the construction in flight.
+     * [onDestroy] waits on it before applying the pass-aware close, so an engine
+     * that finishes building while the activity is tearing down is still closed
+     * rather than leaked.
+     */
+    private var engineConstruction: Job? = null
     private val overlayState = OcrOverlayStateController()
 
     /**
@@ -271,7 +280,6 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // rotates" the maintainer saw.
         logCameraHold(intent)
 
-        engine = OcrEngine(this)
         OverlayEnvironment.prepare(this, overlayState, overlayScope)
 
         // Back owns the layer-by-layer close, and the #78 back control calls this
@@ -377,6 +385,16 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             surfaceWidth = container.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
             surfaceHeight = container.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
             overlayScope.launch {
+                // A8/#86: the engine is built here, off the main thread. Its constructor
+                // copies the model assets (once per installed APK now, see
+                // [materialiseModelAsset]) and loads two native nets synchronously; on
+                // Main that was startup jank on a screen whose first frame is already
+                // behind the image decode. Nothing reads it before the pass this same
+                // coroutine starts, so it cannot be observed half-built. [onDestroy]
+                // waits for this construction before closing, so a build that outlives
+                // the activity is not leaked.
+                engineConstruction = launch(Dispatchers.IO) { engine = OcrEngine(this@ShareImageActivity) }
+                engineConstruction?.join()
                 val base = withContext(Dispatchers.IO) { decodeOriented(uri, surfaceWidth, surfaceHeight) }
                 if (isFinishing || isDestroyed) {
                     base?.recycle()
@@ -459,7 +477,20 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         // [closeEngineBehindPass] defers the close onto the pass's own completion, which
         // cannot fire until its non-suspending native work has returned; with no pass in
         // flight there is nothing to wait for. See [EngineClose] for the crash note.
-        closeEngineBehindPass(currentPass) { if (::engine.isInitialized) engine.close() }
+        //
+        // A8/#86: the engine is constructed off the main thread now, so it can still be
+        // building when this runs — and `cancel()` above cannot stop a constructor that
+        // has no suspension points. Waiting for [engineConstruction] first is what closes
+        // an engine the teardown outran, instead of leaking its nets for the process.
+        val passInFlight = currentPass
+        val construction = engineConstruction
+        if (construction != null && !construction.isCompleted) {
+            construction.invokeOnCompletion {
+                if (::engine.isInitialized) closeEngineBehindPass(passInFlight) { engine.close() }
+            }
+        } else {
+            closeEngineBehindPass(passInFlight) { if (::engine.isInitialized) engine.close() }
+        }
         super.onDestroy()
         // The composed and base bitmaps are deliberately neither recycled nor
         // nulled — here or as the rotate pump replaces them.
@@ -629,6 +660,20 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             if (recomposed == null) return@launch
             if (overlayView !== view) {
                 recomposed.recycle()
+                return@launch
+            }
+            // A2/#86: a press that landed while this compose ran has already moved
+            // the display (the pump commits on the main dispatcher, like this), and
+            // committing the captured turns here would clobber the new orientation
+            // with the old composite while the queue kept asking for the new one —
+            // wrong until the next press. Detect that after the suspend and re-run
+            // instead of committing: the re-run's guard recomputes `before` from the
+            // size still on screen and takes its turns from `composedTurns`, which
+            // the press's pump has just updated. Nothing is recycled that the
+            // display holds; only this never-shown composite is.
+            if (composedTurns != turns || rotations.turns != turns) {
+                recomposed.recycle()
+                refitComposite(width, height)
                 return@launch
             }
             image = recomposed
@@ -875,7 +920,10 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * the detect call is native, so a "cancelled" pass would keep reading the
      * composite it was handed; only joining it proves the bitmap is free. Every
      * mutation here happens on the main dispatcher, so a press cannot interleave
-     * between the state check and the loop's exit and be left stranded.
+     * between the state check and the loop's exit and be left stranded. The one
+     * writer that deliberately suspends across its mutation is [refitComposite],
+     * which is why it re-checks the queue after its compose and re-runs rather than
+     * committing a turn a press has already superseded (A2/#86).
      *
      * The composite that is replaced is deliberately not recycled (see
      * [onDestroy]): it dies with the activity rather than under a live pass.

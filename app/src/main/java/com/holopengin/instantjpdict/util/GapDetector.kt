@@ -189,9 +189,11 @@ class GapDetector(
  *    preceding emitted character.
  *
  * Returns an empty array for input that derives nothing; the caller compares the
- * size against `text.length` and gives up when they disagree (which happens when
- * `blankThreshold > 0` surfaced a character at a blank timestep — use
- * [LineResult.charCols] there, it is populated for every emitted character).
+ * size against `text.length` and gives up when they disagree — which is what a
+ * materialised [GAP_CHAR] placeholder (#44) produces, since the walk sees the
+ * decode's characters and not the later insertion. Those lines carry
+ * [LineResult.charCols] for every emitted character, and that is the geometry to
+ * fall back to.
  */
 internal fun timestepColumns(raw: List<List<Pair<Char, Float>>>): FloatArray {
     val cols = ArrayList<Float>(raw.size)
