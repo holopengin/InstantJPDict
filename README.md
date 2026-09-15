@@ -17,14 +17,19 @@ Currently only tested with [JMDict and KANJIDIC for Yomitan](https://github.com/
 
 ## Roadmap
 - [ ] Train a better model for vertical text recognition
-- [ ] Camera mode
+- [x] Camera mode (#78)
 - [ ] Train a spline-based text line detection model for good camera OCR and weird text
 
 ## Credits
-This project utilizes the excellent OCR models from the **MeikiOCR** project:
-- [MeikiOCR Repository](https://github.com/rtr46/meikiocr)
-- [meiki.text.detect.v0 (Hugging Face)](https://huggingface.co/rtr46/meiki.text.detect.v0)
-- [meiki.txt.recognition.v0 (Hugging Face)](https://huggingface.co/rtr46/meiki.txt.recognition.v0)
+The shipped OCR models are the **PP-OCRv6 small** detection and recognition pair from
+**PaddleOCR**:
+- [PP-OCRv6_small_det_onnx (Hugging Face)](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det_onnx)
+- [PP-OCRv6_small_rec_safetensors (Hugging Face)](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_safetensors)
+
+This project was originally prototyped against the **MeikiOCR** models — the
+[repository](https://github.com/rtr46/meikiocr), `meiki.text.detect.v0` and
+`meiki.txt.recognition.v0` — which remain in `models/archive/` as legacy baselines
+and are not built into the app.
 
 This project was also heavily inspired by the **Yomitan** hover dictionary, uses its rule files,
 and ingests its dictionary format:

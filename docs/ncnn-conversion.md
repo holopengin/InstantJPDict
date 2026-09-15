@@ -1,8 +1,24 @@
 # PP-OCRv6 ncnn Conversion — safetensors → PyTorch → pnnx → ncnn
 
-> How the `app/src/main/assets/PP-OCRv6_small_ncnn/*.param/*.bin` models (det `960×960`, rec `48×64/128/256/480`) were produced from the canonical Paddle `model.safetensors`.
+> How the `app/src/main/assets/PP-OCRv6_small_ncnn/*.param/*.bin` models were produced from the canonical Paddle `model.safetensors`. The shipped assets are **det `960×960` + one dynamic-width `rec_dyn`**; the rec `48×64/128/256/480` buckets this document was written around were deleted in #23 (see the banner below).
 
 Source of truth for #1 wayfinder map, #5, #6, #10, #11. See `CONTEXT.md` for vocab (`PP-OCRv6`, `Bucket`, `CTC`, `OcrEngine`).
+
+> **Superseded in parts — banner added 2026-09-15 by the #86 audit.** The rec
+> sections below describe the pipeline as it was *before* #23 (one dynamic
+> `rec_dyn` model; the buckets deleted), #25 (softmax skipped in the graph) and
+> #42 (native top-15 path). They are kept as the conversion record, not as what
+> ships. Claim by claim:
+>
+> - "4 static buckets" / `rec_w{64,128,256,480}` — gone; only `rec_dyn.param/.bin`
+>   is in `app/src/main/assets/PP-OCRv6_small_ncnn/`.
+> - "`opt.num_threads=4`" — `RecNcnn.create` defaults to 1 (`numThreads = 1`) and
+>   `rec_create` falls back to 1 (`ppocr_ncnn_core.cpp`), read live from
+>   `REC_THREADS` (#58).
+> - "`recognizeStreaming` … 4 buckets 64..480" — one `RecNcnn` at the exact
+>   target width, stride 8 (the bucket paragraph is history).
+> - The det half (#5/#10), the FP16 det decision (#22) and the dynamic-width
+>   record (#23) are still accurate.
 
 ---
 
@@ -15,7 +31,7 @@ Archived per user request: onnx/pdiparams/safetensors moved from `app/src/main/a
 
 ---
 
-## Pipeline — rec (4 static buckets)
+## Pipeline — rec (4 static buckets — HISTORICAL, deleted in #23)
 
 ```
 model.safetensors (HF, PP-LCNetV4)
@@ -31,7 +47,7 @@ Validated in #5:
 - **Parity**: `HF (safetensors, torch) vs ORT (onnx) vs ncnn` — `max |logit| 4–8e-5`, `100%` CTC top-1 greedy match on 2 bench images × 4 buckets. Zero manual edits to pnnx output.
 - **Outputs**: `app/src/main/assets/PP-OCRv6_small_ncnn/rec_w{64,128,256,480}.param/.bin` (Git LFS, `app/src/main/assets/PP-OCRv6_small_ncnn/*.bin`).
 
-**Why static buckets, not dynamic-W**: pnnx/ncnn dynamic-shape ergonomics (`-1` dim) not yet proven for `W/8` CTC; 4 buckets cover `rw*48/rh ≤ 480` crush case with `w480` chunking (`OcrEngine:508` `>640` split).
+**Why static buckets, not dynamic-W**: pnnx/ncnn dynamic-shape ergonomics (`-1` dim) not yet proven for `W/8` CTC; 4 buckets cover `rw*48/rh ≤ 480` crush case with `w480` chunking (the `>640` crush split in `OcrEngine.recognizeStreaming`; the line reference here had rotted). **This reason expired with #23** — dynamic width shipped.
 
 ### Det — 960×960 DB
 
@@ -45,11 +61,11 @@ Validated in #5:
 
 - **Repo pin**: `2130e00` (`227` layers, `110` cmake, `211` pnnx rewriters) — CPU-only `NCNN_VULKAN=OFF`, `app/src/main/cpp/CMakeLists.txt` `externalNativeBuild` + `jniLibs/arm64-v8a/libncnn.a` (`filter=lfs`), like `nav_graph_core`.
 - **Graph rewrites** (preferred over fork, #11): `SiLU→Swish`, `GELU` chain→`GELU`, `ReduceMean→Reduction`, `LayerNorm` fuse, `Pow→Square` — all 5 fuses adopted, no custom port, no fork. Raw chains kept as param-level fallback.
-- **JNI**: `app/src/main/cpp/ncnn_jni.cpp` — `RecNcnn` (`targetW` → `seqLen=W/8`, `opt.num_threads=4`, `use_packing_layout`) and `DetNcnn` (`in0` `NCHW`, `ex.extract` `out0/sigmoid`).
+- **JNI**: `app/src/main/cpp/ncnn_jni.cpp` — `RecNcnn` (`targetW` → `seqLen=W/8`, `use_packing_layout`; thread count is passed in and defaults to 1 in `RecNcnn.create`/`rec_create` — the `opt.num_threads=4` this line used to claim is stale, #58) and `DetNcnn` (`in0` `NCHW`, `ex.extract` `out0/sigmoid`).
 
 ### Android integration
 
-- `OcrEngine` (`app/src/main/java/com/holopengin/instantjpdict/OcrEngine.kt:27`): `detect` `DetNcnn` `960×960` `NCHW` only (LiteRT removed #15), `recognizeStreaming` `RecNcnn` `4` buckets `64..480`, `computeCharBoxes` `avgColW=crop/seqLen`.
+- `OcrEngine` (`app/src/main/java/com/holopengin/instantjpdict/OcrEngine.kt`): `detect` `DetNcnn` `960×960` `NCHW` only (LiteRT removed #15), `recognizeStreaming` one dynamic-width `RecNcnn` (#23), `computeCharBoxes` `avgColW=crop/seqLen`.
 - `app/build.gradle.kts`: `externalNativeBuild cmake 3.22.1`, `benchmark` `buildType` (`signingConfig debug`, `isMinifyEnabled false`), `litert` + `onnxruntime` + `det_float32.tflite` removed for #15 (`APK -42 MB` post-cutover per #6).
 - `RecNcnn.kt` / `DetNcnn.kt`: `ByteBuffer` `allocateDirect` `NCHW`, `System.loadLibrary("ncnn_jni")`.
 
