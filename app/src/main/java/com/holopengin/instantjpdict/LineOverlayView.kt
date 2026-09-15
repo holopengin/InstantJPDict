@@ -10,7 +10,7 @@ import kotlin.math.roundToInt
 
 /**
  * Single View per Line that draws all glyphs directly on Canvas — replaces 3× Views per char
- * (FrameLayout + CenteredTextView + View, 5850 Views for 65×30) to reduce UI jank.
+ * (a FrameLayout + a centred text view + a View, 5850 Views for 65×30) to reduce UI jank.
  * Handles yoko (horizontal) and tate (vertical) with true ink center over true bbox center.
  */
 class LineOverlayView(
