@@ -138,7 +138,7 @@ A character n-gram model trained on public-domain Japanese prose, used by the
 correction layer (#44) to rank the component-filtered candidates a dropped or
 substituted rare kanji leaves behind, and as the prior that can overrule a
 *confidently* wrong recogniser. It is **shipped and always loaded**: the packed
-asset is committed, `OverlayEnvironment` maps it at overlay startup (off the main
+asset is committed, `OverlayEnvironment` loads it at overlay startup (off the main
 thread, like the other tables), and there is no setting — a load failure only
 narrows the blank's candidate list, it does not break the lookup.
 
@@ -200,9 +200,9 @@ Accuracy is flat from ~7 MB to 40 MB across the corpus/order/prune grid, so the
 shipped model is the smallest model on the plateau: **order 4, min-count ≥ 5,
 Aozora** — ~1.44M entries, ~17 MB as UTF-8 text, 14.3 MB as the packed
 10-byte-record asset (the sizing table's 5 B/entry estimate was for a denser
-record layout that the binary search format does not use). Adding ja Wikipedia bought nothing for the
-tested error classes (rare literary and variant kanji live in novels, not
-encyclopedia prose), so the default corpus is Aozora alone.
+record layout that the binary-search format does not use). Adding ja Wikipedia
+bought nothing for the tested error classes (rare literary and variant kanji
+live in novels, not encyclopedia prose), so the default corpus is Aozora alone.
 
 Two traps are documented in the generator and worth repeating, because both
 produced silent garbage before they were handled: a Wikipedia dump returns

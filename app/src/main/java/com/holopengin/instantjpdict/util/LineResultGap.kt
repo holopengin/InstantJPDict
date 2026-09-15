@@ -43,8 +43,7 @@ import com.holopengin.instantjpdict.OcrEngine
  * @param column the CTC timestep column for the new position (the value the
  *   detector's fallback geometry worked in), inserted into `charCols`.
  * @param gapAlternatives the synthetic alternatives entry for the placeholder.
- *   Defaults to the convention the decode paths already use for a reversible
- *   blank: `GAP_CHAR` at score 0 (`OcrEngine.kt`, the CTC decode paths).
+ *   Defaults to the placeholder convention: `GAP_CHAR` at score 0.
  */
 fun LineResult.withGapCharAt(
     index: Int,
