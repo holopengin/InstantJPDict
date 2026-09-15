@@ -21,6 +21,91 @@ data class JpDictRect(
     fun centerY(): Int = top + height() / 2
 }
 
+/** One corner of a [JpDictQuad], in source-image pixels. */
+data class QuadPoint(val x: Float, val y: Float)
+
+/**
+ * #53: one Line's opt-in rotated geometry — the source placement of an upright
+ * Crop rectangle. Corners `c0..c3` are the images of the crop's local
+ * `(0,0)`, `(w,0)`, `(w,h)`, `(0,h)`: [localWidth] is the crop's x axis
+ * (the reading axis for a horizontal Line, the cross axis for a vertical one)
+ * and [localHeight] its y axis. [xAxis]/[yAxis] are the unit local axes in
+ * source pixels, [tiltDeg] is the clockwise rotation the overlay draws the
+ * glyphs by (0 for upright text), and [mapLocalRect] carries a box computed in
+ * crop space — char boxes — back out to source pixels as an AABB.
+ *
+ * The default path never produces one: a fit within
+ * [RotatedGeometry.AXIS_ALIGNED_TOL_DEG] of the axes stays a [JpDictRect],
+ * so upright content keeps the exact behaviour it had.
+ */
+data class JpDictQuad(
+    val c0: QuadPoint,
+    val c1: QuadPoint,
+    val c2: QuadPoint,
+    val c3: QuadPoint,
+) {
+    val localWidth: Float get() = RotatedGeometry.distance(c0, c1)
+    val localHeight: Float get() = RotatedGeometry.distance(c0, c3)
+    val center: QuadPoint
+        get() = QuadPoint(
+            (c0.x + c1.x + c2.x + c3.x) / 4f,
+            (c0.y + c1.y + c2.y + c3.y) / 4f,
+        )
+
+    /** Unit local x axis (left → right in crop space). */
+    val xAxis: QuadPoint get() = RotatedGeometry.unit(c0, c1)
+
+    /** Unit local y axis (top → bottom in crop space). */
+    val yAxis: QuadPoint get() = RotatedGeometry.unit(c0, c3)
+
+    /** Clockwise rotation of the upright frame in source pixels; 0 = upright. */
+    val tiltDeg: Float get() = RotatedGeometry.tiltDeg(this)
+
+    /** setPolyToPoly input: interleaved x,y for `c0,c1,c2,c3`. */
+    fun corners(): FloatArray =
+        floatArrayOf(c0.x, c0.y, c1.x, c1.y, c2.x, c2.y, c3.x, c3.y)
+
+    /** The enclosing axis-aligned rect, rounded to whole pixels like every
+     *  other box in this file. */
+    fun toRect(): JpDictRect = RotatedGeometry.aabb(this)
+
+    /** A local crop-space box as a source-space AABB (char boxes). */
+    fun mapLocalRect(local: JpDictRect): JpDictRect = RotatedGeometry.mapLocalRect(this, local)
+
+    /** True when the frame is within [tolDeg] of the upright axes: such a Line
+     *  stays on the axis-aligned path and never needs an unrotate. */
+    fun isAxisAligned(tolDeg: Float = RotatedGeometry.AXIS_ALIGNED_TOL_DEG): Boolean =
+        kotlin.math.abs(tiltDeg) <= tolDeg
+
+    companion object {
+        fun fromRect(rect: JpDictRect): JpDictQuad = JpDictQuad(
+            QuadPoint(rect.left.toFloat(), rect.top.toFloat()),
+            QuadPoint(rect.right.toFloat(), rect.top.toFloat()),
+            QuadPoint(rect.right.toFloat(), rect.bottom.toFloat()),
+            QuadPoint(rect.left.toFloat(), rect.bottom.toFloat()),
+        )
+    }
+}
+
+/**
+ * #53: one Line's geometry as detect → recognize → render passes it around.
+ * The axis-aligned default is [LineBox.rect] with [LineBox.quad] null — the
+ * exact type and path the engine had before rotated support. The opt-in
+ * rotated path sets [quad] (the fitted upright-crop placement) and keeps
+ * [rect] as its AABB for hit-testing and for the consumers that only know
+ * rects (nav graph, cursor, lookup crop).
+ */
+data class LineBox(
+    val rect: JpDictRect,
+    val quad: JpDictQuad? = null,
+) {
+    val isRotated: Boolean get() = quad != null
+
+    companion object {
+        fun of(rect: JpDictRect): LineBox = LineBox(rect)
+    }
+}
+
 fun JpDictRect.toAndroidRect(): Rect = Rect(left, top, right, bottom)
 fun Rect.toJpDictRect(): JpDictRect = JpDictRect(left, top, right, bottom)
 

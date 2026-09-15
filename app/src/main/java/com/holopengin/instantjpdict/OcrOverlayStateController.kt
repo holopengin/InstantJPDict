@@ -30,7 +30,36 @@ data class LineResult(
     /** CTC timestep column per emitted char (#49) — lets tests recompute
      * char boxes under any BOX_LAYOUT_MODE from one recognition run. */
     val charCols: FloatArray = floatArrayOf(),
-)
+    /** #53: this Line's upright-crop placement when it was detected rotated;
+     * null on the default axis-aligned path. The char boxes above stay
+     * source-space AABBs (of the rotated cells) so every consumer that only
+     * knows rects keeps working; [tiltDeg] tells the renderer how far to turn
+     * each glyph, and [glyphSizePx] measures text in the upright frame. */
+    val quad: JpDictQuad? = null,
+) {
+    /** #53: clockwise glyph rotation in source pixels; 0 = exactly as today. */
+    val tiltDeg: Float get() = quad?.tiltDeg ?: 0f
+
+    /** #53: the source-pixel glyph size the overlay draws this Line at. The
+     *  default path is the old inline expression (the largest char box
+     *  height); the rotated path measures the upright frame's CROSS axis,
+     *  because its char boxes are AABBs of rotated cells and would oversize
+     *  the glyphs.
+     *
+     *  The upright frame's cross axis is `cropH` for a horizontal Line and
+     *  `cropW` for a vertical one — the same axis `computeCharBoxes` treats as
+     *  the char height/short side. Dividing `cropH` by `seqLenTotal` for the
+     *  vertical case (as an earlier revision did) yields the per-timestep step
+     *  in model pixels, ~6x smaller than a glyph, and rendered tategaki text
+     *  at a fraction of its size. */
+    fun glyphSizePx(): Int = if (quad == null) {
+        charBoxes.maxOfOrNull { it.height() } ?: 0
+    } else if (isVertical) {
+        cropW.coerceAtLeast(1)
+    } else {
+        cropH.coerceAtLeast(1)
+    }
+}
 
 sealed class DefinitionNode {
     data class Text(val text: String) : DefinitionNode()
@@ -201,7 +230,7 @@ class OcrOverlayStateController {
         updateGlobalData()
     }
     
-    var activeLineBoxes: List<JpDictRect> = emptyList()
+    var activeLineBoxes: List<LineBox> = emptyList()
     var activeAllChars = mutableListOf<String>()
     var activeAllAlternatives = mutableListOf<List<Pair<Char, Float>>>()
     
@@ -328,7 +357,12 @@ class OcrOverlayStateController {
         if (refit.isIdentity) return
         activeLineBoxes = activeLineBoxes.map { it.refitted(refit) }
         activeLineResults = activeLineResults.map { line ->
-            line?.copy(charBoxes = line.charBoxes.map { it.refitted(refit) })
+            line?.copy(
+                charBoxes = line.charBoxes.map { it.refitted(refit) },
+                // #53: the frame moves with the boxes; a rotated border that
+                // kept its old corners would drift off its glyphs.
+                quad = line.quad?.refitted(refit),
+            )
         }.toMutableList()
         currentScale = 1f
         currentTransX = 0f
@@ -354,6 +388,21 @@ class OcrOverlayStateController {
             refit.x(right),
             refit.y(bottom),
         )
+
+    /** #53: a rotated Line's frame goes through the same transform, corner by
+     *  corner. Under the app's re-fit (uniform scale, no rotation) the frame
+     *  stays a rectangle; under a non-uniform one it shears, which the border
+     *  renderer draws as-is. */
+    private fun JpDictQuad.refitted(refit: ImageShareFit.Refit): JpDictQuad =
+        JpDictQuad(
+            QuadPoint(refit.offsetX + c0.x * refit.scaleX, refit.offsetY + c0.y * refit.scaleY),
+            QuadPoint(refit.offsetX + c1.x * refit.scaleX, refit.offsetY + c1.y * refit.scaleY),
+            QuadPoint(refit.offsetX + c2.x * refit.scaleX, refit.offsetY + c2.y * refit.scaleY),
+            QuadPoint(refit.offsetX + c3.x * refit.scaleX, refit.offsetY + c3.y * refit.scaleY),
+        )
+
+    private fun LineBox.refitted(refit: ImageShareFit.Refit): LineBox =
+        LineBox(rect.refitted(refit), quad?.refitted(refit))
 
     fun updateCharacter(lineIdx: Int, charIdx: Int, newChar: Char) {
         val line = activeLineResults.getOrNull(lineIdx) ?: return
@@ -796,7 +845,7 @@ class OcrOverlayStateController {
                 ix >= b.left - m && ix <= b.right + m && iy >= b.top - m && iy <= b.bottom + m
             }
         } || activeLineBoxes.any { b ->
-            ix >= b.left - m && ix <= b.right + m && iy >= b.top - m && iy <= b.bottom + m
+            ix >= b.rect.left - m && ix <= b.rect.right + m && iy >= b.rect.top - m && iy <= b.rect.bottom + m
         }
     }
 

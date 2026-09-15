@@ -257,6 +257,20 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // #53: rotated-rect detection is opt-in, per the maintainer's scope note:
+        // axis-aligned lines are the simplest and most stable case and must stay
+        // the default; the richer geometry earns its place as an experiment.
+        tuningContainer.addView(CheckBox(this).apply {
+            text = "Detect rotated lines (experimental: minAreaRect + unrotate)"
+            isChecked = OcrEngine.isDetRotated(this@MainActivity)
+            textSize = 14f
+            setPadding(0, 20, 0, 8)
+            setOnCheckedChangeListener { _, checked ->
+                OcrEngine.setDetRotated(this@MainActivity, checked)
+                Log.d("MainActivity", "det_rotated_enabled=$checked")
+            }
+        })
+
         val tuningHeader = TextView(this).apply {
             text = "PP-OCR Tuning (Debug)"
             textSize = 18f
@@ -495,6 +509,7 @@ class MainActivity : AppCompatActivity() {
                 .putBoolean(PitchAccent.PREF_PITCH_ENABLED, PitchAccent.DEF_PITCH_ENABLED)
                 .putBoolean(DoubleTapZoom.PREF_ENABLED, DoubleTapZoom.DEF_ENABLED)
                 .putBoolean(BlankGaps.PREF_ENABLED, BlankGaps.DEF_ENABLED)
+                .putBoolean(OcrEngine.PREF_DET_ROTATED, OcrEngine.DEF_DET_ROTATED)
                 .apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
             Log.d("MainActivity", "all tuning reset to defaults")
