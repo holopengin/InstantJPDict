@@ -10,7 +10,7 @@ PP-OCR's CTC head emits **blank** for a character it cannot name — an OOV kanj
 a dropped `。` `、` `ー`. "Blank surfacing" put a candidate character back at such
 a timestep, decided from the per-timestep distribution alone.
 
-Measured over 218 paired bench lines (`misc/trails_*` + `misc/vert_large`):
+Measured over 218 paired bench lines (`trails` + `vert_large`):
 
 | quantity | value |
 |---|---|
