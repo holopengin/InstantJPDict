@@ -105,23 +105,32 @@ object OverlayFont {
      * than the layout was tuned for. Returning the panel to the system face
      * restores that spacing exactly, without needing to correct the metric.
      *
-     * `Typeface.SANS_SERIF` rather than `DEFAULT`: the panel draws Japanese, and
-     * the platform's sans family is what resolves a CJK face on Android, whereas
-     * DEFAULT can resolve a Latin-only face on some configurations.
+     * `Typeface.DEFAULT` rather than `SANS_SERIF` because that is literally what
+     * the panel resolved to before #84 removed it; the two are the same family in
+     * practice, and matching the original removes a difference that would be
+     * invisible until it was not.
      */
-    fun systemTypeface(): Typeface = Typeface.SANS_SERIF
+    fun systemTypeface(): Typeface = Typeface.DEFAULT
 
     /**
      * [systemTypeface] for a dictionary-panel `TextView`.
      *
-     * Sets only the face. It deliberately does NOT touch `includeFontPadding` or
-     * `setLineSpacing`: each panel call site already carries the value it was
-     * tuned with against the system face, and overriding them here is how the
-     * panel's spacing got broken once already. The face is the whole change.
+     * Real bold, NOT synthetic. The platform family ships a genuine bold face, so
+     * asking the typeface for `BOLD` is enough — this is what the panel did
+     * before #84 (`typeface = Typeface.DEFAULT_BOLD`). Setting `isFakeBoldText`
+     * as well would stack a synthetic bold on top of the real one and make the
+     * headwords visibly heavier than they ever were; the bundled face needs the
+     * synthetic flag because only Regular ships, but the system face must not
+     * have it.
+     *
+     * Deliberately sets nothing else: no `includeFontPadding`, no
+     * `setLineSpacing`. Each call site already carries the value it was tuned
+     * with against this face, and overriding them centrally is how the panel's
+     * spacing got broken once already.
      */
     fun applySystem(ctx: Context, tv: TextView, bold: Boolean = false) {
-        tv.typeface = if (bold) Typeface.create(systemTypeface(), Typeface.BOLD) else systemTypeface()
-        tv.paint.isFakeBoldText = bold
+        tv.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        tv.paint.isFakeBoldText = false
     }
 
     /**
