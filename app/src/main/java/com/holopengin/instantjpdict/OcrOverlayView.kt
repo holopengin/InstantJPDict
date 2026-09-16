@@ -1454,7 +1454,12 @@ class OcrOverlayView(
                 (2 * resources.displayMetrics.density).toInt(),
                 (2 * resources.displayMetrics.density).toInt(),
             )
-            OverlayFont.apply(context, this)
+            // Dictionary-panel element, so the system face like the headwords
+            // beside it. As well as consistency this keeps the star's height on
+            // the platform metric: the bundled face's 1.448 em line box could
+            // exceed a short entry's headword block and grow the entry, which is
+            // the one thing this corner placement exists to avoid.
+            OverlayFont.applySystem(context, this)
             fun renderState(state: Boolean) {
                 text = BookmarkGlyph.of(state)
                 setTextColor(if (state) savedColor else Color.LTGRAY)
