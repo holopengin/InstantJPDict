@@ -3,8 +3,6 @@ package com.holopengin.instantjpdict
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -36,6 +34,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.File
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /**
  * #71: the in-app dictionary catalog — browse the bundled static list and
@@ -53,6 +55,12 @@ import java.io.File
  *    same truth the manager uses; and
  *  - the #70 [LicenseDialog] for licence text, reached from the Licences button
  *    instead of the catalog carrying its own copy.
+ *
+ * Offline is handled on the response, not asked about first: reading
+ * connectivity costs `ACCESS_NETWORK_STATE`, and #71's acceptance criterion is
+ * that `INTERNET` is the ONLY permission added. So a download that cannot reach
+ * the network reports "Download unavailable" from the failure itself, and the
+ * row offers Retry. See docs/dictionary-catalog.md.
  */
 object DictionaryCatalogDialog {
 
@@ -84,7 +92,6 @@ object DictionaryCatalogDialog {
         val downloader = DictionaryDownloader(context)
         val importer = DictionaryImporter(context)
         val dao = AppDatabase.getDatabase(context).dictionaryDao()
-        var offline = !isOnline(context)
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -94,21 +101,23 @@ object DictionaryCatalogDialog {
         root.addView(TextView(context).apply {
             text = "Popular Yomitan dictionaries, downloaded and imported for you. " +
                 "Downloads are checked against a pinned size and SHA-256 before anything " +
-                "is added. Everything else in the app stays offline."
+                "is added. Downloading needs a connection; everything else in the app " +
+                "stays offline."
             textSize = 12f
             setTextColor(IDLE)
             setPadding(0, 0, 0, dp(context, 8))
         })
 
-        val offlineBanner = TextView(context).apply {
-            text = "Download unavailable — this device is offline. " +
-                "Bundled dictionaries can still be installed; connect and reopen the catalog to download."
+        // Shown only after a download could not reach the network. The app holds
+        // no permission to read connectivity state, so this is discovered from
+        // the failure rather than asked ahead of time.
+        val statusBanner = TextView(context).apply {
             textSize = 12f
             setTextColor(WARN)
             setPadding(0, 0, 0, dp(context, 8))
-            visibility = if (offline) View.VISIBLE else View.GONE
+            visibility = View.GONE
         }
-        root.addView(offlineBanner)
+        root.addView(statusBanner)
 
         val rowsContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -124,7 +133,7 @@ object DictionaryCatalogDialog {
         val rows = mutableListOf<CatalogRowView>()
 
         fun refreshRows() {
-            rows.forEach { it.bindState(it.entry.id in installedIds, offline) }
+            rows.forEach { it.bindState(it.entry.id in installedIds) }
         }
 
         suspend fun refreshInstalledState() {
@@ -168,23 +177,22 @@ object DictionaryCatalogDialog {
                             file.delete()
                         }
                     }
-                    offline = !isOnline(context)
-                    ui { offlineBanner.visibility = if (offline) View.VISIBLE else View.GONE }
+                    ui { statusBanner.visibility = View.GONE }
                     refreshInstalledState()
                 } catch (e: CancellationException) {
                     ui { refreshRows() }
                     throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "Catalog import failed for ${entry.id}", e)
-                    offline = !isOnline(context)
-                    val message = if (offline) {
-                        "Download unavailable — offline"
-                    } else {
-                        "Import failed: ${e.message ?: "unknown error"}"
-                    }
                     ui {
-                        offlineBanner.visibility = if (offline) View.VISIBLE else View.GONE
-                        row.showFailure(message, offline)
+                        if (e.isConnectionFailure()) {
+                            statusBanner.text =
+                                "Download unavailable — no connection. Connect and tap Retry."
+                            statusBanner.visibility = View.VISIBLE
+                            row.showFailure("Download unavailable — no connection")
+                        } else {
+                            row.showFailure("Import failed: ${e.message ?: "unknown error"}")
+                        }
                     }
                 } finally {
                     jobs.remove(entry.id)
@@ -227,7 +235,17 @@ object DictionaryCatalogDialog {
         dialog.show()
     }
 
-    /** The columns a card can be in, bound by [CatalogRowView]. */
+    /**
+     * True for the exceptions a download raises when it cannot reach the host —
+     * no DNS, refused connection, no route, timeout. Used to tell "you have no
+     * connection" apart from "the server answered with something unexpected"
+     * without asking the platform for connectivity state.
+     */
+    private fun Throwable.isConnectionFailure(): Boolean =
+        this is UnknownHostException || this is ConnectException ||
+            this is SocketTimeoutException || this is SocketException
+
+    /** One catalog row: the card's views and the states they can show. */
     private class CatalogRowView(
         context: Context,
         val entry: CatalogEntry,
@@ -302,15 +320,12 @@ object DictionaryCatalogDialog {
         }
 
         /** Back to the resting state: installed, or ready to import. */
-        fun bindState(installed: Boolean, offline: Boolean) {
+        fun bindState(installed: Boolean) {
             progress.visibility = View.GONE
             progress.isIndeterminate = false
             cancelButton.visibility = View.GONE
-            val unavailable = offline && entry.downloadable
-            importButton.isEnabled = !unavailable
+            importButton.isEnabled = true
             when {
-                // Installed wins over offline: the dictionary is present whatever
-                // the connection is doing, so the row must not claim otherwise.
                 installed -> {
                     stateView.text = if (entry.kind == CatalogSource.BUNDLED_ASSET) {
                         "Installed (bundled)"
@@ -319,11 +334,6 @@ object DictionaryCatalogDialog {
                     }
                     stateView.setTextColor(OK)
                     importButton.text = "Re-import"
-                }
-                unavailable -> {
-                    stateView.text = "Download unavailable — offline"
-                    stateView.setTextColor(WARN)
-                    importButton.text = "Import"
                 }
                 else -> {
                     stateView.text = ""
@@ -354,31 +364,14 @@ object DictionaryCatalogDialog {
             cancelButton.visibility = if (cancellable) View.VISIBLE else View.GONE
         }
 
-        fun showFailure(message: String, offline: Boolean) {
+        fun showFailure(message: String) {
             progress.visibility = View.GONE
             cancelButton.visibility = View.GONE
             stateView.text = message
             stateView.setTextColor(ERR)
             importButton.text = "Retry"
-            importButton.isEnabled = !(offline && entry.downloadable)
+            importButton.isEnabled = true
         }
-    }
-
-    /** Density-independent pixels; one definition for the dialog and its rows. */
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
-
-    /**
-     * True when the device has a validated internet connection. VALIDATED, not
-     * just CONNECTED, so a captive portal is reported as offline instead of
-     * letting a download through that would then fail confusingly.
-     */
-    private fun isOnline(context: Context): Boolean {
-        val manager = context.getSystemService(ConnectivityManager::class.java) ?: return true
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private fun readAsset(context: Context, path: String): String? = try {
@@ -394,4 +387,8 @@ object DictionaryCatalogDialog {
             .setPositiveButton("Close", null)
             .show()
     }
+
+    /** Density-independent pixels; one definition for the dialog and its rows. */
+    private fun dp(context: Context, value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
 }

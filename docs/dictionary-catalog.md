@@ -111,12 +111,16 @@ and the only change to the app's privacy posture. `NetworkPermissionTest` holds
 that: the declared set is exactly `CAMERA` (#78) + `INTERNET`.
 
 The app is offline until the user taps **Import**. The licence viewer, OCR,
-pitch install and manual `.zip` import never touch the network. When the device
-has no validated connection, the catalog shows **Download unavailable — this
-device is offline**, disables the network rows' buttons, and still offers the
-bundled pitch row; a download that fails mid-flight shows the same state and
-leaves no file or database row behind. This is the one decision in the feature
-for the maintainer to ratify.
+pitch install and manual `.zip` import never touch the network. If a download
+cannot reach the host (no DNS, refused connection, no route, timeout) the row
+shows **Download unavailable — no connection** and offers **Retry**, with a
+banner above the list saying the same; the bundled pitch row is unaffected. A
+failed or cancelled download leaves no cache file and no database row behind.
+
+The offline state is reached from the failed request, not asked for ahead of
+time: reading connectivity would need `ACCESS_NETWORK_STATE`, and the acceptance
+criterion is that `INTERNET` is the only permission added. That is the one
+decision in the feature for the maintainer to ratify.
 
 ## Licences
 
