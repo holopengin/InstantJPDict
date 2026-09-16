@@ -36,8 +36,14 @@ object OverlayFont {
 
     /**
      * Today's appearance: the sans face the overlay drew before the switch
-     * existed (the bundled Noto Sans JP is metric-identical to the platform's
-     * Japanese sans on Android, so a fresh install's rendering is unchanged).
+     * existed.
+     *
+     * NOT metric-identical to the platform face, which is what the first cut of
+     * this got wrong: the bundled Noto's `hhea` line box is 1.448 em against the
+     * platform font's ~1.0 em, so adopting it as the default silently widened
+     * every line of dictionary text. [OverlayTextMetrics] is what corrects that;
+     * the claim is recorded here because this constant's doc used to assert the
+     * opposite and would mislead the next reader.
      */
     const val DEFAULT_FACE = FACE_SANS
 
@@ -96,6 +102,33 @@ object OverlayFont {
         tv.typeface = typeface(ctx, bold)
         tv.paint.isFakeBoldText = bold
     }
+
+    /**
+     * [apply] for a block of body text — a definition, an example, the source
+     * caption. The bundled faces carry a taller line box than the platform font
+     * this layout was tuned against, so the excess is removed between lines here
+     * rather than at every call site. See [OverlayTextMetrics] for the measured
+     * numbers and why the top/bottom edges need their own padding.
+     *
+     * Callers must not also set `setLineSpacing` or `includeFontPadding` after
+     * this, or they re-introduce the conflict it exists to resolve.
+     */
+    fun applyBody(ctx: Context, tv: TextView, bold: Boolean = false) {
+        apply(ctx, tv, bold)
+        tv.includeFontPadding = false
+        tv.setLineSpacing(0f, OverlayTextMetrics.lineHeightMultiplier)
+    }
+
+    /**
+     * The vertical padding a body-text block needs at its top and bottom, in
+     * pixels. Split out because it is applied to the *container* an example or
+     * sense sits in, not to the text view, and the two edges differ.
+     */
+    fun bodyTopPaddingPx(ctx: Context): Int =
+        (OverlayTextMetrics.BODY_TOP_PADDING_DP * ctx.resources.displayMetrics.density).toInt()
+
+    fun bodyBottomPaddingPx(ctx: Context): Int =
+        (OverlayTextMetrics.BODY_BOTTOM_PADDING_DP * ctx.resources.displayMetrics.density).toInt()
 
     private fun load(ctx: Context, asset: String): Typeface = try {
         Typeface.createFromAsset(ctx.assets, asset) ?: Typeface.SANS_SERIF
