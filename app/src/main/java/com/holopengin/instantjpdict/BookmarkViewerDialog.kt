@@ -81,7 +81,7 @@ object BookmarkViewerDialog {
             owner.lifecycleScope.launch {
                 val loaded = withContext(Dispatchers.IO) { db.bookmarkDao().getAll() }
                 rows = loaded
-                BookmarkStore.refresh(context)
+                BookmarkStore.replace(loaded)
                 countLabel.text = when (loaded.size) {
                     0 -> "No bookmarks yet. Save a word from the dictionary popup."
                     1 -> "1 bookmarked headword"

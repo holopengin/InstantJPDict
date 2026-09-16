@@ -22,14 +22,20 @@ object BookmarkStore {
 
     fun isBookmarked(key: BookmarkKey): Boolean = synchronized(keys) { key in keys }
 
-    suspend fun refresh(context: Context) {
-        val rows = withContext(Dispatchers.IO) {
-            AppDatabase.getDatabase(context).bookmarkDao().getAll()
-        }
+    /** Rebuild the mirror from an already-loaded list (the viewer, after its read). */
+    fun replace(rows: List<Bookmark>) {
         synchronized(keys) {
             keys.clear()
             keys.addAll(rows.map { it.key })
         }
+    }
+
+    suspend fun refresh(context: Context) {
+        replace(
+            withContext(Dispatchers.IO) {
+                AppDatabase.getDatabase(context).bookmarkDao().getAll()
+            }
+        )
     }
 
     /**
