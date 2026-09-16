@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ui-deepseek design 1 — "Harbour", night. Same roles, re-pointed: the light
+     values are chosen for a white surface and would fail contrast here. -->
+<resources>
+    <color name="md_primary">#91CCF2</color>
+    <color name="md_on_primary">#00344F</color>
+    <color name="md_primary_container">#004B70</color>
+    <color name="md_on_primary_container">#CBE6FF</color>
+
+    <color name="md_secondary">#B5C9D7</color>
+    <color name="md_on_secondary">#20333E</color>
+    <color name="md_secondary_container">#374955</color>
+    <color name="md_on_secondary_container">#D1E5F3</color>
+
+    <color name="md_tertiary">#EEB8CE</color>
+    <color name="md_on_tertiary">#482537</color>
+    <color name="md_tertiary_container">#623B4F</color>
+    <color name="md_on_tertiary_container">#FFD8E7</color>
+
+    <color name="md_error">#F2B8B5</color>
+    <color name="md_on_error">#601410</color>
+    <color name="md_error_container">#8C1D18</color>
+    <color name="md_on_error_container">#F9DEDC</color>
+
+    <color name="md_background">#101416</color>
+    <color name="md_on_background">#E1E3E5</color>
+    <color name="md_surface">#101416</color>
+    <color name="md_on_surface">#E1E3E5</color>
+    <color name="md_surface_variant">#41484D</color>
+    <color name="md_on_surface_variant">#C1C7CE</color>
+    <color name="md_surface_container_low">#181C1E</color>
+    <color name="md_surface_container">#1C2022</color>
+    <color name="md_surface_container_high">#262B2D</color>
+    <color name="md_surface_container_highest">#313538</color>
+    <color name="md_outline">#8B9198</color>
+    <color name="md_outline_variant">#41484D</color>
+</resources>

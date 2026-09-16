@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ui-deepseek design 1: the status/navigation bar icon polarity, as a resource so
+  the day and night files can disagree. The window draws edge-to-edge over a light
+  (or dark) surface, and the system bar glyphs have to contrast with it.
+-->
+<resources>
+    <bool name="light_system_bars">true</bool>
+</resources>

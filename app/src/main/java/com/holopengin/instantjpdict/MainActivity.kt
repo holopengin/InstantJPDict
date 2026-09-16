@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -13,21 +15,34 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.util.Log
+import android.util.TypedValue
 import android.view.Gravity
-import android.widget.Button
-import android.widget.CheckBox
+import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.shape.CornerFamily
+import com.google.android.material.shape.MaterialShapeDrawable
+import com.google.android.material.shape.ShapeAppearanceModel
+import com.google.android.material.slider.Slider
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryImporter
 import com.holopengin.instantjpdict.util.BlankGaps
@@ -40,9 +55,40 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
+/**
+ * ui-deepseek design 1 — "Harbour".
+ *
+ * The home screen as a Material 3 surface: one scrolling column of tonal cards
+ * under a lifted app bar, with the camera — the reason the app exists — pinned to
+ * the bottom-right as an extended FAB that never scrolls away.
+ *
+ * The old screen was a single undifferentiated button column: every entry point
+ * the same full-width button, the debug tuning inline, the camera a plain button
+ * below the list. Nothing said which thing a first-run user had to do, and the
+ * accessibility note was a paragraph wedged between two buttons.
+ *
+ * The redesign keeps every entry point and regroups them by what the user is
+ * trying to do:
+ *   - "Get started" — the accessibility service, as the one filled button on the
+ *     screen, with its long denial note behind a disclosure instead of in the
+ *     flow;
+ *   - "Dictionaries" — the catalog and the import/manage/bookmark verbs, one
+ *     obvious primary (tonal) action and the rest as list rows;
+ *   - "Settings" — the overlay font, gamepad, licences and the debug switch,
+ *     with the PP-OCR tuning block nested inside as a tonal panel rather than as
+ *     a peer of the camera button.
+ *
+ * All of the behaviour lives exactly where it lived before: the same
+ * SharedPreferences keys, the same [DictionaryCatalogDialog] / [LicenseDialog] /
+ * [GamepadSettingsDialog] / [BookmarkViewerDialog] entry points, the same
+ * [importLauncher], the same [openCamera] target, and the same shortcut routing in
+ * [openCameraFrom]. What changed is the shape of the surface, not the machine
+ * underneath it.
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvStatus: TextView
+    private lateinit var statusCard: MaterialCardView
 
     private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { importDictionary(it) }
@@ -54,273 +100,511 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(OcrEngine.PREFS_NAME, MODE_PRIVATE)
 
         // The window is edge-to-edge — targetSdk 35 forces it on Android 15+, and
-        // the share and camera activities already draw full-bleed — so every edge
-        // of the screen is ours to pay for. Ask for it explicitly rather than
-        // inheriting it, so the insets the listener below spends are the bars on
-        // every API level and not only where the platform hands us a cut window.
+        // the share and camera activities already draw full-bleed. The insets are
+        // spent at the bottom of this method, on the exact views that have to clear
+        // the bars: the app bar (top), the scrolling column (sides + bottom, so the
+        // last card can scroll clear of the FAB) and the FAB itself (bottom).
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Root is a column, not a scrolling page: the list takes the space above,
-        // and the camera control is its last child, so it is pinned to the bottom
-        // and cannot scroll away. The ScrollView is given "all that is left"
-        // (0dp + weight 1) instead of the full height, so no row of the list can
-        // ever end up underneath the pinned control.
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        // ————— theme colours, read once —————
+        // Resolved from the theme rather than hardcoded, so the day/night pair and
+        // the Material You override both flow into every hand-built view.
+        val cSurfaceLow = color(com.google.android.material.R.attr.colorSurfaceContainerLow)
+        val cSurfaceHigh = color(com.google.android.material.R.attr.colorSurfaceContainerHigh)
+        val cSurfaceHighest = color(com.google.android.material.R.attr.colorSurfaceContainerHighest)
+        val cSecondaryContainer = color(com.google.android.material.R.attr.colorSecondaryContainer)
+        val cOnSecondaryContainer = color(com.google.android.material.R.attr.colorOnSecondaryContainer)
+        val cOnSurface = color(com.google.android.material.R.attr.colorOnSurface)
+        val cOnSurfaceVariant = color(com.google.android.material.R.attr.colorOnSurfaceVariant)
+        val cPrimary = color(com.google.android.material.R.attr.colorPrimary)
+        val cOnPrimary = color(com.google.android.material.R.attr.colorOnPrimary)
+        val cOutlineVariant = color(com.google.android.material.R.attr.colorOutlineVariant)
+
+        // ————— root: CoordinatorLayout, so the FAB can float —————
+        val root = CoordinatorLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
-        }
-        // The system bars, spent once, on the root: the bars as padding plus the
-        // 32px the root used to carry as margins. Paid on the root rather than on
-        // the list because the pinned camera control has to clear the bars too.
-        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(32 + bars.left, 32 + bars.top, 32 + bars.right, 32 + bars.bottom)
-            insets
         }
 
-        // ScrollView wrapper so tuning controls don't overflow
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
+        // ————— app bar —————
+        val toolbar = MaterialToolbar(this).apply {
+            title = "Instant JP Dict"
+            subtitle = "On-device Japanese OCR"
+            // The title block is the app's identity, not a navigation affordance;
+            // the two primary actions live in the body and the FAB.
+            isTitleCentered = false
+        }
+        val appBar = AppBarLayout(this).apply {
+            setLiftOnScroll(true)
+            elevation = 0f
+            addView(
+                toolbar,
+                AppBarLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
             )
+            layoutParams = CoordinatorLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(appBar)
+
+        // ————— the scrolling column —————
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val scroll = NestedScrollView(this).apply {
+            // The content may draw into the bottom padding, which is what lets the
+            // final card scroll clear of the pinned FAB instead of hiding under it.
+            clipToPadding = false
             isFillViewport = true
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            layoutParams = CoordinatorLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply { behavior = AppBarLayout.ScrollingViewBehavior() }
         }
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 48, 48, 48)
-        }
-        scrollView.addView(layout)
-        root.addView(scrollView)
+        root.addView(scroll)
 
-        // #78: the camera viewfinder, and the only way into it. Capture goes into
-        // ShareImageActivity through the same ACTION_SEND + EXTRA_STREAM entry the
-        // system share sheet uses, so there is one OCR surface, not two. PINNED to
-        // the bottom of the screen: a sibling of the ScrollView, so it stays put
-        // while the list above scrolls, and the bars keep it clear of the navigation
-        // bar.
-        root.addView(Button(this).apply {
-            text = "Camera"
-            setOnClickListener { openCamera() }
+        // ————— section helper —————
+        // Each section is a low-elevation tonal card: the tonal step is the
+        // grouping, so whitespace between sections is the only separator needed.
+        fun newSection(titleText: String, iconRes: Int? = null): LinearLayout {
+            val card = MaterialCardView(this).apply {
+                radius = dp(24).toFloat()
+                cardElevation = 0f
+                strokeWidth = 0
+                setCardBackgroundColor(cSurfaceLow)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(14) }
+            }
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(20))
+            }
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 0, 0, dp(4))
+            }
+            if (iconRes != null) {
+                header.addView(ImageView(this).apply {
+                    setImageResource(iconRes)
+                    layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) }
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                })
+            }
+            header.addView(TextView(this).apply {
+                text = titleText
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+                setTextColor(cOnSurface)
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            body.addView(header)
+            card.addView(body)
+            content.addView(card)
+            return body
+        }
+
+        fun bodyText(parent: LinearLayout, text: String) {
+            parent.addView(TextView(this).apply {
+                this.text = text
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                setTextColor(cOnSurfaceVariant)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(12) }
+            })
+        }
+
+        // ————— a settings-style row: icon, title, optional supporting line, trailing —————
+        fun listRow(
+            iconRes: Int,
+            titleText: String,
+            supporting: String? = null,
+            trailing: View? = null,
+            onClick: (() -> Unit)? = null
+        ): LinearLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(56)
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            isClickable = onClick != null
+            isFocusable = onClick != null
+            onClick?.let { cb -> setOnClickListener { cb() } }
+            // Ripple from the theme rather than a hand-rolled selector.
+            TypedValue().let { tv ->
+                if (this@MainActivity.theme.resolveAttribute(
+                        android.R.attr.selectableItemBackground, tv, true
+                    )
+                ) {
+                    setBackgroundResource(tv.resourceId)
+                }
+            }
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(iconRes)
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) }
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(TextView(this@MainActivity).apply {
+                    text = titleText
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+                    setTextColor(cOnSurface)
+                })
+                if (supporting != null) {
+                    addView(TextView(this@MainActivity).apply {
+                        text = supporting
+                        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                        setTextColor(cOnSurfaceVariant)
+                    })
+                }
+            })
+            if (trailing != null) addView(trailing)
+        }
+
+        fun chevron(): ImageView = ImageView(this).apply {
+            setImageResource(R.drawable.ic_chevron)
+            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        fun switchRow(
+            iconRes: Int,
+            titleText: String,
+            supporting: String,
+            checked: Boolean,
+            onChanged: (Boolean) -> Unit
+        ): LinearLayout {
+            val toggle = MaterialSwitch(this).apply {
+                isChecked = checked
+                contentDescription = titleText
+                setOnCheckedChangeListener { _, value -> onChanged(value) }
+            }
+            // The whole row is the target (≥56 dp tall); the switch is kept
+            // clickable too so a screen reader exposes it as a real switch.
+            return listRow(iconRes, titleText, supporting, trailing = toggle) { toggle.toggle() }
+        }
+
+        fun filledButton(
+            parent: LinearLayout,
+            text: String,
+            iconRes: Int? = null,
+            onClick: () -> Unit
+        ): MaterialButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonStyle
+        ).apply {
+            this.text = text
+            isAllCaps = false
+            if (iconRes != null) {
+                setIconResource(iconRes)
+                iconTint = ColorStateList.valueOf(cOnPrimary)
+            }
+            setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 16 }
-        })
-
-        val title = TextView(this).apply {
-            text = "Instant JP Dict"
-            textSize = 24f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(0, 0, 0, 16)
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+            parent.addView(this)
         }
-        layout.addView(title)
 
-        // The status line, still here for import and pitch-install progress, but no
-        // longer seeded with anything: the "DB contains N entries in M dictionaries"
-        // readout that used to fill it on launch is gone (it was a debug readout on a
-        // user-facing screen, and it cost two database queries on every open). Empty
-        // until there is something real to say.
+        fun tonalButton(
+            parent: LinearLayout,
+            text: String,
+            iconRes: Int? = null,
+            onClick: () -> Unit
+        ): MaterialButton = filledButton(parent, text, iconRes, onClick).apply {
+            backgroundTintList = ColorStateList.valueOf(cSecondaryContainer)
+            setTextColor(cOnSecondaryContainer)
+            iconTint = ColorStateList.valueOf(cOnSecondaryContainer)
+        }
+
+        fun outlinedButton(
+            parent: LinearLayout,
+            text: String,
+            iconRes: Int? = null,
+            onClick: () -> Unit
+        ): MaterialButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            this.text = text
+            isAllCaps = false
+            if (iconRes != null) setIconResource(iconRes)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+            parent.addView(this)
+        }
+
+        fun textButton(
+            parent: LinearLayout,
+            text: String,
+            onClick: () -> Unit
+        ): MaterialButton = MaterialButton(
+            this, null, com.google.android.material.R.attr.borderlessButtonStyle
+        ).apply {
+            this.text = text
+            isAllCaps = false
+            setTextColor(cPrimary)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            parent.addView(this)
+        }
+
+        // ————— status banner —————
+        // The status line still carries import and pitch-install progress, but it
+        // now has a surface of its own and disappears entirely when there is
+        // nothing to say — no reserved empty strip above the fold.
         tvStatus = TextView(this).apply {
-            text = ""
-            setPadding(0, 0, 0, 32)
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(cOnSecondaryContainer)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
-        layout.addView(tvStatus)
+        statusCard = MaterialCardView(this).apply {
+            radius = dp(16).toFloat()
+            cardElevation = 0f
+            strokeWidth = 0
+            setCardBackgroundColor(cSecondaryContainer)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(14) }
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                addView(ImageView(this@MainActivity).apply {
+                    setImageResource(R.drawable.ic_info)
+                    imageTintList = ColorStateList.valueOf(cOnSecondaryContainer)
+                    layoutParams = LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(12) }
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                })
+                addView(tvStatus)
+            })
+        }
+        content.addView(statusCard)
 
-        addButton(layout, "Enable Accessibility Service") {
+        // ————————— 1. Get started —————————
+        val accessBody = newSection("Get started", R.drawable.ic_accessibility)
+        bodyText(
+            accessBody,
+            "Turn on the accessibility service, then point the overlay at any app and tap a word to look it up."
+        )
+        filledButton(accessBody, "Enable accessibility service", R.drawable.ic_accessibility) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
-        val accessibilityHelp = TextView(this).apply {
-            text = "Note: If android displays an \"App access was denied\" popup when attempting to enable it the Accessibility Service, you may need to go to your system settings, find 'InstantJPDict' in the app list, and tap the three-dot menu to select 'Allow restricted settings'."
-            textSize = 12f
-            setPadding(0, 0, 0, 16)
+        // The denial note used to sit in the open, a paragraph of system-settings
+        // path between two buttons. It is only relevant when that popup appears, so
+        // it is a disclosure now — the capability is intact, the wall of text is not.
+        val accessNote = TextView(this).apply {
+            text = "If Android shows an \"App access was denied\" popup, go to system settings, " +
+                "find 'InstantJPDict' in the app list, open the three-dot menu and choose " +
+                "'Allow restricted settings'."
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(cOnSurfaceVariant)
+            setPadding(0, dp(8), 0, 0)
+            visibility = View.GONE
         }
-        layout.addView(accessibilityHelp)
+        accessBody.addView(accessNote)
+        textButton(accessBody, "Access was denied?") {
+            val showing = accessNote.visibility == View.VISIBLE
+            accessNote.visibility = if (showing) View.GONE else View.VISIBLE
+            Log.d("MainActivity", "accessibility_note_shown=${!showing}")
+        }
 
-        // #71: the one-tap catalog. Browse popular dictionaries and import the
-        // chosen one without leaving the app: download to cache, verify the
-        // pinned size + SHA-256, then insert through the same importer the file
-        // picker below uses. The pitch row is bundled and needs no network.
-        addButton(layout, "Dictionary Catalog") {
+        // ————————— 2. Dictionaries —————————
+        val dictBody = newSection("Dictionaries", R.drawable.ic_book)
+        bodyText(
+            dictBody,
+            "Install a Yomitan-format dictionary, or grab one from the built-in catalog."
+        )
+        tonalButton(dictBody, "Dictionary catalog", R.drawable.ic_book) {
             DictionaryCatalogDialog.show(this)
         }
+        dictBody.addView(listRow(
+            R.drawable.ic_upload,
+            "Import Yomitan dictionary",
+            "From a .zip on this device",
+            chevron()
+        ) { importLauncher.launch(arrayOf("application/zip")) })
+        dictBody.addView(listRow(
+            R.drawable.ic_download,
+            "Download dictionaries",
+            "Opens the upstream JMdict page",
+            chevron()
+        ) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yomidevs/jmdict-yomitan"))) })
+        dictBody.addView(listRow(
+            R.drawable.ic_book,
+            "Manage dictionaries",
+            "Rename, reorder or remove installed dictionaries",
+            chevron()
+        ) { DictionaryManagerDialog.show(this) })
+        dictBody.addView(listRow(
+            R.drawable.ic_bookmark,
+            "Bookmarks",
+            "Headwords you saved from the lookup popup",
+            chevron()
+        ) { BookmarkViewerDialog.show(this) })
 
-        addButton(layout, "Download Dictionaries") {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yomidevs/jmdict-yomitan")))
-        }
-
-        addButton(layout, "Import Yomitan Dictionary (.zip)") {
-            importLauncher.launch(arrayOf("application/zip"))
-        }
-
-        addButton(layout, "Manage Dictionaries") {
-            DictionaryManagerDialog.show(this)
-        }
-
-        // #67: the saved-headword viewer sits with the dictionary controls — it
-        // is the other half of dictionary state (what the user kept vs what the
-        // app imported), and opens as a dialog like Manage/Licenses.
-        addButton(layout, "Bookmarks") {
-            BookmarkViewerDialog.show(this)
-        }
-
-        addButton(layout, "Gamepad Controls") {
-            GamepadSettingsDialog.show(this)
-        }
-
-        // #70: licences and attribution for everything the APK bundles — the app
-        // itself, every dependency, the native libraries, the models and the
-        // derived dictionary data. Read from assets/licenses/INDEX.txt, so it works
-        // with no network (the app declares no INTERNET permission). Also the
-        // separate acknowledgements screen the EDRDG licence asks smartphone apps
-        // for, since KRADFILE/JMdict-derived data ships in here.
-        addButton(layout, "Licenses") {
-            LicenseDialog.show(this)
-        }
-
-        // #84: the overlay's face. This is user-visible rendering, so the control
-        // sits on the front screen rather than in the debug block. The overlay
-        // reads the pref when it builds its text (LineOverlayView / OcrOverlayView),
-        // so the next lookup picks a change up; the default is the sans face the
-        // overlay always drew.
-        layout.addView(CheckBox(this).apply {
-            text = "Serif font (mincho) in the OCR overlay"
-            isChecked = OverlayFont.face(this@MainActivity) == OverlayFont.FACE_SERIF
-            textSize = 14f
-            setPadding(0, 16, 0, 16)
-            setOnCheckedChangeListener { _, checked ->
-                val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
-                OverlayFont.setFace(this@MainActivity, face)
-                Log.d("MainActivity", "overlay_font_face=$face")
-            }
+        // ————————— 3. Settings —————————
+        val settingsBody = newSection("Settings", R.drawable.ic_settings)
+        settingsBody.addView(switchRow(
+            R.drawable.ic_text_fields,
+            "Serif overlay font",
+            "Use a mincho face in the OCR overlay",
+            OverlayFont.face(this) == OverlayFont.FACE_SERIF
+        ) { checked ->
+            val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
+            OverlayFont.setFace(this, face)
+            Log.d("MainActivity", "overlay_font_face=$face")
         })
+        settingsBody.addView(listRow(
+            R.drawable.ic_gamepad,
+            "Gamepad & hardware keys",
+            "Map buttons and volume keys to overlay actions",
+            chevron()
+        ) { GamepadSettingsDialog.show(this) })
+        settingsBody.addView(listRow(
+            R.drawable.ic_info,
+            "Licenses & attribution",
+            "Everything bundled in the APK, offline",
+            chevron()
+        ) { LicenseDialog.show(this) })
 
-        // #44 Feature 3: the kana size correction runs unconditionally now — no settings row
-        // and no preference read (see KanaSizeFix). The small/large form of っ/つ, ゃ/や, ゅ/ゆ,
-        // ょ/よ is decided by a byte-CNN that reads five characters of context on each side,
-        // applied only where the orthography allows it — pre-reform text keeps its large つ.
-        //
-        // Feature 3 also used to carry a "Check kana size model" button: one tap on the
-        // device ran the model author's ten published vectors through this phone's own
-        // encoder + JNI path and copied the verdict, proving the asset bytes, the
-        // marshalling and the ARM float behaviour without adb. The BUTTON is gone — this
-        // is a user-facing screen — but the diagnostic it drove is not: it stays in
-        // [KanaSizeNcnn.probeWithTrace], which is where the check belongs and where a
-        // future debug entry point can call it again.
-
-        // ————— PP-OCR parameter tuning — debug controls — #14 —————
-        // Hidden behind Debug settings checkbox — keeps main screen clean
+        // ————— debug switch + its tuning panel —————
         val debugPrefsKey = "debug_settings_enabled"
         val tuningContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            visibility = if (prefs.getBoolean(debugPrefsKey, false)) LinearLayout.VISIBLE else LinearLayout.GONE
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        val tuningCard = MaterialCardView(this).apply {
+            radius = dp(18).toFloat()
+            cardElevation = 0f
+            strokeWidth = dp(1)
+            strokeColor = cOutlineVariant
+            setCardBackgroundColor(cSurfaceHigh)
+            visibility = if (prefs.getBoolean(debugPrefsKey, false)) View.VISIBLE else View.GONE
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+            addView(tuningContainer)
+        }
+        settingsBody.addView(switchRow(
+            R.drawable.ic_tune,
+            "Debug settings",
+            "Show PP-OCR tuning and diagnostics",
+            prefs.getBoolean(debugPrefsKey, false)
+        ) { checked ->
+            prefs.edit().putBoolean(debugPrefsKey, checked).apply()
+            tuningCard.visibility = if (checked) View.VISIBLE else View.GONE
+            Log.d("MainActivity", "debug_settings_enabled=$checked")
+        })
+        settingsBody.addView(tuningCard)
+
+        // Sub-header helper for the panel's two halves.
+        fun panelHeader(text: String) {
+            tuningContainer.addView(TextView(this).apply {
+                this.text = text
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+                setTextColor(cOnSurface)
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(0, dp(12), 0, dp(4))
+            })
         }
 
-        val debugToggle = CheckBox(this).apply {
-            text = "Debug Settings"
-            isChecked = prefs.getBoolean(debugPrefsKey, false)
-            textSize = 14f
-            setPadding(0, 24, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                prefs.edit().putBoolean(debugPrefsKey, checked).apply()
-                tuningContainer.visibility = if (checked) LinearLayout.VISIBLE else LinearLayout.GONE
-                Log.d("MainActivity", "debug_settings_enabled=$checked")
-            }
-        }
-        layout.addView(debugToggle)
-        layout.addView(tuningContainer)
-
+        panelHeader("Overlay behaviour")
         // The three feature switches the main screen used to carry, moved in here so the
         // screen a user actually reads is not a wall of checkboxes. Each is a plain boolean
-        // preference — not a float tunable — read once to seed the box and written back on
+        // preference — not a float tunable — read once to seed the switch and written back on
         // change, and each is read again at its own point of use; where the row is drawn
-        // changes nothing about that. They sit ABOVE the tuning header so the tunables
-        // below stay the one block the reset-to-defaults button owns.
+        // changes nothing about that.
         //
         // #43: pitch-accent display. Off by default; needs a pitch dictionary installed
         // or the rows simply never appear. Read at popup build time, so the next lookup
         // picks it up.
-        tuningContainer.addView(CheckBox(this).apply {
-            text = "Show pitch accent in dictionary popup"
-            isChecked = PitchAccent.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                PitchAccent.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "pitch_accent_enabled=$checked")
-            }
-        })
-
+        fun featureSwitch(label: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
+            tuningContainer.addView(MaterialSwitch(this).apply {
+                text = label
+                isChecked = checked
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                setTextColor(cOnSurface)
+                setPadding(0, dp(10), 0, dp(10))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                setOnCheckedChangeListener { _, value -> onChanged(value) }
+            })
+        }
+        featureSwitch("Show pitch accent in dictionary popup", PitchAccent.isEnabled(this)) { checked ->
+            PitchAccent.setEnabled(this, checked)
+            Log.d("MainActivity", "pitch_accent_enabled=$checked")
+        }
         // #72: double-tap zoom is opt-in. While it is on, a tap on empty space
         // must wait out the double-tap window before closing, so the default
         // trades zoom for an instant close.
-        tuningContainer.addView(CheckBox(this).apply {
-            text = "Double-tap to zoom (makes tap-to-close wait)"
-            isChecked = DoubleTapZoom.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                DoubleTapZoom.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "double_tap_zoom_enabled=$checked")
-            }
-        })
-
+        featureSwitch("Double-tap to zoom (makes tap-to-close wait)", DoubleTapZoom.isEnabled(this)) { checked ->
+            DoubleTapZoom.setEnabled(this, checked)
+            Log.d("MainActivity", "double_tap_zoom_enabled=$checked")
+        }
         // #44 Feature 2: clickable blanks where the vertical spacing says a character was
         // dropped. Vertical only (the horizontal trigger measured 13% false), and the blank
         // is filled through the alternatives panel's manual IME entry.
-        tuningContainer.addView(CheckBox(this).apply {
-            text = "Clickable blanks where a character looks missing (vertical text)"
-            isChecked = BlankGaps.isEnabled(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                BlankGaps.setEnabled(this@MainActivity, checked)
-                Log.d("MainActivity", "blank_gaps_enabled=$checked")
-            }
-        })
-
+        featureSwitch("Clickable blanks where a character looks missing (vertical text)", BlankGaps.isEnabled(this)) { checked ->
+            BlankGaps.setEnabled(this, checked)
+            Log.d("MainActivity", "blank_gaps_enabled=$checked")
+        }
         // #53: rotated-rect detection is opt-in, per the maintainer's scope note:
         // axis-aligned lines are the simplest and most stable case and must stay
         // the default; the richer geometry earns its place as an experiment.
-        tuningContainer.addView(CheckBox(this).apply {
-            text = "Detect rotated lines (experimental: minAreaRect + unrotate)"
-            isChecked = OcrEngine.isDetRotated(this@MainActivity)
-            textSize = 14f
-            setPadding(0, 20, 0, 8)
-            setOnCheckedChangeListener { _, checked ->
-                OcrEngine.setDetRotated(this@MainActivity, checked)
-                Log.d("MainActivity", "det_rotated_enabled=$checked")
-            }
-        })
+        featureSwitch("Detect rotated lines (experimental)", OcrEngine.isDetRotated(this)) { checked ->
+            OcrEngine.setDetRotated(this, checked)
+            Log.d("MainActivity", "det_rotated_enabled=$checked")
+        }
 
-        val tuningHeader = TextView(this).apply {
-            text = "PP-OCR Tuning (Debug)"
-            textSize = 18f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(0, 8, 0, 8)
-        }
-        tuningContainer.addView(tuningHeader)
-        val tuningHelp = TextView(this).apply {
-            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart overlay or re-run OCR to apply. Det input is ${OcrEngine.DET_MODEL_SIZE}×${OcrEngine.DET_MODEL_SIZE} (LONG_SIDE is clamped to it)."
-            textSize = 11f
-            setPadding(0, 0, 0, 12)
-        }
-        tuningContainer.addView(tuningHelp)
+        panelHeader("PP-OCR parameters")
+        tuningContainer.addView(TextView(this).apply {
+            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. " +
+                "Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart the overlay " +
+                "or re-run OCR to apply. Det input is ${OcrEngine.DET_MODEL_SIZE}×${OcrEngine.DET_MODEL_SIZE} " +
+                "(LONG_SIDE is clamped to it)."
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(cOnSurfaceVariant)
+            setPadding(0, 0, 0, dp(8))
+        })
 
         // live summary line that shows current values
         val liveSummary = TextView(this).apply {
-            textSize = 11f
-            setPadding(0, 0, 0, 12)
-            setBackgroundColor(android.graphics.Color.argb(20, 0, 0, 0))
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(cOnSurfaceVariant)
+            background = roundedBackground(cSurfaceHighest, dp(10))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(4) }
         }
         tuningContainer.addView(liveSummary)
         fun refreshLiveSummary() {
@@ -331,12 +615,15 @@ class MainActivity : AppCompatActivity() {
             val squish = prefs.getFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
             // F5/#86: Locale.ROOT, so the decimal separator in this debug readout
             // does not follow the phone's locale (lint's DefaultLocale).
-            val line = "live: detThresh=${String.format(Locale.ROOT, "%.2f", thresh)} unclip=${String.format(Locale.ROOT, "%.2f", unclip)} longSide=$longSide xOver=${String.format(Locale.ROOT, "%.2f", xOver)} squish=${String.format(Locale.ROOT, "%.1f", squish)}"
+            val line = "live: detThresh=${String.format(Locale.ROOT, "%.2f", thresh)} " +
+                "unclip=${String.format(Locale.ROOT, "%.2f", unclip)} longSide=$longSide " +
+                "xOver=${String.format(Locale.ROOT, "%.2f", xOver)} " +
+                "squish=${String.format(Locale.ROOT, "%.1f", squish)}"
             liveSummary.text = line
         }
         refreshLiveSummary()
 
-        // helper to add one tunable row: label + live value + SeekBar + EditText + Apply
+        // helper to add one tunable row: label + live value + Slider + EditText + Apply/Reset
         fun addTunable(row: TuningRow) {
             val label = row.label
             val prefKey = row.key
@@ -345,10 +632,13 @@ class MainActivity : AppCompatActivity() {
             val max = row.max
             val step = row.step
             val isInt = row.isInt
-            val steps = ((max - min) / step).roundToInt().coerceAtLeast(1)
-            fun valueForProgress(p: Int): Float = min + p * step
-            fun progressForValue(v: Float): Int = ((v - min) / step).roundToInt().coerceIn(0, steps)
-            fun formatValue(v: Float): String = if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
+            fun formatValue(v: Float): String =
+                if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
+            // The Slider runs continuous (stepSize 0) and the snap to the row's
+            // step happens on touch-up / Apply: a stepped slider whose range is not
+            // exactly divisible in float would refuse to lay out at all.
+            fun snap(v: Float): Float =
+                if (step <= 0f) v else (min + ((v - min) / step).roundToInt() * step).coerceIn(min, max)
 
             val curRaw: Float = if (isInt) {
                 prefs.getInt(prefKey, default.roundToInt()).toFloat()
@@ -359,106 +649,102 @@ class MainActivity : AppCompatActivity() {
 
             val container = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 12, 0, 12)
-                setBackgroundColor(android.graphics.Color.argb(8, 0, 0, 0))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 0, 12) }
+                setPadding(0, dp(10), 0, dp(4))
             }
 
-            val tvLabel = TextView(this).apply {
-                text = "$label  (default ${formatValue(default)})"
-                textSize = 13f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-            container.addView(tvLabel)
+            container.addView(TextView(this).apply {
+                text = label
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
+                setTextColor(cOnSurface)
+            })
 
             val tvLive = TextView(this).apply {
-                text = "current: ${formatValue(cur)}"
-                textSize = 12f
-                setTextColor(android.graphics.Color.rgb(0, 100, 0))
+                text = "current ${formatValue(cur)} · default ${formatValue(default)}"
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                setTextColor(cPrimary)
             }
             container.addView(tvLive)
 
-            val seek = SeekBar(this).apply {
-                this.max = steps
-                progress = progressForValue(cur)
+            val slider = Slider(this).apply {
+                valueFrom = min
+                valueTo = max
+                stepSize = 0f
+                value = cur
+                setLabelFormatter { formatValue(it) }
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             }
-            container.addView(seek)
+            container.addView(slider)
 
             val editRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 6, 0, 0)
+                setPadding(0, 0, 0, 0)
             }
             val edit = EditText(this).apply {
                 setText(formatValue(cur))
-                textSize = 12f
-                inputType = if (isInt) InputType.TYPE_CLASS_NUMBER else InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(0, 0, 8, 0) }
-                setPadding(12, 8, 12, 8)
-                setBackgroundColor(android.graphics.Color.argb(30, 0, 0, 0))
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                setTextColor(cOnSurface)
+                inputType = if (isInt) {
+                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+                } else {
+                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                }
+                background = roundedBackground(cSurfaceHighest, dp(10))
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                minimumHeight = dp(48)
+                setSelectAllOnFocus(true)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = dp(8) }
             }
             editRow.addView(edit)
-            val btnApply = Button(this).apply {
+            val btnApply = MaterialButton(
+                this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
                 text = "Apply"
-                textSize = 11f
+                isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(16, 0, 16, 0)
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
             }
             editRow.addView(btnApply)
-            val btnReset = Button(this).apply {
+            val btnReset = MaterialButton(
+                this, null, com.google.android.material.R.attr.borderlessButtonStyle
+            ).apply {
                 text = "Reset"
-                textSize = 11f
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { leftMargin = 8 }
-                minWidth = 0
-                minimumWidth = 0
-                setPadding(16, 0, 16, 0)
+                isAllCaps = false
+                setTextColor(cPrimary)
             }
             editRow.addView(btnReset)
             container.addView(editRow)
 
-            // SeekBar listener: live update tvLive + edit, commit on stop
-            var fromSeek = false
-            seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
-                    if (!fromUser) return
-                    fromSeek = true
-                    val v = valueForProgress(p)
-                    tvLive.text = "current: ${formatValue(v)} (dragging)"
-                    edit.setText(formatValue(v))
-                    // don't commit yet; live TextView shows dragging value, summary updates on stop
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    val v = valueForProgress(seek.progress)
+            var fromSlider = false
+            slider.addOnChangeListener { _, value, fromUser ->
+                if (!fromUser) return@addOnChangeListener
+                fromSlider = true
+                tvLive.text = "current ${formatValue(value)} · default ${formatValue(default)} (dragging)"
+                edit.setText(formatValue(value))
+            }
+            slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(s: Slider) {}
+                override fun onStopTrackingTouch(s: Slider) {
+                    val v = snap(s.value)
                     if (isInt) prefs.edit().putInt(prefKey, v.roundToInt()).apply()
                     else prefs.edit().putFloat(prefKey, v).apply()
-                    tvLive.text = "current: ${formatValue(v)}"
+                    if (s.value != v) s.value = v
+                    tvLive.text = "current ${formatValue(v)} · default ${formatValue(default)}"
                     refreshLiveSummary()
                     Toast.makeText(this@MainActivity, "$label = ${formatValue(v)}", Toast.LENGTH_SHORT).show()
                     Log.d("MainActivity", "tuning $prefKey = $v")
-                    fromSeek = false
+                    fromSlider = false
                 }
             })
 
-            // Edit Apply
             btnApply.setOnClickListener {
-                val raw = edit.text.toString().trim()
-                val parsed = raw.toFloatOrNull()
+                val parsed = edit.text.toString().trim().toFloatOrNull()
                 if (parsed == null) {
                     Toast.makeText(this, "Invalid number", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -467,12 +753,11 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Out of range [$min, $max]", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                // snap to step for non-int? keep as-is but store
                 val v = if (isInt) parsed.roundToInt().toFloat() else parsed
                 if (isInt) prefs.edit().putInt(prefKey, v.roundToInt()).apply()
                 else prefs.edit().putFloat(prefKey, v).apply()
-                seek.progress = progressForValue(v)
-                tvLive.text = "current: ${formatValue(v)}"
+                slider.value = v.coerceIn(min, max)
+                tvLive.text = "current ${formatValue(v)} · default ${formatValue(default)}"
                 refreshLiveSummary()
                 Toast.makeText(this, "$label = ${formatValue(v)}", Toast.LENGTH_SHORT).show()
                 Log.d("MainActivity", "tuning $prefKey = $v (via EditText)")
@@ -480,24 +765,24 @@ class MainActivity : AppCompatActivity() {
             btnReset.setOnClickListener {
                 if (isInt) prefs.edit().putInt(prefKey, default.roundToInt()).apply()
                 else prefs.edit().putFloat(prefKey, default).apply()
-                seek.progress = progressForValue(default)
+                slider.value = default.coerceIn(min, max)
                 edit.setText(formatValue(default))
-                tvLive.text = "current: ${formatValue(default)}"
+                tvLive.text = "current ${formatValue(default)} · default ${formatValue(default)}"
                 refreshLiveSummary()
                 Toast.makeText(this, "$label reset to ${formatValue(default)}", Toast.LENGTH_SHORT).show()
                 Log.d("MainActivity", "tuning $prefKey reset to $default")
             }
 
-            // live: if user types, update tvLive preview (don't commit)
+            // live: if user types, update the preview (don't commit)
             edit.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable?) {
-                    if (fromSeek) return
+                    if (fromSlider) return
                     val t = s?.toString()?.trim() ?: return
                     val pv = t.toFloatOrNull() ?: return
                     if (pv in min..max) {
-                        tvLive.text = "current: ${formatValue(pv)} (typed, press Apply)"
+                        tvLive.text = "current ${formatValue(pv)} · default ${formatValue(default)} (typed, press Apply)"
                     }
                 }
             })
@@ -507,7 +792,7 @@ class MainActivity : AppCompatActivity() {
 
         DebugTuning.rows.forEach { addTunable(it) }
 
-        addButton(tuningContainer, "Copy inference log") {
+        outlinedButton(tuningContainer, "Copy inference log") {
             val text = InferLog.dump()
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("infer-log", text))
@@ -515,7 +800,7 @@ class MainActivity : AppCompatActivity() {
             Log.d("MainActivity", "inference log copied")
         }
 
-        addButton(tuningContainer, "Reset all tuning to defaults") {
+        outlinedButton(tuningContainer, "Reset all tuning to defaults") {
             // G1/#86: one source for the controls and the reset. Every row/feature the
             // debug screen built comes from [DebugTuning], so there is no list here to
             // keep in step (which is exactly how a new control used to survive a reset).
@@ -528,8 +813,52 @@ class MainActivity : AppCompatActivity() {
             editor.apply()
             Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
             Log.d("MainActivity", "all tuning reset to defaults")
-            // Recreate to refresh SeekBars and the feature checkboxes
+            // Recreate to refresh the sliders and the feature switches.
             recreate()
+        }
+
+        // ————————— the pinned camera affordance —————————
+        // The camera is the app's purpose, so it is not a row in a list: it is an
+        // extended FAB, a sibling of the ScrollView in the CoordinatorLayout, so it
+        // stays put while the column above scrolls and the bars keep it clear of the
+        // navigation bar.
+        val cameraFab = ExtendedFloatingActionButton(this).apply {
+            text = "Scan with camera"
+            setIconResource(R.drawable.ic_camera)
+            contentDescription = "Scan with camera"
+            setOnClickListener { openCamera() }
+        }
+        val fabLp = CoordinatorLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            bottomMargin = dp(20)
+            marginEnd = dp(20)
+        }
+        root.addView(cameraFab, fabLp)
+
+        // ————— insets, spent once —————
+        val basePadH = dp(20)
+        val basePadTop = dp(6)
+        val basePadBottom = dp(24)
+        val fabBaseBottom = dp(20)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            // The app bar's own background covers the status bar; only its content
+            // is pushed below it.
+            appBar.setPadding(0, bars.top, 0, 0)
+            scroll.setPadding(
+                basePadH + bars.left,
+                basePadTop,
+                basePadH + bars.right,
+                basePadBottom + bars.bottom
+            )
+            val lp = cameraFab.layoutParams as CoordinatorLayout.LayoutParams
+            lp.bottomMargin = fabBaseBottom + bars.bottom
+            lp.marginEnd = basePadH + bars.right
+            cameraFab.layoutParams = lp
+            insets
         }
 
         setContentView(root)
@@ -545,6 +874,30 @@ class MainActivity : AppCompatActivity() {
         // dictionary. Warm re-entry (onNewIntent) keeps this activity, because
         // there the dictionary IS the screen the user came from.
         if (openCameraFrom(intent)) finish()
+    }
+
+    /** Resolve one colour from the current theme (day/night and Material You aware). */
+    private fun color(attr: Int): Int =
+        MaterialColors.getColor(this, attr, android.graphics.Color.GRAY)
+
+    /** A rounded solid-colour background, for the handful of views the theme does not style. */
+    private fun roundedBackground(fill: Int, radiusPx: Int): MaterialShapeDrawable =
+        MaterialShapeDrawable(
+            ShapeAppearanceModel.builder()
+                .setAllCorners(CornerFamily.ROUNDED, radiusPx.toFloat())
+                .build()
+        ).apply { fillColor = ColorStateList.valueOf(fill) }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    /**
+     * The one place the status text is written: keeps the banner's visibility in
+     * step with its content, so "no status" is no banner rather than an empty strip.
+     */
+    private fun setStatus(text: CharSequence) {
+        tvStatus.text = text
+        statusCard.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
     }
 
     /**
@@ -607,20 +960,6 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun addButton(parent: android.view.ViewGroup, text: String, onClick: () -> Unit) {
-        val button = Button(this).apply {
-            this.text = text
-            setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(0, 0, 0, 16)
-            }
-        }
-        parent.addView(button)
-    }
-
     /**
      * #43: first-launch install of the pitch dictionary vendored in the APK.
      *
@@ -655,28 +994,28 @@ class MainActivity : AppCompatActivity() {
                 val importer = DictionaryImporter(applicationContext)
                 val result = importer.importBundledAsset(PitchAccent.BUNDLED_ASSET) { progress ->
                     lifecycleScope.launch(Dispatchers.Main) {
-                        tvStatus.text = "Installing pitch dictionary: $progress entries..."
+                        setStatus("Installing pitch dictionary: $progress entries...")
                     }
                 }
                 withContext(Dispatchers.Main) {
                     // A3/#86: the failure message is the fold's result, so it must be
                     // assigned — as a bare expression the status line kept showing
                     // "Installing pitch dictionary: N entries…" after a failed import.
-                    tvStatus.text = result.fold(
+                    setStatus(result.fold(
                         onSuccess = { count ->
                             if (PitchAccent.isEnabled(this@MainActivity)) {
                                 "Pitch dictionary installed: $count entries"
                             } else {
                                 "Pitch dictionary installed: $count entries " +
-                                    "(tick the box above to show it)"
+                                    "(turn on pitch accent in Debug settings)"
                             }
                         },
                         onFailure = { e -> "Pitch dictionary error: ${e.message}" },
-                    )
+                    ))
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    tvStatus.text = "Error installing pitch dictionary: ${e.message}"
+                    setStatus("Error installing pitch dictionary: ${e.message}")
                 }
             }
         }
@@ -688,24 +1027,24 @@ class MainActivity : AppCompatActivity() {
             if (cursor.moveToFirst()) cursor.getString(nameIndex) else "Imported Dictionary"
         } ?: "Imported Dictionary"
 
-        tvStatus.text = "Importing..."
+        setStatus("Importing...")
         lifecycleScope.launch {
             try {
                 val importer = DictionaryImporter(applicationContext)
                 val result = importer.importZip(uri, name) { progress ->
                     lifecycleScope.launch(Dispatchers.Main) {
-                        tvStatus.text = "Importing: $progress entries..."
+                        setStatus("Importing: $progress entries...")
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    tvStatus.text = result.fold(
+                    setStatus(result.fold(
                         onSuccess = { count -> "Imported $count entries" },
                         onFailure = { e -> "Error: ${e.message}" }
-                    )
+                    ))
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    tvStatus.text = "Error initializing importer: ${e.message}"
+                    setStatus("Error initializing importer: ${e.message}")
                 }
             }
         }
