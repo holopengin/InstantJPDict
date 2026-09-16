@@ -13,6 +13,16 @@
          asks for it at runtime before the camera is used. -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- #71 — dictionary catalog. The catalog's Import button downloads a
+         Yomitan zip from a pinned upstream URL, so the app now declares
+         INTERNET. This is the one permission the catalog adds and the only
+         change #71 makes to the app's privacy posture: the app is fully offline
+         until the user taps Import, and the licence viewer, OCR, pitch install
+         and manual .zip import all still work with no network at all. When the
+         device is offline the catalog says "Download unavailable" instead of
+         failing, and no other feature touches the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Not required: the app installs and works on a device with no camera;
          the viewfinder is simply unavailable there. -->
     <uses-feature
