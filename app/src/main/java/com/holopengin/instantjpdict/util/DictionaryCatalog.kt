@@ -53,6 +53,24 @@ data class CatalogEntry(
     /** Human size for the row, e.g. `15.6 MB`. */
     fun sizeLabel(): String = formatBytes(bytes)
 
+    /**
+     * The artifact's own file name, taken from the end of [url] with any query
+     * string stripped — e.g. `JMdict_english.zip`. The download writes the file
+     * under this name, so the progress text names the same thing the user would
+     * see in a file manager rather than a second, invented label.
+     *
+     * Falls back to a name derived from [id] when the URL carries no final
+     * segment, which keeps the progress line from rendering an empty name.
+     */
+    fun fileName(): String {
+        val fromUrl = url
+            ?.substringBefore('?')
+            ?.substringBefore('#')
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() && it != "/" }
+        return fromUrl ?: "$id.zip"
+    }
+
     companion object {
         fun formatBytes(bytes: Long): String {
             if (bytes < 1024) return "$bytes B"

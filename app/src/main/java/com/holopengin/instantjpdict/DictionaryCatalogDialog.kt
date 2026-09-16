@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -23,6 +24,7 @@ import com.holopengin.instantjpdict.data.DictionaryImporter
 import com.holopengin.instantjpdict.util.CatalogEntry
 import com.holopengin.instantjpdict.util.CatalogSource
 import com.holopengin.instantjpdict.util.DictionaryCatalog
+import com.holopengin.instantjpdict.util.ImportProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -150,29 +152,59 @@ object DictionaryCatalogDialog {
                     if (entry.kind == CatalogSource.BUNDLED_ASSET) {
                         val asset = entry.asset!!
                         // The bundled install reads the APK and inserts rows; it is
-                        // short and repairs itself, so it is left to finish.
+                        // short and repairs itself, so it is left to finish. Its
+                        // callback fires only after a batch of rows is committed,
+                        // so the count shown cannot run ahead of what is in the DB.
                         val result = withContext(NonCancellable) {
                             importer.importBundledAsset(asset) { n ->
-                                ui { row.showBusy("Installing: $n entries…", cancellable = false) }
+                                ui {
+                                    row.showBusy(
+                                        ImportProgress.importing(
+                                            processed = n,
+                                            total = null,
+                                            name = entry.name,
+                                            indeterminate = true,
+                                        ),
+                                        cancellable = false,
+                                    )
+                                }
                             }
                         }
                         result.getOrThrow()
                     } else {
-                        val file: File = downloader.download(entry) { written ->
-                            ui { row.showDownloadProgress(written) }
+                        val result = downloader.download(entry) { written ->
+                            ui { row.showDownloadProgress(written, entry.bytes, entry.fileName()) }
                         }
+                        // The file is held here so the finally below can delete
+                        // it on every path that does not reach the import.
+                        val file = result
                         try {
-                            ui { row.showBusy("Verified — importing…", cancellable = false) }
+                            ui {
+                                row.showBusy(
+                                    ImportProgress.verify(entry.bytes, entry.fileName()),
+                                    cancellable = false,
+                                )
+                            }
                             // Once the file is verified the download is done and
                             // Cancel is gone: an import that has started must not
                             // be interrupted, because a half-written dictionary
                             // has no completion marker and would look installed.
-                            val result = withContext(NonCancellable) {
+                            val imported = withContext(NonCancellable) {
                                 importer.importZip(Uri.fromFile(file), entry.name) { n ->
-                                    ui { row.showBusy("Importing: $n entries…", cancellable = false) }
+                                    ui {
+                                        row.showBusy(
+                                            ImportProgress.importing(
+                                                processed = n,
+                                                total = null,
+                                                name = entry.name,
+                                                indeterminate = true,
+                                            ),
+                                            cancellable = false,
+                                        )
+                                    }
                                 }
                             }
-                            result.getOrThrow()
+                            imported.getOrThrow()
                         } finally {
                             file.delete()
                         }
@@ -191,7 +223,7 @@ object DictionaryCatalogDialog {
                             statusBanner.visibility = View.VISIBLE
                             row.showFailure("Download unavailable — no connection")
                         } else {
-                            row.showFailure("Import failed: ${e.message ?: "unknown error"}")
+                            row.showFailure(ImportProgress.failure(e.message))
                         }
                     }
                 } finally {
@@ -267,6 +299,25 @@ object DictionaryCatalogDialog {
             setPadding(0, dp(context, 2), 0, dp(context, 2))
         }
 
+        /**
+         * #71 follow-up: the line above the bar, split in two.
+         *
+         * [stateView] carries the phase in words ("Downloading JMdict_english.zip
+         * — 4.0 MB / 15.6 MB"); this carries the percentage alone, right-aligned
+         * so it is a fixed column the eye can find. A determinate bar alone
+         * shows "not done" but not "how far" — this is the number that says it.
+         * The percentage is throttled to whole percent so a transfer that
+         * repaints on every 64 KB chunk does not also rebuild the string on
+         * every chunk.
+         */
+        private val percentView = TextView(context).apply {
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 8), dp(context, 2), 0, dp(context, 2))
+            visibility = View.GONE
+        }
+
         private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -304,7 +355,16 @@ object DictionaryCatalogDialog {
                 textSize = 11f
                 setTextColor(IDLE)
             })
-            root.addView(stateView)
+            root.addView(LinearLayout(context).apply {
+                // #71 follow-up: the phase text and its percentage share one
+                // line, above the bar, so "what is happening" and "how far"
+                // read together and the bar below is unambiguously the thing
+                // the number belongs to.
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(stateView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(percentView)
+            })
             root.addView(progress)
             root.addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -323,6 +383,7 @@ object DictionaryCatalogDialog {
         fun bindState(installed: Boolean) {
             progress.visibility = View.GONE
             progress.isIndeterminate = false
+            percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             importButton.isEnabled = true
             when {
@@ -342,14 +403,24 @@ object DictionaryCatalogDialog {
             }
         }
 
-        /** Determinate download progress; Cancel is offered. */
-        fun showDownloadProgress(written: Long) {
+        /**
+         * Determinate download progress: the phase in words on the left, the
+         * percentage on the right, the bar below.
+         *
+         * The percentage is recomputed from the whole-percent value, so the text
+         * changes when the number does rather than on every 64 KB chunk the
+         * download reports.
+         */
+        fun showDownloadProgress(written: Long, total: Long, fileName: String) {
             progress.visibility = View.VISIBLE
             progress.isIndeterminate = false
-            progress.max = entry.bytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            progress.max = total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             progress.progress = written.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            stateView.text = "Downloading ${CatalogEntry.formatBytes(written)} / ${entry.sizeLabel()}…"
+            stateView.text = ImportProgress.download(written, total, fileName)
             stateView.setTextColor(IDLE)
+            percentView.visibility = View.VISIBLE
+            percentView.text = "${ImportProgress.percentOf(written, total)}%"
+            percentView.setTextColor(IDLE)
             importButton.isEnabled = false
             cancelButton.visibility = View.VISIBLE
         }
@@ -358,6 +429,7 @@ object DictionaryCatalogDialog {
         fun showBusy(label: String, cancellable: Boolean) {
             progress.visibility = View.VISIBLE
             progress.isIndeterminate = true
+            percentView.visibility = View.GONE
             stateView.text = label
             stateView.setTextColor(IDLE)
             importButton.isEnabled = false
@@ -366,6 +438,7 @@ object DictionaryCatalogDialog {
 
         fun showFailure(message: String) {
             progress.visibility = View.GONE
+            percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             stateView.text = message
             stateView.setTextColor(ERR)
