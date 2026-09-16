@@ -20,19 +20,7 @@ import kotlinx.coroutines.withContext
 object BookmarkStore {
     private val keys = mutableSetOf<BookmarkKey>()
 
-    @Volatile
-    private var loaded = false
-
-    /** True once the mirror has been populated at least once. */
-    val isLoaded: Boolean get() = loaded
-
     fun isBookmarked(key: BookmarkKey): Boolean = synchronized(keys) { key in keys }
-
-    /** Test/process-boundary hook: drops the mirror so the next refresh is authoritative. */
-    fun reset() {
-        synchronized(keys) { keys.clear() }
-        loaded = false
-    }
 
     suspend fun refresh(context: Context) {
         val rows = withContext(Dispatchers.IO) {
@@ -42,7 +30,6 @@ object BookmarkStore {
             keys.clear()
             keys.addAll(rows.map { it.key })
         }
-        loaded = true
     }
 
     /**
@@ -68,7 +55,6 @@ object BookmarkStore {
                         kanji = candidate.kanji,
                         reading = candidate.reading,
                         dictionaryName = candidate.dictionaryName,
-                        dictionaryId = candidate.dictionaryId,
                         definitionsText = candidate.definitionsText,
                         createdAt = System.currentTimeMillis()
                     )

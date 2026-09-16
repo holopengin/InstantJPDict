@@ -1270,9 +1270,6 @@ class OcrOverlayView(
                 setPadding(0, 4, 0, 40)
             }
             renderHeadwordSection(termSection, entry.readingGroups)
-            // #67: save this headword. One toggle per rendered dictionary block,
-            // directly under the headwords it saves.
-            createBookmarkToggle(entry)?.let { termSection.addView(it) }
             // #62: chain row directly below the headwords, above the senses.
             // Direct matches (deinflection == null) render as before.
             entry.deinflection?.let { chain ->
@@ -1280,6 +1277,9 @@ class OcrOverlayView(
                     termSection.addView(createDeinflectionRow(chain, entry.term))
                 }
             }
+            // #67: save this headword. One toggle per rendered dictionary block,
+            // below the headword/chain row and above the senses.
+            createBookmarkToggle(entry)?.let { termSection.addView(it) }
             entry.readingGroups.forEach { group ->
                 renderSensesForReading(termSection, group)
                 

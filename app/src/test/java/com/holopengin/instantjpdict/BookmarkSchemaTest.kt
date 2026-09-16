@@ -26,7 +26,6 @@ class BookmarkSchemaTest {
         assertTrue(ddl.contains("`kanji` TEXT NOT NULL"))
         assertTrue(ddl.contains("`reading` TEXT NOT NULL"))
         assertTrue(ddl.contains("`dictionaryName` TEXT NOT NULL"))
-        assertTrue(ddl.contains("`dictionaryId` INTEGER NOT NULL"))
         assertTrue(ddl.contains("`definitionsText` TEXT NOT NULL"))
         assertTrue(ddl.contains("`createdAt` INTEGER NOT NULL"))
     }
@@ -46,7 +45,6 @@ class BookmarkSchemaTest {
             kanji = "食",
             reading = "しょく",
             dictionaryName = "JMdict",
-            dictionaryId = 1,
             definitionsText = "eat",
             createdAt = 0
         ).key

@@ -111,8 +111,6 @@ data class FormattedEntry(
     /** Display name of the dictionary this entry came from (null = unknown,
      * caption omitted). Entries never mix dictionaries. */
     val dictionaryName: String? = null,
-    /** Source dictionary row id. Reference only — never bookmark identity (#67). */
-    val dictionaryId: Int? = null,
     /** #67: what the popup's bookmark toggle saves, or null when this block has
      * no concrete headword to save. Computed here so the view needs no DB read. */
     val bookmark: BookmarkCandidate? = null
@@ -1027,7 +1025,6 @@ class OcrOverlayStateController {
                 readingGroups,
                 deinflection = chain,
                 dictionaryName = dictNames[dictId],
-                dictionaryId = dictId,
                 bookmark = bookmarkCandidate(dictId, readingGroups, dictEntries, dictNames)
             )
             }
@@ -1054,7 +1051,6 @@ class OcrOverlayStateController {
             kanji = headword.first,
             reading = headword.second,
             dictionaryName = name,
-            dictionaryId = dictId,
             definitionsText = Definitions.plainAll(dictEntries.map { it.definitions })
         )
     }

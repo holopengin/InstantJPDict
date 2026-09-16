@@ -30,10 +30,4 @@ interface BookmarkDao {
     /** Insertion order. The viewer sorts in memory ([com.holopengin.instantjpdict.util.BookmarkSort]). */
     @Query("SELECT * FROM bookmark")
     suspend fun getAll(): List<Bookmark>
-
-    @Query("SELECT COUNT(*) FROM bookmark")
-    suspend fun count(): Int
-
-    @Query("DELETE FROM bookmark")
-    suspend fun clearAll()
 }

@@ -26,14 +26,12 @@ data class BookmarkKey(
 
 /**
  * Everything the popup needs to save a headword with no second database read:
- * the identity plus the snapshotted definition text and the source dictionary
- * id for reference.
+ * the identity plus the snapshotted definition text.
  */
 data class BookmarkCandidate(
     val kanji: String,
     val reading: String,
     val dictionaryName: String,
-    val dictionaryId: Int,
     val definitionsText: String
 ) {
     val key: BookmarkKey get() = BookmarkKey(kanji, reading, dictionaryName)

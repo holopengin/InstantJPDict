@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict.util
 
 import com.holopengin.instantjpdict.data.Bookmark
+import com.holopengin.instantjpdict.util.BookmarkKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -21,7 +22,6 @@ class BookmarkExportTest {
         kanji = kanji,
         reading = reading,
         dictionaryName = dictionary,
-        dictionaryId = 1,
         definitionsText = definitions,
         createdAt = createdAt
     )
@@ -30,24 +30,27 @@ class BookmarkExportTest {
 
     @Test
     fun same_headword_and_dictionary_is_the_same_key() {
-        val a = BookmarkCandidate("食べる", "たべる", "JMdict", 1, "")
-        val b = BookmarkCandidate("食べる", "たべる", "JMdict", 99, "different snapshot")
+        val a = BookmarkCandidate("食べる", "たべる", "JMdict", "")
+        val b = BookmarkCandidate("食べる", "たべる", "JMdict", "different snapshot")
         assertEquals(a.key, b.key)
     }
 
     @Test
     fun same_headword_in_two_dictionaries_is_not_the_same_key() {
-        val jm = BookmarkCandidate("食べる", "たべる", "JMdict", 1, "")
-        val kd = BookmarkCandidate("食べる", "たべる", "KANJIDIC", 2, "")
+        val jm = BookmarkCandidate("食べる", "たべる", "JMdict", "")
+        val kd = BookmarkCandidate("食べる", "たべる", "KANJIDIC", "")
         assertNotEquals(jm.key, kd.key)
     }
 
     @Test
-    fun key_ignores_the_mutable_dictionary_id() {
-        // The id churns on re-import; the key must not.
-        val before = BookmarkCandidate("君", "きみ", "JMdict", 1, "")
-        val after = BookmarkCandidate("君", "きみ", "JMdict", 42, "")
+    fun key_depends_only_on_glyph_reading_and_dictionary() {
+        // The definition snapshot is mutable display data, never identity: adding
+        // the missing dictionary id back, or re-flattening the senses, must not
+        // detach an existing bookmark.
+        val before = BookmarkCandidate("君", "きみ", "JMdict", "old")
+        val after = BookmarkCandidate("君", "きみ", "JMdict", "new, corrected")
         assertEquals(before.key, after.key)
+        assertEquals(BookmarkKey("君", "きみ", "JMdict"), after.key)
     }
 
     // —— ordering ———————————————————————————————————————————————
@@ -129,7 +132,7 @@ class BookmarkExportTest {
     }
 
     @Test
-    fun render_produces_a_utf8_safe_file_name_and_iso_timestamp() {
+    fun file_name_and_timestamp_are_utc_and_locale_independent() {
         assertEquals("instant-jpdict-bookmarks-20260916-123456.csv", BookmarkCsv.fileName(1789562096000L))
         assertEquals("2026-09-16T12:34:56Z", BookmarkCsv.timestamp(1789562096000L))
     }

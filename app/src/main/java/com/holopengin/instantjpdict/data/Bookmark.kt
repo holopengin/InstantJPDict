@@ -31,8 +31,6 @@ data class Bookmark(
     val kanji: String,
     val reading: String,
     val dictionaryName: String,
-    /** Source dictionary at save time; display/reference only, never identity. */
-    val dictionaryId: Int,
     /** Plain-text senses, snapshotted. See [com.holopengin.instantjpdict.util.Definitions]. */
     val definitionsText: String,
     val createdAt: Long
@@ -59,7 +57,6 @@ object BookmarkSchema {
             "`kanji` TEXT NOT NULL, " +
             "`reading` TEXT NOT NULL, " +
             "`dictionaryName` TEXT NOT NULL, " +
-            "`dictionaryId` INTEGER NOT NULL, " +
             "`definitionsText` TEXT NOT NULL, " +
             "`createdAt` INTEGER NOT NULL)"
 
