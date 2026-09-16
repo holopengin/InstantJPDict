@@ -2,6 +2,8 @@ package com.holopengin.instantjpdict
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -1114,7 +1116,8 @@ class OcrOverlayView(
 
             updateLookupHighlights(lineIdx, charIdx, result.maxLen)
 
-            showResultsUi(rootLayout, result.matches, result.tappedBox, skipCenter, result.cacheKey)
+            showResultsUi(rootLayout, result.matches, result.tappedBox, skipCenter, result.cacheKey,
+                LookupCopyTargets.targets(result.cacheKey, result.maxLen, result.matches))
         }
     }
 
@@ -1150,7 +1153,7 @@ class OcrOverlayView(
         }
     }
 
-    private fun showResultsUi(rootLayout: FrameLayout, matches: List<FormattedEntry>, tappedBox: JpDictRect, skipCenter: Boolean = false, cacheKey: String? = null) {
+    private fun showResultsUi(rootLayout: FrameLayout, matches: List<FormattedEntry>, tappedBox: JpDictRect, skipCenter: Boolean = false, cacheKey: String? = null, copyTargets: List<CopyTarget> = emptyList()) {
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val isLandscape = rootWidth > rootHeight
@@ -1159,7 +1162,7 @@ class OcrOverlayView(
         
         if (existingRoot != null) {
             val dictionaryContainer = existingRoot.findViewWithTag<LinearLayout>("dictionary_content_container")
-            if (dictionaryContainer != null) updateDictionaryPanel(dictionaryContainer, matches, cacheKey)
+            if (dictionaryContainer != null) updateDictionaryPanel(dictionaryContainer, matches, cacheKey, copyTargets)
             
             val neighborPanel = existingRoot.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
             if (neighborPanel != null) updateNeighborHighlights(neighborPanel)
@@ -1194,7 +1197,7 @@ class OcrOverlayView(
             elevation = 20f
             setOnClickListener { }
         }
-        updateDictionaryPanel(dictionaryPanel, matches, cacheKey)
+        updateDictionaryPanel(dictionaryPanel, matches, cacheKey, copyTargets)
 
         val correctionPanel = createCorrectionPanel(controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, isLandscape, rootLayout, skipCenter)
         val alternativesPanelContainer = FrameLayout(context).apply {
@@ -1233,7 +1236,7 @@ class OcrOverlayView(
         updateCursor()
     }
 
-    private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null) {
+    private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null, copyTargets: List<CopyTarget> = emptyList()) {
         container.removeAllViews()
         targetScrollY = 0
         scrollAnimator?.cancel()
@@ -1263,6 +1266,11 @@ class OcrOverlayView(
             orientation = LinearLayout.VERTICAL
             setPadding(10, 0, 10, 150)
         }
+
+        // #66: copy affordances sit at the top of the entry list, in the same
+        // scroll content as the entries so the per-cache view cache restores
+        // them with the lookup they belong to.
+        buildCopyHeader(copyTargets)?.let { scrollContent.addView(it) }
 
         matches.forEach { entry ->
             val termSection = LinearLayout(context).apply { 
@@ -1311,6 +1319,54 @@ class OcrOverlayView(
         if (cacheKey != null) {
             dictionaryViewCache[cacheKey] = scrollView
         }
+    }
+
+    /**
+     * #66: the popup's copy affordances — one small button per [CopyTarget].
+     * Buttons rather than a long-press on the character views on purpose: this
+     * costs a little popup space but leaves the tap-to-lookup / drag / pinch
+     * seam (`TapDisambiguator`) completely untouched, and it is discoverable.
+     * The strings themselves are decided by [LookupCopyTargets], so a
+     * long-press trigger could be added later without moving that logic.
+     */
+    private fun buildCopyHeader(targets: List<CopyTarget>): View? {
+        if (targets.isEmpty()) return null
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, 8)
+        }
+        targets.forEach { target ->
+            row.addView(Button(context).apply {
+                text = target.label
+                textSize = 12f
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                OverlayFont.apply(context, this)
+                includeFontPadding = false
+                minWidth = 0
+                setPadding(24, 8, 24, 8)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#3a5a7a"))
+                    cornerRadius = 6f
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 16, 0) }
+                setOnClickListener { copyToClipboard(target) }
+            })
+        }
+        return row
+    }
+
+    /** #66: `ClipboardManager.setPrimaryClip`, matching `MainActivity`'s
+     *  inference-log copy. The toast is the guaranteed feedback: the Android
+     *  13+ system copy preview only appears for a writable foreground app, and
+     *  an accessibility overlay is not one, so this host cannot rely on it. */
+    private fun copyToClipboard(target: CopyTarget) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(target.clipLabel, target.value))
+        Toast.makeText(context, "Copied: ${target.value}", Toast.LENGTH_SHORT).show()
     }
 
     /** #62: compact deinflection chain row, e.g. "食べた → 食べる" + past chip.
