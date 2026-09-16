@@ -142,6 +142,14 @@ class MainActivity : AppCompatActivity() {
         }
         layout.addView(accessibilityHelp)
 
+        // #71: the one-tap catalog. Browse popular dictionaries and import the
+        // chosen one without leaving the app: download to cache, verify the
+        // pinned size + SHA-256, then insert through the same importer the file
+        // picker below uses. The pitch row is bundled and needs no network.
+        addButton(layout, "Dictionary Catalog") {
+            DictionaryCatalogDialog.show(this)
+        }
+
         addButton(layout, "Download Dictionaries") {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yomidevs/jmdict-yomitan")))
         }

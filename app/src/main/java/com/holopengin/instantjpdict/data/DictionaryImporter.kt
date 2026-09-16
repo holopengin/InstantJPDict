@@ -25,6 +25,15 @@ class DictionaryImporter(private val context: Context) {
 
     suspend fun importZip(uri: android.net.Uri, fileName: String, onProgress: (Int) -> Unit): Result<Int> = withContext(Dispatchers.IO) {
         try {
+            // #71: re-importing the same dictionary must replace it, not stack a
+            // second copy. The zip's declared title is read from a first open
+            // (which stops at index.json) and any existing dictionary with that
+            // title is removed before the real import — the same guarantee
+            // [importBundledAsset] has always had, now shared by the file-picker
+            // and catalog paths so both are idempotent.
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                readZipTitle(stream)?.let { replaceExisting(it) }
+            }
             val inputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(Exception("Failed to open input stream"))
             // A6/#86: `importZipStream` closes the stream it is handed on its success
@@ -56,14 +65,8 @@ class DictionaryImporter(private val context: Context) {
      */
     suspend fun importBundledAsset(assetPath: String, onProgress: (Int) -> Unit): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val title = context.assets.open(assetPath).use { readZipTitle(it) }
-            if (title != null) {
-                val dao = AppDatabase.getDatabase(context).dictionaryDao()
-                dao.findDictionaryByName(title)?.let { existing ->
-                    Log.i(TAG, "Replacing existing '${existing.name}' (id=${existing.id})")
-                    dao.deleteEntriesForDictionary(existing.id)
-                    dao.deleteDictionary(existing.id)
-                }
+            context.assets.open(assetPath).use { readZipTitle(it) }?.let { title ->
+                replaceExisting(title)
             }
             val inputStream = context.assets.open(assetPath)
             // A6/#86: same shape as [importZip] — release the asset stream on the
@@ -81,6 +84,21 @@ class DictionaryImporter(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Bundled import failed", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Remove any existing dictionary whose [title] matches, together with its
+     * entries and tags, so the import that follows replaces it instead of
+     * stacking a duplicate (#43, #71).
+     */
+    private suspend fun replaceExisting(title: String) {
+        val dao = AppDatabase.getDatabase(context).dictionaryDao()
+        dao.findDictionaryByName(title)?.let { existing ->
+            Log.i(TAG, "Replacing existing '${existing.name}' (id=${existing.id})")
+            dao.deleteEntriesForDictionary(existing.id)
+            dao.deleteTagsForDictionary(existing.id)
+            dao.deleteDictionary(existing.id)
         }
     }
 

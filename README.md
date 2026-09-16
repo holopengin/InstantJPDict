@@ -14,6 +14,7 @@ Currently only tested with [JMDict and KANJIDIC for Yomitan](https://github.com/
 - **Floating Overlay**: Accessible from any app via an accessibility service.
 - **Frictionless Corrections**: In the rare case the OCR makes a mistake, corrections are only a tap away. We use the text recognition model's own prediction ratings to provide the most likely alternatives, as well as a manual input mode.
 - **Yomitan Dictionaries**: Ingests Yomitan format dictionaries such as https://github.com/yomidevs/jmdict-yomitan
+- **Dictionary catalog**: Browse popular dictionaries (JMdict, KANJIDIC, and the bundled pitch-accent set) and import one in a tap — the app downloads it, checks it against a pinned SHA-256, and adds it, no file picker needed. This is the only feature that uses the network, and only when you tap Import.
 
 ## Roadmap
 - [ ] Train a better model for vertical text recognition

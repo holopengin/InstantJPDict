@@ -15,7 +15,9 @@ see [licenses.md](licenses.md) and the **Licenses** button on the main screen
 
 Yomitan term-meta-bank v3 dictionary of Tokyo pitch accents, in-app behind the
 **Show pitch accent in dictionary popup** checkbox (see #43). Vendored and
-installed at startup, needing no network.
+installed at startup, needing no network. The dictionary catalog (#71) lists it
+as a **bundled** row: that row installs from this same asset with no URL and no
+download.
 
 | | |
 |---|---|

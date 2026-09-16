@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "comment": [
+    "Static dictionary catalog for InstantJPDict (#71).",
+    "Hand-maintained. Every network entry is pinned to a DATED upstream release",
+    "URL (never /releases/latest/) plus a byte size and SHA-256, so an import can",
+    "be integrity-checked before a single row reaches the database.",
+    "kind=yomitanZip downloads `url`; kind=bundledAsset imports `asset` from the",
+    "APK and needs no network. `title` is the dictionary's stable title family",
+    "the installed DictionaryMeta.name is matched against (the upstream zip may",
+    "append a revision in brackets, e.g. \"JMdict [2026-09-15]\").",
+    "Licence labels point at the in-app Licenses viewer (#70), which ships the",
+    "full CC BY-SA 4.0 / EDRDG texts."
+  ],
+  "entries": [
+    {
+      "id": "jmdict-english",
+      "name": "JMdict (English)",
+      "description": "The standard Japanese-to-English dictionary: words, readings, parts of speech and glosses. The one to install first.",
+      "kind": "yomitanZip",
+      "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-15/JMdict_english.zip",
+      "bytes": 15594803,
+      "sha256": "58983250d41fb8e9ea656cb7678939ecc0f82b4a91a595ad04696f88fe599472",
+      "title": "JMdict",
+      "license": "CC BY-SA 4.0 (EDRDG)",
+      "source": "yomidevs/jmdict-yomitan @ 2026-09-15"
+    },
+    {
+      "id": "kanjidic-english",
+      "name": "KANJIDIC (English)",
+      "description": "Per-kanji readings, meanings, grade, stroke count and frequency. Fills in the kanji half of a lookup.",
+      "kind": "yomitanZip",
+      "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-15/KANJIDIC_english.zip",
+      "bytes": 721032,
+      "sha256": "51a7a1aa3f996e60742b9e5f62144422926060d48208d9bdb9f51ecfe9dd4f74",
+      "title": "KANJIDIC",
+      "license": "CC BY-SA 4.0 (EDRDG)",
+      "source": "yomidevs/jmdict-yomitan @ 2026-09-15"
+    },
+    {
+      "id": "kanjium-pitch",
+      "name": "Kanjium Pitch Accents",
+      "description": "Tokyo pitch accents (downstep positions) from the Kanjium dataset. Bundled in the app and installed at first launch; no download.",
+      "kind": "bundledAsset",
+      "asset": "pitch/kanjium_pitch_accents.zip",
+      "bytes": 1207703,
+      "sha256": "c1cdb4f4d930ff569490fe0b7d93b58eef23880c75f54660fd5fbca05b71740f",
+      "title": "Kanjium Pitch Accents",
+      "license": "CC BY-SA 4.0",
+      "source": "mifunetoshiro/kanjium @ 685d4d723d6d (bundled in the APK)"
+    }
+  ]
+}

@@ -6,8 +6,11 @@ overlay fonts (#84) and the dictionary data derived from upstream corpora —
 ships inside the APK under `app/src/main/assets/licenses/`, with an index and an
 in-app viewer reached from the **Licenses** button on the main screen.
 
-No network is involved, in the viewer or anywhere in this feature: the app declares
-no `INTERNET` permission and none was added.
+No network is involved in the viewer or anywhere in this feature: everything it
+shows is read from the APK, so it works with airplane mode on. (The app does
+declare `INTERNET` since #71, for the dictionary catalog only — see
+[dictionary-catalog.md](dictionary-catalog.md) — and the licence viewer never
+uses it.)
 
 ## Layout
 
@@ -104,6 +107,7 @@ dependency, and every one of those was checked against its own published POM.
 | `libomp.so` (LLVM OpenMP runtime from the NDK toolchain) | Apache-2.0 WITH LLVM-exception | `texts/apache-2.0-with-llvm-exception.txt` | LLVM's `LICENSE.TXT`; `libomp.so` packaged from NDK 28.2.13676358 |
 | Noto Sans JP `fonts/NotoSansJP-Regular.ttf` (overlay face, #84) | OFL-1.1 | `texts/ofl-1.1.txt` | `google/fonts ofl/notosansjp/NotoSansJP[wght].ttf`, sha256 `c2f3b4d4…`; static Regular instance via fontTools `varLib.instancer wght=400`; `vert`/`vrt2` verified with fontTools |
 | Noto Serif JP `fonts/NotoSerifJP-Regular.ttf` (overlay face, #84) | OFL-1.1 | `texts/ofl-1.1.txt` | `google/fonts ofl/notoserifjp/NotoSerifJP[wght].ttf`, sha256 `2fd527ba…`; static Regular instance via fontTools `varLib.instancer wght=400`; `vert`/`vrt2` verified with fontTools |
+| Dictionary catalog metadata `catalog/dictionaries.json` (#71) | AGPL-3.0-only | `texts/agpl-3.0.txt` | first-party app metadata: dictionary names, pinned upstream URLs, sizes, SHA-256 and licence labels; carries no dictionary data |
 
 Canonical text sources (fetched once, 2026-09-13, recorded here because these are the
 files whose wording the index's labels are asserting):
@@ -127,8 +131,8 @@ files whose wording the index's labels are asserting):
 **MainActivity → Licenses** (`addButton(layout, "Licenses")`, beside Manage
 Dictionaries) opens a dialog listing every component with its licence; selecting one
 shows its notice, provenance and the full licence text. Everything is read from
-assets, so it works with airplane mode on — and with the app's no-`INTERNET`
-posture unchanged.
+assets, so it works with airplane mode on — and without any network use. (The
+app's only network path is the dictionary catalog's Import, #71.)
 
 The EDRDG licence statement asks a smartphone app for exactly this: the
 acknowledgement on a separate screen reached from a menu, not on a launch screen
@@ -172,7 +176,10 @@ test run by `OverlayFontTest`, which parses the committed sfnt/GSUB headers.
 - The project's own licence is unchanged: `LICENSE` at the repo root stays AGPL-3.0,
   and the app's copy under `assets/licenses/texts/` is generated from it.
 - Licences for **user-imported** dictionaries (JMdict/KANJIDIC Yomitan zips). Their
-  notices live with the import; the app bundles no KANJIDIC data of its own.
+  notices live with the import; the app bundles no KANJIDIC data of its own. The
+  dictionary catalog (#71) names each importable dictionary's licence and points
+  its **Licences** button at this viewer, but the files themselves are downloaded
+  by the user and are not redistributed here.
 - `models/archive/` and `tmp/` — not shipped, so not covered.
 
 ## Known gaps

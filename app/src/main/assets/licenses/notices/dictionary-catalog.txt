@@ -1,0 +1,28 @@
+Dictionary catalog metadata
+===========================
+
+Asset   : app/src/main/assets/catalog/dictionaries.json
+Licence : AGPL-3.0-only (InstantJPDict's own licence — see the app entry above)
+Content : the app's own list of importable dictionaries — display names,
+          descriptions written for the app, pinned upstream download URLs,
+          expected byte sizes, SHA-256 digests and licence labels. It carries
+          NO dictionary data and NO third-party text, so it is first-party
+          metadata rather than a redistribution of anything.
+
+The dictionaries it points at are downloaded by the user from upstream at
+import time and inserted into the user's device; InstantJPDict redistributes
+none of them. Their own licences therefore travel with the import, which
+docs/licenses.md records under "Out of scope". The licences the catalog names
+are:
+
+  * JMdict and KANJIDIC (yomidevs/jmdict-yomitan; EDRDG data) — CC BY-SA 4.0.
+    The EDRDG licence statement and the CC BY-SA 4.0 text ship in this index in
+    full (the KRADFILE/JMdict and Kanjium entries) and the catalog's Licences
+    button opens the viewer that shows them.
+  * Kanjium pitch accents (mifunetoshiro/kanjium) — CC BY-SA 4.0. Unlike the two
+    above, the pitch dictionary IS redistributed (it is bundled in the APK and
+    installed at first launch); that redistribution is covered by the separate
+    "Kanjium pitch accents" entry above, not by this one.
+
+Every pin in this file is checked against the shipped asset by
+DictionaryCatalogTest; a stale pin or a rebuilt bundled zip fails the suite.
