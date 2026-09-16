@@ -46,6 +46,23 @@ class DictionaryCatalogTest {
             assertTrue("'${e.id}' pins no size", e.bytes > 0)
             assertTrue("'${e.id}' pins no sha256", e.sha256.matches(Regex("^[0-9a-f]{64}$")))
         }
+        // Two entries sharing a title family would make installed state ambiguous.
+        assertEquals(
+            "two catalog entries share a title family",
+            entries.size,
+            entries.map { it.title }.distinct().size,
+        )
+    }
+
+    @Test
+    fun a_network_row_names_the_release_its_url_points_at() {
+        entries.filter { it.kind == CatalogSource.YOMITAN_ZIP }.forEach { e ->
+            val tag = Regex("/releases/download/([^/]+)/").find(e.url!!)!!.groupValues[1]
+            assertTrue(
+                "'${e.id}' URL is release '$tag' but its source line says '${e.source}'",
+                e.source.contains(tag),
+            )
+        }
     }
 
     @Test

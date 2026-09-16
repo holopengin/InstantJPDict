@@ -124,7 +124,7 @@ object DictionaryCatalogDialog {
         val rows = mutableListOf<CatalogRowView>()
 
         fun refreshRows() {
-            rows.forEach { it.bindInstalled(it.entry.id in installedIds, offline) }
+            rows.forEach { it.bindState(it.entry.id in installedIds, offline) }
         }
 
         suspend fun refreshInstalledState() {
@@ -302,18 +302,15 @@ object DictionaryCatalogDialog {
         }
 
         /** Back to the resting state: installed, or ready to import. */
-        fun bindInstalled(installed: Boolean, offline: Boolean) {
+        fun bindState(installed: Boolean, offline: Boolean) {
             progress.visibility = View.GONE
             progress.isIndeterminate = false
             cancelButton.visibility = View.GONE
             val unavailable = offline && entry.downloadable
             importButton.isEnabled = !unavailable
             when {
-                unavailable -> {
-                    stateView.text = "Download unavailable — offline"
-                    stateView.setTextColor(WARN)
-                    importButton.text = "Import"
-                }
+                // Installed wins over offline: the dictionary is present whatever
+                // the connection is doing, so the row must not claim otherwise.
                 installed -> {
                     stateView.text = if (entry.kind == CatalogSource.BUNDLED_ASSET) {
                         "Installed (bundled)"
@@ -322,6 +319,11 @@ object DictionaryCatalogDialog {
                     }
                     stateView.setTextColor(OK)
                     importButton.text = "Re-import"
+                }
+                unavailable -> {
+                    stateView.text = "Download unavailable — offline"
+                    stateView.setTextColor(WARN)
+                    importButton.text = "Import"
                 }
                 else -> {
                     stateView.text = ""
@@ -360,12 +362,11 @@ object DictionaryCatalogDialog {
             importButton.text = "Retry"
             importButton.isEnabled = !(offline && entry.downloadable)
         }
-
-        private companion object {
-            fun dp(context: Context, value: Int): Int =
-                (value * context.resources.displayMetrics.density).toInt()
-        }
     }
+
+    /** Density-independent pixels; one definition for the dialog and its rows. */
+    private fun dp(context: Context, value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
 
     /**
      * True when the device has a validated internet connection. VALIDATED, not
@@ -393,7 +394,4 @@ object DictionaryCatalogDialog {
             .setPositiveButton("Close", null)
             .show()
     }
-
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
 }
