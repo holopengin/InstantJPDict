@@ -6,4 +6,10 @@
     <cache-path
         name="proto_camera"
         path="proto-camera/" />
+    <!-- #67: the bookmark CSV export. Exposed through the same authority as the
+         captured photo rather than a second provider; still only a cache
+         subdirectory. -->
+    <cache-path
+        name="bookmarks"
+        path="bookmarks/" />
 </paths>

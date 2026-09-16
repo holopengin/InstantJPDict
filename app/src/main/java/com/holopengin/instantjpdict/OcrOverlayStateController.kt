@@ -11,6 +11,8 @@ import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.GapCandidates
 import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
+import com.holopengin.instantjpdict.util.BookmarkCandidate
+import com.holopengin.instantjpdict.util.Definitions
 import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.google.gson.Gson
 import uniffi.nav_graph_core.*
@@ -108,7 +110,10 @@ data class FormattedEntry(
     val deinflection: DeinflectionChain? = null,
     /** Display name of the dictionary this entry came from (null = unknown,
      * caption omitted). Entries never mix dictionaries. */
-    val dictionaryName: String? = null
+    val dictionaryName: String? = null,
+    /** #67: what the popup's bookmark toggle saves, or null when this block has
+     * no concrete headword to save. Computed here so the view needs no DB read. */
+    val bookmark: BookmarkCandidate? = null
 )
 
 /** One lookup candidate: a dictionary-form term plus how it was reached.
@@ -1019,10 +1024,35 @@ class OcrOverlayStateController {
                 term,
                 readingGroups,
                 deinflection = chain,
-                dictionaryName = dictNames[dictId]
+                dictionaryName = dictNames[dictId],
+                bookmark = bookmarkCandidate(dictId, readingGroups, dictEntries, dictNames)
             )
             }
         }
+    }
+
+    /**
+     * #67: the headword the popup's bookmark toggle saves — the first headword
+     * pair the block renders, plus a snapshot of this block's senses. Null when
+     * the dictionary has no display name (the popup cannot label it, and that
+     * name is the bookmark's identity).
+     */
+    private fun bookmarkCandidate(
+        dictId: Int,
+        readingGroups: List<FormattedReadingGroup>,
+        dictEntries: List<DictionaryEntry>,
+        dictNames: Map<Int, String>
+    ): BookmarkCandidate? {
+        val name = dictNames[dictId] ?: return null
+        val headword = readingGroups.firstNotNullOfOrNull { group ->
+            group.headwords.firstOrNull()?.let { hw -> hw.kanji to group.reading }
+        } ?: return null
+        return BookmarkCandidate(
+            kanji = headword.first,
+            reading = headword.second,
+            dictionaryName = name,
+            definitionsText = Definitions.plainAll(dictEntries.map { it.definitions })
+        )
     }
 
     private fun getAttr(data: Map<*, *>, key: String) = 
