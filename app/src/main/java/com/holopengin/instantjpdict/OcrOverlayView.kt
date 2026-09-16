@@ -17,6 +17,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.Menu
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -29,6 +30,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -110,6 +112,17 @@ class OcrOverlayView(
     private var ocrJob: Job? = null
     private var statusGen = 0
     private var lookupJob: Job? = null
+
+    /**
+     * #66 follow-up: the lookup the neighbour chips' long-press menu reads.
+     *
+     * The chips carry geometry only ([OcrOverlayStateController.getNeighborUiState])
+     * and the copy strings live in the lookup [OcrOverlayStateController.Result],
+     * which the controller does not retain. Caching it here keeps the menu from
+     * re-running a lookup just to offer a copy, and — because it is stamped with
+     * the position it came from — from offering another position's strings.
+     */
+    private var lastLookup: Pair<Pair<Int, Int>, OcrOverlayStateController.Result>? = null
     private var repeatJob: Job? = null
     private var currentRepeatingKeyCode = 0
 
@@ -1064,9 +1077,61 @@ class OcrOverlayView(
                         performLookup(charState.lineIdx, charState.charIdx, rootLayout, skipCenter = true)
                     }
                 }
+                // #66 follow-up: long-press a neighbour chip to get the copy
+                // menu. The chip is the same text as the overlay's own character
+                // but is deliberately the *less* intrusive place to put this:
+                // the overlay's tap seam is shared with pan/pinch (#61), while
+                // these chips are plain buttons whose only other gesture is the
+                // single tap above. Long-press reads the lookup that is already
+                // current, so it never triggers a lookup of its own.
+                setOnLongClickListener {
+                    showNeighbourCopyMenu(this, charState.lineIdx, charState.charIdx)
+                    true
+                }
             }
             lineContainer.addView(neighborTextView, itemLp)
         }
+    }
+
+    /**
+     * #66 follow-up: the long-press menu for a neighbour-list character.
+     *
+     * Three strings are in hand at that position — the highlighted surface run,
+     * the long-pressed character itself, and the dictionary headword — so all
+     * three are offered, decided and ordered by [LookupCopyTargets.neighbourMenu]
+     * (which also drops duplicates and empty entries). The popup menu is the
+     * platform's own, so it needs no layout of ours and dismisses the way a user
+     * expects.
+     *
+     * The current lookup is read from a cache stamped with the position it came
+     * from ([lastLookup]) rather than re-run: a charState carries only geometry,
+     * and the strings live in the lookup result the panel was built from. When
+     * the long-pressed chip is not that position — a chip the user has not
+     * tapped, so no lookup has run for it — the menu falls back to just the
+     * character, never another position's highlight.
+     */
+    private fun showNeighbourCopyMenu(anchor: View, lineIdx: Int, charIdx: Int) {
+        val state = controller.getNeighborUiState().getOrNull(lineIdx)
+        val character = state?.chars?.getOrNull(charIdx)?.text.orEmpty()
+        val result = lastLookup
+            ?.takeIf { it.first == (lineIdx to charIdx) }
+            ?.second
+        val targets = LookupCopyTargets.neighbourMenu(
+            surfaceRun = result?.cacheKey.orEmpty(),
+            maxLen = result?.maxLen ?: 0,
+            character = character,
+            entries = result?.matches.orEmpty(),
+        )
+        if (targets.isEmpty()) return
+        val popup = PopupMenu(context, anchor)
+        targets.forEachIndexed { index, target ->
+            popup.menu.add(Menu.NONE, index, index, target.label)
+        }
+        popup.setOnMenuItemClickListener { item ->
+            targets.getOrNull(item.itemId)?.let { copyToClipboard(it) }
+            true
+        }
+        popup.show()
     }
 
     private fun performLookup(lineIdx: Int, charIdx: Int, rootLayout: FrameLayout, skipCenter: Boolean = false) {
@@ -1114,10 +1179,10 @@ class OcrOverlayView(
 
             val result = controller.lookup(lineIdx, charIdx) ?: return@launch
 
+            lastLookup = (lineIdx to charIdx) to result
             updateLookupHighlights(lineIdx, charIdx, result.maxLen)
 
-            showResultsUi(rootLayout, result.matches, result.tappedBox, skipCenter, result.cacheKey,
-                LookupCopyTargets.targets(result.cacheKey, result.maxLen, result.matches))
+            showResultsUi(rootLayout, result.matches, result.tappedBox, skipCenter, result.cacheKey)
         }
     }
 
@@ -1153,7 +1218,7 @@ class OcrOverlayView(
         }
     }
 
-    private fun showResultsUi(rootLayout: FrameLayout, matches: List<FormattedEntry>, tappedBox: JpDictRect, skipCenter: Boolean = false, cacheKey: String? = null, copyTargets: List<CopyTarget> = emptyList()) {
+    private fun showResultsUi(rootLayout: FrameLayout, matches: List<FormattedEntry>, tappedBox: JpDictRect, skipCenter: Boolean = false, cacheKey: String? = null) {
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val isLandscape = rootWidth > rootHeight
@@ -1162,7 +1227,7 @@ class OcrOverlayView(
         
         if (existingRoot != null) {
             val dictionaryContainer = existingRoot.findViewWithTag<LinearLayout>("dictionary_content_container")
-            if (dictionaryContainer != null) updateDictionaryPanel(dictionaryContainer, matches, cacheKey, copyTargets)
+            if (dictionaryContainer != null) updateDictionaryPanel(dictionaryContainer, matches, cacheKey)
             
             val neighborPanel = existingRoot.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
             if (neighborPanel != null) updateNeighborHighlights(neighborPanel)
@@ -1197,7 +1262,7 @@ class OcrOverlayView(
             elevation = 20f
             setOnClickListener { }
         }
-        updateDictionaryPanel(dictionaryPanel, matches, cacheKey, copyTargets)
+        updateDictionaryPanel(dictionaryPanel, matches, cacheKey)
 
         val correctionPanel = createCorrectionPanel(controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, isLandscape, rootLayout, skipCenter)
         val alternativesPanelContainer = FrameLayout(context).apply {
@@ -1236,7 +1301,7 @@ class OcrOverlayView(
         updateCursor()
     }
 
-    private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null, copyTargets: List<CopyTarget> = emptyList()) {
+    private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null) {
         container.removeAllViews()
         targetScrollY = 0
         scrollAnimator?.cancel()
@@ -1267,17 +1332,58 @@ class OcrOverlayView(
             setPadding(10, 0, 10, 150)
         }
 
-        // #66: copy affordances sit at the top of the entry list, in the same
-        // scroll content as the entries so the per-cache view cache restores
-        // them with the lookup they belong to.
-        buildCopyHeader(copyTargets)?.let { scrollContent.addView(it) }
+        // #66 follow-up: the copy buttons that used to sit here are gone. One
+        // full-width pill row per lookup crowded the popup's headwords, so the
+        // affordances moved onto long-press instead — the highlighted surface
+        // run and the headword are both still one gesture away, and neither
+        // costs popup space. The strings are unchanged; only the trigger moved.
 
         matches.forEach { entry ->
             val termSection = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 4, 0, 40)
             }
-            renderHeadwordSection(termSection, entry.readingGroups)
+            // #67 follow-up: the bookmark star lives in the entry's top-right
+            // corner, overlaying the headword block rather than taking a line of
+            // its own — the FrameLayout below is what lets it float without
+            // adding height to the entry.
+            val headwordBlock = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            headwordBlock.addView(buildHeadwordBlock(entry))
+            // #66 follow-up: long-pressing the entry copies its dict-form
+            // headword. Wired on the block, not on a single TextView, so the
+            // whole entry is the target — the headword, its reading rows and the
+            // pitch line all respond, which is what "long-press the headword in
+            // the dictionary" means to a finger.
+            LookupCopyTargets.headwordTarget(listOf(entry))?.let { target ->
+                headwordBlock.isClickable = true
+                headwordBlock.setOnLongClickListener {
+                    copyToClipboard(target)
+                    true
+                }
+            }
+            createBookmarkCorner(entry)?.let { star ->
+                // A FrameLayout is what lets the star float over the headwords:
+                // a LinearLayout would give it a row and grow the entry.
+                termSection.addView(FrameLayout(context).apply {
+                    addView(headwordBlock, FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ))
+                    // The star is a sibling of the long-pressable block, laid
+                    // over it, so the two gestures stay separate: a tap on the
+                    // star toggles the bookmark, and a tap anywhere else in the
+                    // entry starts the block's long-press. Making the star a
+                    // child of the block instead would put both handlers on one
+                    // view, where Android would deliver the same stream to both.
+                    addView(star, FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP or Gravity.END,
+                    ))
+                })
+            } ?: termSection.addView(headwordBlock)
             // #62: chain row directly below the headwords, above the senses.
             // Direct matches (deinflection == null) render as before.
             entry.deinflection?.let { chain ->
@@ -1285,9 +1391,6 @@ class OcrOverlayView(
                     termSection.addView(createDeinflectionRow(chain, entry.term))
                 }
             }
-            // #67: save this headword. One toggle per rendered dictionary block,
-            // below the headword/chain row and above the senses.
-            createBookmarkToggle(entry)?.let { termSection.addView(it) }
             entry.readingGroups.forEach { group ->
                 renderSensesForReading(termSection, group)
                 
@@ -1325,41 +1428,49 @@ class OcrOverlayView(
     }
 
     /**
-     * #66: the popup's copy affordances — one small button per [CopyTarget].
-     * Buttons rather than a long-press on the character views on purpose: this
-     * costs a little popup space but leaves the tap-to-lookup / drag / pinch
-     * seam (`TapDisambiguator`) completely untouched, and it is discoverable.
-     * The strings themselves are decided by [LookupCopyTargets], so a
-     * long-press trigger could be added later without moving that logic.
+     * #67 follow-up: the bookmark star for one entry's top-right corner.
+     *
+     * Replaces a full-width "☆ Bookmark" row. It is a single glyph, padded only
+     * enough to stay a comfortable tap target, and it is laid out with a
+     * `FrameLayout` rather than a `LinearLayout` by the caller so it floats over
+     * the headwords instead of taking a row of its own. Returns null when the
+     * entry carries no bookmark identity ([FormattedEntry.bookmark]), which is
+     * also what keeps an entry that cannot be saved from showing a dead control.
      */
-    private fun buildCopyHeader(targets: List<CopyTarget>): View? {
-        if (targets.isEmpty()) return null
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, 8)
-        }
-        targets.forEach { target ->
-            row.addView(Button(context).apply {
-                text = target.label
-                textSize = 12f
-                isAllCaps = false
-                setTextColor(Color.WHITE)
-                OverlayFont.apply(context, this)
-                includeFontPadding = false
-                minWidth = 0
-                setPadding(24, 8, 24, 8)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#3a5a7a"))
-                    cornerRadius = 6f
+    private fun createBookmarkCorner(entry: FormattedEntry): View? {
+        val candidate = entry.bookmark ?: return null
+        val key = candidate.key
+        val savedColor = Color.rgb(255, 214, 0)
+        return TextView(context).apply {
+            isClickable = true
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            textSize = 22f
+            setPadding(
+                (6 * resources.displayMetrics.density).toInt(),
+                (2 * resources.displayMetrics.density).toInt(),
+                (2 * resources.displayMetrics.density).toInt(),
+                (2 * resources.displayMetrics.density).toInt(),
+            )
+            OverlayFont.apply(context, this)
+            fun renderState(state: Boolean) {
+                text = BookmarkGlyph.of(state)
+                setTextColor(if (state) savedColor else Color.LTGRAY)
+            }
+            renderState(BookmarkStore.isBookmarked(key))
+            setOnClickListener {
+                val appContext = context.applicationContext
+                scope.launch {
+                    val nowSaved = BookmarkStore.toggle(appContext, candidate)
+                    renderState(nowSaved)
+                    Toast.makeText(
+                        appContext,
+                        if (nowSaved) "Bookmarked ${candidate.kanji}" else "Removed ${candidate.kanji}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 16, 0) }
-                setOnClickListener { copyToClipboard(target) }
-            })
+            }
         }
-        return row
     }
 
     /** #66: `ClipboardManager.setPrimaryClip`, matching `MainActivity`'s
@@ -1469,38 +1580,16 @@ class OcrOverlayView(
     }
 
     /**
-     * #67: the per-headword bookmark toggle. Reads [BookmarkStore] synchronously
-     * (the panel is built on the main thread) and writes through it; the glyph
-     * flips only after the write reports the new state, so the button cannot
-     * lie about what is persisted.
+     * #67-follow-up: the headwords and their chrome, returned as one view so the
+     * caller can float the bookmark star over it in a FrameLayout. Same content
+     * [renderHeadwordSection] always built (kanji branch, term flow, pitch line);
+     * it is a function returning the container rather than one mutating a
+     * caller-supplied parent, because the star needs the container's identity.
      */
-    private fun createBookmarkToggle(entry: FormattedEntry): View? {
-        val candidate = entry.bookmark ?: return null
-        val key = candidate.key
-        val savedColor = Color.rgb(255, 214, 0)
-        fun renderState(state: Boolean, view: TextView) {
-            view.text = if (state) "★ Bookmarked" else "☆ Bookmark"
-            view.setTextColor(if (state) savedColor else Color.LTGRAY)
-        }
-        return TextView(context).apply {
-            textSize = 13f
-            setPadding(0, 6, 0, 6)
-            isClickable = true
-            OverlayFont.apply(context, this)
-            renderState(BookmarkStore.isBookmarked(key), this)
-            setOnClickListener {
-                val appContext = context.applicationContext
-                scope.launch {
-                    val nowSaved = BookmarkStore.toggle(appContext, candidate)
-                    renderState(nowSaved, this@apply)
-                    Toast.makeText(
-                        appContext,
-                        if (nowSaved) "Bookmarked ${candidate.kanji}" else "Removed ${candidate.kanji}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        }
+    private fun buildHeadwordBlock(entry: FormattedEntry): View {
+        val container = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        renderHeadwordSection(container, entry.readingGroups)
+        return container
     }
 
     private fun renderSensesForReading(container: LinearLayout, group: FormattedReadingGroup) {

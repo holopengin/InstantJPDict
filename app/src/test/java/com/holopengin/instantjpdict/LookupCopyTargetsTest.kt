@@ -104,4 +104,98 @@ class LookupCopyTargetsTest {
         assertTrue(LookupCopyTargets.targets("", 0, emptyList()).isEmpty())
         assertNull(LookupCopyTargets.headword(emptyList()))
     }
+
+    // --- #66 follow-up: the neighbour-chip menu -------------------------
+
+    @Test
+    fun neighbour_menu_offers_highlight_character_and_headword_in_that_order() {
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "食べたかった",
+            maxLen = 3,
+            character = "食",
+            entries = listOf(entry(term = "食べる", reading = "たべる")),
+        )
+
+        assertEquals(
+            listOf("Save highlight", "Save character", "Save headword"),
+            menu.map { it.label },
+        )
+        assertEquals(listOf("食べた", "食", "食べる"), menu.map { it.value })
+        // The clip labels are the ones LookupCopyTargets already owns, so a
+        // paste target can tell which kind of string it received.
+        assertEquals(
+            listOf("lookup-highlight", "lookup-character", "lookup-headword"),
+            menu.map { it.clipLabel },
+        )
+    }
+
+    @Test
+    fun neighbour_menu_drops_the_character_when_it_is_the_whole_highlight() {
+        // A one-character lookup would otherwise offer the same string twice.
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "食",
+            maxLen = 1,
+            character = "食",
+            entries = emptyList(),
+        )
+
+        assertEquals(listOf("Save highlight"), menu.map { it.label })
+    }
+
+    @Test
+    fun neighbour_menu_keeps_the_character_when_the_highlight_is_longer() {
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "食べた",
+            maxLen = 2,
+            character = "べ",
+            entries = emptyList(),
+        )
+
+        assertEquals(listOf("Save highlight", "Save character"), menu.map { it.label })
+        assertEquals(listOf("食べ", "べ"), menu.map { it.value })
+    }
+
+    @Test
+    fun neighbour_menu_falls_back_to_character_only_when_the_highlight_is_empty() {
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "",
+            maxLen = 0,
+            character = "",
+            entries = emptyList(),
+        )
+
+        assertTrue(menu.isEmpty())
+    }
+
+    @Test
+    fun neighbour_menu_keeps_the_headword_even_when_it_equals_the_highlight() {
+        // Unlike `targets`, the entry long-press/menu is an explicit request for
+        // that string, so equality is not a reason to hide it.
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "読んだ",
+            maxLen = 2,
+            character = "読",
+            entries = listOf(entry(term = "読ん", reading = "よん")),
+        )
+
+        assertEquals(listOf("Save highlight", "Save character", "Save headword"), menu.map { it.label })
+        assertEquals("読ん", menu.last().value)
+    }
+
+    // --- #66 follow-up: the entry long-press ---------------------------
+
+    @Test
+    fun headword_target_keeps_the_dict_form_for_a_deinflected_entry() {
+        val target = LookupCopyTargets.headwordTarget(listOf(entry(term = "食べる", reading = "たべる")))
+
+        assertEquals("食べる", target?.value)
+        assertEquals("Copy headword", target?.label)
+        assertEquals("lookup-headword", target?.clipLabel)
+    }
+
+    @Test
+    fun headword_target_is_absent_when_the_entry_has_no_term() {
+        assertNull(LookupCopyTargets.headwordTarget(emptyList()))
+        assertNull(LookupCopyTargets.headwordTarget(listOf(entry(term = "", reading = ""))))
+    }
 }
