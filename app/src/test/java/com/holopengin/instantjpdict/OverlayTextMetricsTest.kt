@@ -5,50 +5,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * #84 follow-up: the line-metric correction for the bundled Noto faces.
+ * #84 follow-up: the overlay's body-text metrics.
  *
- * The regression this guards: #84 swapped the platform typeface for bundled
- * Noto Sans JP, whose `hhea` line box is 1.448 em against the platform's ~1.0
- * em. Every definition line inherited that extra ~45%, and `includeFontPadding
- * = false` meant text whose ink reached past the tight box got clipped at the
- * bottom of a wrapped line. Two symptoms, one cause — so the arithmetic that
- * undoes it is worth asserting rather than leaving in a comment.
+ * Two things are asserted here, and the first is the important one:
  *
- * The constants are checked against the real shipped assets via the same
- * hand-rolled sfnt reader `OverlayFontTest` uses (no font library in the test
- * classpath): if a bundled face is ever swapped for one with different metrics,
- * this fails loudly instead of the overlay silently re-spacing itself.
+ *  1. The line-height multiplier stays ZERO. A first attempt at the chopped-off
+ *     definitions set it negative, blaming the bundled face's roomy `hhea` box.
+ *     That was the wrong cause (the real one was `FlowLayout` reporting a height
+ *     short of its wrapped content — see `FlowRowMathTest`). Against the bundled
+ *     face the correct value is zero, and this test exists so the mistaken fix is
+ *     not reinstated.
+ *  2. The measured font constants still describe the shipped assets, via the same
+ *     hand-rolled sfnt reader `OverlayFontTest` uses, so a font swap fails the
+ *     build rather than silently changing how the overlay is spaced.
  */
 class OverlayTextMetricsTest {
 
     @Test
-    fun the_correction_is_negative_because_noto_is_taller_than_the_target() {
-        // Negative removes the excess; a positive value would add more space,
-        // which is the bug being fixed.
-        assertTrue(
-            "expected a negative correction, got ${OverlayTextMetrics.lineHeightMultiplier}",
-            OverlayTextMetrics.lineHeightMultiplier < 0f,
-        )
-    }
-
-    @Test
-    fun the_correction_is_the_exact_measured_excess() {
-        assertEquals(
-            OverlayTextMetrics.TARGET_LINE_HEIGHT_EM - OverlayTextMetrics.NOTO_LINE_HEIGHT_EM,
-            OverlayTextMetrics.lineHeightMultiplier,
-            0.0001f,
-        )
-    }
-
-    @Test
-    fun the_correction_can_never_collapse_lines_past_each_other() {
-        // Android's multiplier is added on top of the font's line height, so a
-        // value at or below -1.0 would invert the line box. The clamp keeps a
-        // slightly loose layout rather than an unusable one.
-        assertTrue(
-            "multiplier must stay above -1.0, was ${OverlayTextMetrics.lineHeightMultiplier}",
-            OverlayTextMetrics.lineHeightMultiplier > -1f,
-        )
+    fun line_height_is_left_to_the_face() {
+        // Zero is the corrected answer, not an oversight: the bundled face's box
+        // is sized to keep CJK glyphs from colliding across lines, and trimming
+        // it re-introduces that crowding. The clipping this was once "fixing" is
+        // handled by FlowLayout reporting its true height.
+        assertEquals(0f, OverlayTextMetrics.LINE_HEIGHT_MULTIPLIER, 0f)
     }
 
     @Test
@@ -63,10 +42,10 @@ class OverlayTextMetricsTest {
 
     @Test
     fun the_constant_also_matches_the_shipped_serif_face() {
-        // One constant serves both faces only because they are metric-close;
-        // this is the test that says so rather than an assumption.
+        // One constant describes both faces only because they are metric-close;
+        // this says so rather than assuming it.
         assertEquals(
-            "shipped Noto Serif JP has diverged; the single shared correction is no longer valid",
+            "shipped Noto Serif JP has diverged; one shared constant is no longer valid",
             OverlayTextMetrics.NOTO_LINE_HEIGHT_EM,
             hheaLineHeightEm(OverlayFont.SERIF_ASSET),
             0.02f,
@@ -74,26 +53,36 @@ class OverlayTextMetricsTest {
     }
 
     @Test
-    fun the_correction_removes_most_of_the_excess_without_collapsing_the_box() {
-        // Sanity on the magnitude: Noto is ~45% taller, so the correction should
-        // be a substantial fraction of an em but must leave the box usable.
-        val m = OverlayTextMetrics.lineHeightMultiplier
-        assertTrue("correction is too timid to fix the spacing: $m", m < -0.3f)
-        assertTrue("correction is aggressive enough to collapse lines: $m", m > -0.6f)
+    fun the_faces_box_is_taller_than_their_typographic_metrics() {
+        // The fact that misled the first fix: Noto CJK's hhea box (1.448 em) is
+        // deliberately larger than the typographic 1.0 em. Pinned so the
+        // reasoning in OverlayTextMetrics stays anchored to a measurement.
+        val font = bytes(OverlayFont.SANS_ASSET)
+        val head = tableOffset(font, "head") ?: error("no head table")
+        val upm = readU16(font, head + 18).toFloat()
+        val os2 = tableOffset(font, "OS/2") ?: error("no OS/2 table")
+        val typo = (readS16(font, os2 + 68) - readS16(font, os2 + 70) + readS16(font, os2 + 72)) / upm
+
+        assertTrue("expected the hhea box to exceed the typographic one", OverlayTextMetrics.NOTO_LINE_HEIGHT_EM > typo)
+        assertEquals("typographic line height should be ~1.0 em", 1.0f, typo, 0.01f)
     }
 
     @Test
-    fun both_edges_of_a_body_block_get_padding() {
-        // setLineSpacing only reaches the gaps between lines, so the first
-        // ascent and last descent need real padding. Zero on the bottom would
-        // re-create the clip this fix removes.
+    fun body_blocks_are_tight() {
+        // The density request: consecutive definitions should read as a list, so
+        // the explicit padding must stay small — the glyph box already supplies
+        // most of the vertical rhythm for CJK.
         assertTrue(
-            "top padding must be positive, was ${OverlayTextMetrics.BODY_TOP_PADDING_DP}",
-            OverlayTextMetrics.BODY_TOP_PADDING_DP > 0,
+            "top padding should not pad the block: ${OverlayTextMetrics.BODY_TOP_PADDING_DP}",
+            OverlayTextMetrics.BODY_TOP_PADDING_DP <= 1,
         )
         assertTrue(
-            "bottom padding must be positive, was ${OverlayTextMetrics.BODY_BOTTOM_PADDING_DP}",
-            OverlayTextMetrics.BODY_BOTTOM_PADDING_DP > 0,
+            "bottom padding too loose for a list: ${OverlayTextMetrics.BODY_BOTTOM_PADDING_DP}",
+            OverlayTextMetrics.BODY_BOTTOM_PADDING_DP <= 2,
+        )
+        assertTrue(
+            "bottom padding must not be negative: ${OverlayTextMetrics.BODY_BOTTOM_PADDING_DP}",
+            OverlayTextMetrics.BODY_BOTTOM_PADDING_DP >= 0,
         )
     }
 

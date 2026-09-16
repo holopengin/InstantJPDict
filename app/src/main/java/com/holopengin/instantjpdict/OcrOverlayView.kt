@@ -1343,7 +1343,11 @@ class OcrOverlayView(
         matches.forEach { entry ->
             val termSection = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 4, 0, 40)
+                // #84 follow-up: was 40dp. The bundled face's glyph box already
+                // carries more vertical rhythm than the platform font did, so the
+                // explicit entry gap is trimmed to keep the list readable without
+                // the entries drifting apart.
+                setPadding(0, 2, 0, 18)
             }
             // #67 follow-up: the bookmark star lives in the entry's top-right
             // corner, overlaying the headword block rather than taking a line of
@@ -2093,13 +2097,12 @@ class OcrOverlayView(
      * lines must sit no looser than the gap between the rows themselves.
      *
      * #84 follow-up: this was `0.85f`, chosen when the face was the platform's
-     * ~1.0 em box, and it ADDS to the font's line height. Against the bundled
-     * Noto (1.448 em) a positive multiplier compounded the excess rather than
-     * trimming it, so it is now the shared negative correction — the readings
-     * rows get the same treatment as every other block of body text instead of
-     * their own opposite-signed one.
+     * ~1.0 em box, where it added useful air between wrapped rows. Against the
+     * bundled Noto the box already carries that space, so it is the shared zero
+     * multiplier — the readings rows get the same treatment as every other body
+     * block rather than their own value.
      */
-    private val kunOnLineSpacingMult = OverlayTextMetrics.lineHeightMultiplier
+    private val kunOnLineSpacingMult = OverlayTextMetrics.LINE_HEIGHT_MULTIPLIER
     /** Pitch-row typography (#43): matches the furigana reading size. */
     private val pitchTextSizePx: Float
         get() = 13f * resources.displayMetrics.scaledDensity
@@ -2152,7 +2155,7 @@ class OcrOverlayView(
         if (senseGroup.senses.isEmpty()) return
         
         if (senseGroup.tags.isNotEmpty()) {
-            val header = FlowLayout(context).apply { setPadding(20, 15, 0, 5) }
+            val header = FlowLayout(context).apply { setPadding(20, 8, 0, 2) }
             senseGroup.tags.forEach { header.addView(createTagView(it)) }
             container.addView(header)
         }
@@ -2160,10 +2163,10 @@ class OcrOverlayView(
         if (senseGroup.isForms) {
             val table = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
-                setPadding(30, 5, 10, 5)
+                setPadding(30, 2, 10, 2)
             }
             senseGroup.senses.forEach { sense ->
-                val row = FlowLayout(context).apply { setPadding(0, 5, 0, 5) }
+                val row = FlowLayout(context).apply { setPadding(0, 2, 0, 2) }
                 renderDefinition(row, sense.nodes)
                 table.addView(row)
             }
@@ -2172,7 +2175,7 @@ class OcrOverlayView(
             senseGroup.senses.forEach { sense ->
                 val senseLayout = LinearLayout(context).apply { 
                     orientation = LinearLayout.HORIZONTAL
-                    setPadding(30, 5, 10, 5)
+                    setPadding(30, 2, 10, 2)
                 }
                 senseLayout.addView(TextView(context).apply {
                     text = "${sense.index}. "
@@ -2704,16 +2707,33 @@ class OcrOverlayView(
                 } else {
                     MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST)
                 }
-                child.measure(
-                    childWidthSpec,
-                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+                // #84 follow-up: this used to measure with an UNSPECIFIED height,
+                // which for a TextView means "measure yourself as one unwrapped
+                // line". A definition is a single TextView whose text wraps, so
+                // it was measured at one line's height and the flow then reported
+                // a height that did not contain its wrapped lines — the caller
+                // laid the block out at that height and the last lines were cut
+                // off. There is no useful case for an unspecified height here:
+                // every child is either wrapping text (wants AT_MOST) or a fixed
+                // chrome view (wants its own height), so AT_MOST with the
+                // remaining space is both correct and what makes the reported
+                // height match what is drawn.
+                val childHeightSpec = MeasureSpec.makeMeasureSpec(
+                    (heightSize - y).coerceAtLeast(0),
+                    MeasureSpec.AT_MOST,
                 )
+                child.measure(childWidthSpec, childHeightSpec)
 
                 val measuredWidth = if (child.layoutParams.width == ViewGroup.LayoutParams.MATCH_PARENT) maxWidth else child.measuredWidth
 
+                // #84 follow-up: wrap BEFORE accumulating, so the row that just
+                // ended is committed to `y` and the new row starts clean. The old
+                // order accumulated the wrapped child into the previous row's
+                // height, so the flow's total was short by exactly the last row
+                // in the multi-row case — which is the clipped line.
                 if (x + measuredWidth > width - paddingRight && x > paddingLeft) {
-                    x = paddingLeft
                     y += rowHeight
+                    x = paddingLeft
                     rowHeight = 0
                     rowBaseline = 0
                 }
@@ -2722,7 +2742,10 @@ class OcrOverlayView(
                 rowBaseline = maxOf(rowBaseline, child.baseline)
             }
 
-            val calculatedHeight = y + rowHeight + paddingBottom
+            // `y` is the top of the final row and `rowHeight` its height, so this
+            // is every row exactly once — no +rowHeight here, which is what the
+            // old ordering needed and what double-counted when it did not apply.
+            val calculatedHeight = y + paddingBottom
             val finalHeight = if (heightMode == MeasureSpec.EXACTLY) heightSize else maxOf(calculatedHeight, minimumHeight)
             setMeasuredDimension(width, finalHeight)
         }
@@ -2742,10 +2765,15 @@ class OcrOverlayView(
 
                 val measuredWidth = if (child.layoutParams.width == ViewGroup.LayoutParams.MATCH_PARENT) maxWidth else child.measuredWidth
 
+                // #84 follow-up: same wrap-before-accumulate order as onMeasure,
+                // so the two passes agree on where rows start and end. The old
+                // order committed the row after adding the wrapping child to it,
+                // which made a row's layout height cover a child it did not
+                // contain.
                 if (x + measuredWidth > width - paddingRight && x > paddingLeft) {
                     layoutRow(rowStartIndex, i, y, rowHeight, rowBaseline, maxWidth)
-                    x = paddingLeft
                     y += rowHeight
+                    x = paddingLeft
                     rowHeight = 0
                     rowBaseline = 0
                     rowStartIndex = i

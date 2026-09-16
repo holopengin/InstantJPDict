@@ -116,7 +116,7 @@ object OverlayFont {
     fun applyBody(ctx: Context, tv: TextView, bold: Boolean = false) {
         apply(ctx, tv, bold)
         tv.includeFontPadding = false
-        tv.setLineSpacing(0f, OverlayTextMetrics.lineHeightMultiplier)
+        tv.setLineSpacing(0f, OverlayTextMetrics.LINE_HEIGHT_MULTIPLIER)
     }
 
     /**
