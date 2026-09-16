@@ -154,6 +154,13 @@ class MainActivity : AppCompatActivity() {
             DictionaryManagerDialog.show(this)
         }
 
+        // #67: the saved-headword viewer sits with the dictionary controls — it
+        // is the other half of dictionary state (what the user kept vs what the
+        // app imported), and opens as a dialog like Manage/Licenses.
+        addButton(layout, "Bookmarks") {
+            BookmarkViewerDialog.show(this)
+        }
+
         addButton(layout, "Gamepad Controls") {
             GamepadSettingsDialog.show(this)
         }

@@ -38,6 +38,15 @@ object OverlayEnvironment {
         controller.dictionaryProvider = AndroidDictionaryProvider(context)
         controller.gson = gson
 
+        // #67: mirror the saved headwords so the popup can show bookmarked state
+        // without a database read on the main thread. Off the main thread with
+        // the other optional loads below; until it lands the toggle renders as
+        // un-bookmarked, which the refresh corrects on the next lookup.
+        scope.launch {
+            runCatching { BookmarkStore.refresh(context) }
+                .onFailure { warn("BookmarkStore.refresh", it) }
+        }
+
         // #44: component-derived popup candidates. Parsing the 266 KB component table is
         // cheap but not free, so it happens once off the main thread; until it lands (and
         // if it fails) the popup shows the head's own list, exactly as before.

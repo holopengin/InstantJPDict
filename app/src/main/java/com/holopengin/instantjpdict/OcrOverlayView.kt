@@ -1270,6 +1270,9 @@ class OcrOverlayView(
                 setPadding(0, 4, 0, 40)
             }
             renderHeadwordSection(termSection, entry.readingGroups)
+            // #67: save this headword. One toggle per rendered dictionary block,
+            // directly under the headwords it saves.
+            createBookmarkToggle(entry)?.let { termSection.addView(it) }
             // #62: chain row directly below the headwords, above the senses.
             // Direct matches (deinflection == null) render as before.
             entry.deinflection?.let { chain ->
@@ -1407,6 +1410,41 @@ class OcrOverlayView(
             }
         }
         container.addView(headwordList)
+    }
+
+    /**
+     * #67: the per-headword bookmark toggle. Reads [BookmarkStore] synchronously
+     * (the panel is built on the main thread) and writes through it; the glyph
+     * flips only after the write reports the new state, so the button cannot
+     * lie about what is persisted.
+     */
+    private fun createBookmarkToggle(entry: FormattedEntry): View? {
+        val candidate = entry.bookmark ?: return null
+        val key = candidate.key
+        val savedColor = Color.rgb(255, 214, 0)
+        fun renderState(state: Boolean, view: TextView) {
+            view.text = if (state) "★ Bookmarked" else "☆ Bookmark"
+            view.setTextColor(if (state) savedColor else Color.LTGRAY)
+        }
+        return TextView(context).apply {
+            textSize = 13f
+            setPadding(0, 6, 0, 6)
+            isClickable = true
+            OverlayFont.apply(context, this)
+            renderState(BookmarkStore.isBookmarked(key), this)
+            setOnClickListener {
+                val appContext = context.applicationContext
+                scope.launch {
+                    val nowSaved = BookmarkStore.toggle(appContext, candidate)
+                    renderState(nowSaved, this@apply)
+                    Toast.makeText(
+                        appContext,
+                        if (nowSaved) "Bookmarked ${candidate.kanji}" else "Removed ${candidate.kanji}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
     }
 
     private fun renderSensesForReading(container: LinearLayout, group: FormattedReadingGroup) {
