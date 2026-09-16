@@ -55,6 +55,17 @@ object LookupCopyTargets {
     fun headword(entries: List<FormattedEntry>): String? = entries.firstOrNull()?.term
 
     /**
+     * The confirmation shown after a copy — the copied string, then "copied".
+     *
+     * The maintainer's wording: a sentence about what happened ("食べる copied")
+     * rather than a label ("Copied: 食べる"). Pure so the phrasing is pinned in
+     * unit tests: the Android 13+ system clipboard chip is the nicer feedback
+     * but is the platform's call to show, so this toast is the channel the app
+     * actually guarantees and the one worth asserting.
+     */
+    fun copiedConfirmation(value: String): String = "$value copied"
+
+    /**
      * The headword target alone, for the entry long-press (#66 follow-up).
      *
      * Unlike [targets] this never suppresses the headword for equalling the
@@ -92,13 +103,13 @@ object LookupCopyTargets {
         val out = mutableListOf<CopyTarget>()
         val highlight = surfaceRun.take(maxLen.coerceAtLeast(0))
         if (highlight.isNotEmpty()) {
-            out += CopyTarget("Save highlight", HIGHLIGHT_CLIP_LABEL, highlight)
+            out += CopyTarget("Copy highlight", HIGHLIGHT_CLIP_LABEL, highlight)
         }
         character.takeIf { it.isNotEmpty() && it != highlight }
-            ?.let { out += CopyTarget("Save character", CHARACTER_CLIP_LABEL, it) }
+            ?.let { out += CopyTarget("Copy character", CHARACTER_CLIP_LABEL, it) }
         headword(entries)
             ?.takeIf { it.isNotEmpty() }
-            ?.let { out += CopyTarget("Save headword", HEADWORD_CLIP_LABEL, it) }
+            ?.let { out += CopyTarget("Copy headword", HEADWORD_CLIP_LABEL, it) }
         return out
     }
 }

@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
@@ -14,6 +15,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.PersistableBundle
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -1473,14 +1475,39 @@ class OcrOverlayView(
         }
     }
 
-    /** #66: `ClipboardManager.setPrimaryClip`, matching `MainActivity`'s
-     *  inference-log copy. The toast is the guaranteed feedback: the Android
-     *  13+ system copy preview only appears for a writable foreground app, and
-     *  an accessibility overlay is not one, so this host cannot rely on it. */
+    /**
+     * #66: `ClipboardManager.setPrimaryClip`, matching `MainActivity`'s
+     * inference-log copy.
+     *
+     * Feedback is belt-and-braces, because neither channel alone is reliable on
+     * this host:
+     *  - the Android 13+ system clipboard preview is the nicer one (it is the
+     *    chip that appears bottom-left in any other app, with the copied text
+     *    in it), and it is requested by marking the clip non-sensitive. It is
+     *    not guaranteed here: the accessibility overlay is not a normal
+     *    foreground app, and whether the system chips we are the platform's
+     *    call, not ours.
+     *  - so the toast stays as the guaranteed channel. It used to be
+     *    "Copied: <text>"; the maintainer asked for the shorter "<text> copied",
+     *    which reads as a sentence about what happened rather than a label.
+     *
+     * The clip is built with both a plain-text label (which is what a paste
+     * target sees) and `EXTRA_IS_SENSITIVE` false.
+     */
     private fun copyToClipboard(target: CopyTarget) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText(target.clipLabel, target.value))
-        Toast.makeText(context, "Copied: ${target.value}", Toast.LENGTH_SHORT).show()
+        cm.setPrimaryClip(
+            ClipData.newPlainText(target.clipLabel, target.value).apply {
+                // The system's own clipboard chip suppresses previews for clips
+                // marked sensitive. Looking up a word in a novel is not sensitive
+                // data, and the preview is the feedback we want, so say so
+                // explicitly rather than leaving it to the platform default.
+                description.extras = PersistableBundle().apply {
+                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)
+                }
+            }
+        )
+        Toast.makeText(context, LookupCopyTargets.copiedConfirmation(target.value), Toast.LENGTH_SHORT).show()
     }
 
     /** #62: compact deinflection chain row, e.g. "食べた → 食べる" + past chip.

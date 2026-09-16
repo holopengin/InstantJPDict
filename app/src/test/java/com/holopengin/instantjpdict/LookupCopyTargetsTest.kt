@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.DeinflectionChain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -117,7 +118,7 @@ class LookupCopyTargetsTest {
         )
 
         assertEquals(
-            listOf("Save highlight", "Save character", "Save headword"),
+            listOf("Copy highlight", "Copy character", "Copy headword"),
             menu.map { it.label },
         )
         assertEquals(listOf("食べた", "食", "食べる"), menu.map { it.value })
@@ -139,7 +140,7 @@ class LookupCopyTargetsTest {
             entries = emptyList(),
         )
 
-        assertEquals(listOf("Save highlight"), menu.map { it.label })
+        assertEquals(listOf("Copy highlight"), menu.map { it.label })
     }
 
     @Test
@@ -151,7 +152,7 @@ class LookupCopyTargetsTest {
             entries = emptyList(),
         )
 
-        assertEquals(listOf("Save highlight", "Save character"), menu.map { it.label })
+        assertEquals(listOf("Copy highlight", "Copy character"), menu.map { it.label })
         assertEquals(listOf("食べ", "べ"), menu.map { it.value })
     }
 
@@ -178,7 +179,7 @@ class LookupCopyTargetsTest {
             entries = listOf(entry(term = "読ん", reading = "よん")),
         )
 
-        assertEquals(listOf("Save highlight", "Save character", "Save headword"), menu.map { it.label })
+        assertEquals(listOf("Copy highlight", "Copy character", "Copy headword"), menu.map { it.label })
         assertEquals("読ん", menu.last().value)
     }
 
@@ -197,5 +198,39 @@ class LookupCopyTargetsTest {
     fun headword_target_is_absent_when_the_entry_has_no_term() {
         assertNull(LookupCopyTargets.headwordTarget(emptyList()))
         assertNull(LookupCopyTargets.headwordTarget(listOf(entry(term = "", reading = ""))))
+    }
+
+    // --- #66 follow-up: the confirmation wording ------------------------
+
+    @Test
+    fun the_confirmation_leads_with_the_copied_string() {
+        assertEquals("食べる copied", LookupCopyTargets.copiedConfirmation("食べる"))
+        assertEquals("食べた copied", LookupCopyTargets.copiedConfirmation("食べた"))
+    }
+
+    @Test
+    fun the_confirmation_is_not_the_old_label_form() {
+        // The maintainer asked for "{} copied", not a "Copied: {}" label.
+        val text = LookupCopyTargets.copiedConfirmation("食")
+        assertTrue(text.startsWith("食"))
+        assertFalse("no colon label form: $text", text.contains("Copied"))
+        assertFalse("no colon: $text", text.contains(":"))
+    }
+
+    // --- #66 follow-up: the menu wording --------------------------------
+
+    @Test
+    fun the_menu_says_copy_not_save() {
+        // "Save" implied persistence into the #67 store; these go to the
+        // clipboard, and the label has to say so.
+        val menu = LookupCopyTargets.neighbourMenu(
+            surfaceRun = "食べた",
+            maxLen = 2,
+            character = "べ",
+            entries = listOf(entry(term = "食べる", reading = "たべる")),
+        )
+
+        assertTrue("all items are Copy-*: ${menu.map { it.label }}", menu.all { it.label.startsWith("Copy ") })
+        assertFalse("none say Save: ${menu.map { it.label }}", menu.any { it.label.contains("Save") })
     }
 }
