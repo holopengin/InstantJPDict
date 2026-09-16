@@ -2684,8 +2684,33 @@ class OcrOverlayView(
         scope.cancel()
     }
 
-    /** Wraps children onto rows, baseline-aligned: headword flows and sense
-     *  rows. Moved verbatim from the service. */
+    /**
+     * Wraps children onto rows, baseline-aligned: headword flows and sense rows.
+     *
+     * KNOWN DEFECT (#84 follow-up), deliberately left in place: children are
+     * measured with an UNSPECIFIED height spec. For a wrapping TextView that
+     * means "measure as one unwrapped line", so a multi-line definition is
+     * measured at one line's height while it draws several, and the block is
+     * laid out short — the bottoms of wrapped definitions get clipped.
+     *
+     * Two attempts to correct it were reverted because each was worse than the
+     * defect and neither could be validated here (no device or emulator in this
+     * environment):
+     *   - `AT_MOST(heightSize - y)`: an UNSPECIFIED parent (a ScrollView's
+     *     content, which is where this layout lives) reports size 0, so children
+     *     measured at 0px and most of the overlay's text stopped rendering;
+     *   - wrap-before-accumulate ordering: changed how many rows the two passes
+     *     believed existed without fixing the spec.
+     * The ordering is therefore also left as it was.
+     *
+     * Fixing this properly needs the real measurement behaviour observed — an
+     * instrumentation test or a device run that prints, per definition, the
+     * TextView's measuredHeight against the height the flow reports. Do that
+     * before changing this method again; the arithmetic is not the hard part,
+     * the MeasureSpec contract is.
+     *
+     * Moved verbatim from the service.
+     */
     private class FlowLayout(context: Context) : android.view.ViewGroup(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -2707,33 +2732,20 @@ class OcrOverlayView(
                 } else {
                     MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST)
                 }
-                // #84 follow-up: this used to measure with an UNSPECIFIED height,
-                // which for a TextView means "measure yourself as one unwrapped
-                // line". A definition is a single TextView whose text wraps, so
-                // it was measured at one line's height and the flow then reported
-                // a height that did not contain its wrapped lines — the caller
-                // laid the block out at that height and the last lines were cut
-                // off. There is no useful case for an unspecified height here:
-                // every child is either wrapping text (wants AT_MOST) or a fixed
-                // chrome view (wants its own height), so AT_MOST with the
-                // remaining space is both correct and what makes the reported
-                // height match what is drawn.
-                val childHeightSpec = MeasureSpec.makeMeasureSpec(
-                    (heightSize - y).coerceAtLeast(0),
-                    MeasureSpec.AT_MOST,
+                // Kept as the original until this can be verified on a device.
+                // See the note on FlowLayout: two attempts at "correcting" this
+                // spec each traded one visible bug for a worse one, and the
+                // semantics here cannot be settled by reading the code.
+                child.measure(
+                    childWidthSpec,
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
                 )
-                child.measure(childWidthSpec, childHeightSpec)
 
                 val measuredWidth = if (child.layoutParams.width == ViewGroup.LayoutParams.MATCH_PARENT) maxWidth else child.measuredWidth
 
-                // #84 follow-up: wrap BEFORE accumulating, so the row that just
-                // ended is committed to `y` and the new row starts clean. The old
-                // order accumulated the wrapped child into the previous row's
-                // height, so the flow's total was short by exactly the last row
-                // in the multi-row case — which is the clipped line.
                 if (x + measuredWidth > width - paddingRight && x > paddingLeft) {
-                    y += rowHeight
                     x = paddingLeft
+                    y += rowHeight
                     rowHeight = 0
                     rowBaseline = 0
                 }
@@ -2742,10 +2754,7 @@ class OcrOverlayView(
                 rowBaseline = maxOf(rowBaseline, child.baseline)
             }
 
-            // `y` is the top of the final row and `rowHeight` its height, so this
-            // is every row exactly once — no +rowHeight here, which is what the
-            // old ordering needed and what double-counted when it did not apply.
-            val calculatedHeight = y + paddingBottom
+            val calculatedHeight = y + rowHeight + paddingBottom
             val finalHeight = if (heightMode == MeasureSpec.EXACTLY) heightSize else maxOf(calculatedHeight, minimumHeight)
             setMeasuredDimension(width, finalHeight)
         }
@@ -2765,15 +2774,10 @@ class OcrOverlayView(
 
                 val measuredWidth = if (child.layoutParams.width == ViewGroup.LayoutParams.MATCH_PARENT) maxWidth else child.measuredWidth
 
-                // #84 follow-up: same wrap-before-accumulate order as onMeasure,
-                // so the two passes agree on where rows start and end. The old
-                // order committed the row after adding the wrapping child to it,
-                // which made a row's layout height cover a child it did not
-                // contain.
                 if (x + measuredWidth > width - paddingRight && x > paddingLeft) {
                     layoutRow(rowStartIndex, i, y, rowHeight, rowBaseline, maxWidth)
-                    y += rowHeight
                     x = paddingLeft
+                    y += rowHeight
                     rowHeight = 0
                     rowBaseline = 0
                     rowStartIndex = i
