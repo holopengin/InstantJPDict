@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DictionaryEntry::class, DictionaryMeta::class, DictionaryTag::class, Bookmark::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -48,17 +48,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * #71 follow-up: `catalogId` on dictionary_meta, so the catalog can tell
+         * an installed variant (JMdict with examples vs without) apart when the
+         * upstream titles are identical. Like the previous migrations, written
+         * by hand to keep every imported dictionary across the upgrade.
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(DictionaryMetaSchema.ADD_CATALOG_ID)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "instant_jp_dict_db"
-                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // F5/#86: the explicit parameter the no-arg overload was replaced
                     // by; `true` is the old behaviour (drop every table on a schema
                     // mismatch). The hand-written migrations above are what kept
-                    // user-imported dictionaries across the version-4 and version-5
+                    // user-imported dictionaries across the version-4, -5 and -6
                     // upgrades.
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()

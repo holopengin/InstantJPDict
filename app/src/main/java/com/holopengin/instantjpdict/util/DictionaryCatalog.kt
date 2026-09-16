@@ -91,6 +91,16 @@ data class CatalogEntry(
 enum class CatalogSource { YOMITAN_ZIP, BUNDLED_ASSET }
 
 /**
+ * #71 follow-up: one installed dictionary as the catalog sees it.
+ *
+ * [name] is the title the importer wrote (`JMdict [2026-09-15]`); [catalogId]
+ * is the catalog entry it came from, when it came through the catalog. A
+ * file-picker or bundled install has no id, so [name] is still carried for the
+ * title-family fallback in [DictionaryCatalog.installedIds].
+ */
+data class InstalledDictionary(val name: String, val catalogId: String? = null)
+
+/**
  * The bundled catalog: parsing, validation and installed-state resolution.
  *
  * [parse] is strict on purpose. These URLs are pinned to a dated release and a
@@ -189,13 +199,29 @@ object DictionaryCatalog {
         return if (bracket > 0) trimmed.substring(0, bracket).trim() else trimmed
     }
 
-    /** True when a dictionary of [entry]'s title family is already installed. */
-    fun isInstalled(entry: CatalogEntry, installedNames: Collection<String>): Boolean =
-        installedNames.any { baseTitle(it) == entry.title }
-
-    /** The ids of [entries] whose title family is present in [installedNames]. */
-    fun installedIds(entries: List<CatalogEntry>, installedNames: Collection<String>): Set<String> =
-        entries.filter { isInstalled(it, installedNames) }.map { it.id }.toSet()
+    /**
+     * The catalog ids that are installed.
+     *
+     * A dictionary installed through the catalog is matched by its
+     * [InstalledDictionary.catalogId]. A title-only install — the file picker,
+     * or a dictionary installed before this column existed — cannot say which
+     * variant it is, so it resolves to the FIRST entry of its title family (the
+     * default). Two catalog entries may therefore share a title family (the two
+     * JMdict variants do), and only one of them ever reports installed, which is
+     * what makes them mutually exclusive in the UI.
+     */
+    fun installedIds(
+        entries: List<CatalogEntry>,
+        installed: Collection<InstalledDictionary>,
+    ): Set<String> {
+        val ids = mutableSetOf<String>()
+        installed.forEach { dictionary ->
+            val match = dictionary.catalogId?.let { id -> entries.firstOrNull { it.id == id } }
+                ?: entries.firstOrNull { it.title == baseTitle(dictionary.name) }
+            match?.let { ids += it.id }
+        }
+        return ids
+    }
 
     private fun JsonObject.string(key: String): String? =
         get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString

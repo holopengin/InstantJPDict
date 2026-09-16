@@ -25,6 +25,7 @@ import com.holopengin.instantjpdict.util.CatalogEntry
 import com.holopengin.instantjpdict.util.CatalogSource
 import com.holopengin.instantjpdict.util.DictionaryCatalog
 import com.holopengin.instantjpdict.util.ImportProgress
+import com.holopengin.instantjpdict.util.InstalledDictionary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -138,8 +139,13 @@ object DictionaryCatalogDialog {
         }
 
         suspend fun refreshInstalledState() {
-            val names = withContext(Dispatchers.IO) { dao.getAllDictionaries().map { it.name } }
-            installedIds = DictionaryCatalog.installedIds(entries, names)
+            // #71 follow-up: carry `catalogId` so the two JMdict variants, whose
+            // upstream titles are identical, resolve to exactly one installed
+            // row rather than both.
+            val installed = withContext(Dispatchers.IO) {
+                dao.getAllDictionaries().map { InstalledDictionary(it.name, it.catalogId) }
+            }
+            installedIds = DictionaryCatalog.installedIds(entries, installed)
             ui { refreshRows() }
         }
 
@@ -155,7 +161,7 @@ object DictionaryCatalogDialog {
                         // callback fires only after a batch of rows is committed,
                         // so the count shown cannot run ahead of what is in the DB.
                         val result = withContext(NonCancellable) {
-                            importer.importBundledAsset(asset) { n ->
+                            importer.importBundledAsset(asset, catalogId = entry.id) { n ->
                                 ui {
                                     row.showBusy(
                                         ImportProgress.importing(
@@ -189,7 +195,7 @@ object DictionaryCatalogDialog {
                             // be interrupted, because a half-written dictionary
                             // has no completion marker and would look installed.
                             val imported = withContext(NonCancellable) {
-                                importer.importZip(Uri.fromFile(file), entry.name) { n ->
+                                importer.importZip(Uri.fromFile(file), entry.name, catalogId = entry.id) { n ->
                                     ui {
                                         row.showBusy(
                                             ImportProgress.importing(

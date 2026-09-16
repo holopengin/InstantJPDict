@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.CatalogSource
 import com.holopengin.instantjpdict.util.DictionaryCatalog
+import com.holopengin.instantjpdict.util.InstalledDictionary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -34,7 +35,12 @@ class DictionaryCatalogTest {
     @Test
     fun the_catalog_ships_the_dictionaries_the_feature_promises() {
         assertEquals(
-            listOf("jmdict-english", "kanjidic-english", "kanjium-pitch"),
+            listOf(
+                "jmdict-english",
+                "jmdict-english-with-examples",
+                "kanjidic-english",
+                "kanjium-pitch",
+            ),
             entries.map { it.id },
         )
         entries.forEach { e ->
@@ -46,11 +52,41 @@ class DictionaryCatalogTest {
             assertTrue("'${e.id}' pins no size", e.bytes > 0)
             assertTrue("'${e.id}' pins no sha256", e.sha256.matches(Regex("^[0-9a-f]{64}$")))
         }
-        // Two entries sharing a title family would make installed state ambiguous.
+        // The two JMdict builds share the upstream title `JMdict` on purpose:
+        // they are mutually exclusive variants, and `catalogId` is what tells
+        // them apart. Any other shared title family would be an accident.
+        val shared = entries.groupBy { it.title }.filterValues { it.size > 1 }
+        assertEquals("only the JMdict variants may share a title", setOf("JMdict"), shared.keys)
         assertEquals(
-            "two catalog entries share a title family",
-            entries.size,
-            entries.map { it.title }.distinct().size,
+            listOf("jmdict-english", "jmdict-english-with-examples"),
+            shared.getValue("JMdict").map { it.id },
+        )
+    }
+
+    @Test
+    fun the_two_jmdict_variants_are_mutually_exclusive() {
+        // A catalog install names its exact entry, so the other variant stays
+        // uninstalled even though both share the title `JMdict`.
+        assertEquals(
+            setOf("jmdict-english-with-examples"),
+            DictionaryCatalog.installedIds(
+                entries,
+                listOf(InstalledDictionary("JMdict [2026-09-15]", "jmdict-english-with-examples")),
+            ),
+        )
+        assertEquals(
+            setOf("jmdict-english"),
+            DictionaryCatalog.installedIds(
+                entries,
+                listOf(InstalledDictionary("JMdict [2026-09-15]", "jmdict-english")),
+            ),
+        )
+        // A title-only install (file picker, or pre-`catalogId`) cannot say
+        // which variant it is, so it resolves to the default — the first entry
+        // of the family — and never lights up both rows.
+        assertEquals(
+            setOf("jmdict-english"),
+            DictionaryCatalog.installedIds(entries, listOf(InstalledDictionary("JMdict [2026-09-15]"))),
         )
     }
 
@@ -101,17 +137,22 @@ class DictionaryCatalogTest {
 
     @Test
     fun a_dictionary_is_installed_when_its_title_family_is_present_but_not_a_longer_name() {
-        assertTrue(DictionaryCatalog.isInstalled(entry("jmdict-english"), listOf("JMdict [2026-09-15]")))
-        assertFalse(DictionaryCatalog.isInstalled(entry("jmdict-english"), listOf("JMdict Forms")))
-        assertFalse(DictionaryCatalog.isInstalled(entry("jmdict-english"), listOf("KANJIDIC [2026-258]")))
-        assertTrue(DictionaryCatalog.isInstalled(entry("kanjium-pitch"), listOf("Kanjium Pitch Accents")))
         assertEquals(
             setOf("kanjidic-english"),
-            DictionaryCatalog.installedIds(entries, listOf("KANJIDIC [2020-01-01]")),
+            DictionaryCatalog.installedIds(entries, listOf(InstalledDictionary("KANJIDIC [2020-01-01]"))),
         )
         assertEquals(
             setOf("jmdict-english", "kanjium-pitch"),
-            DictionaryCatalog.installedIds(entries, listOf("JMdict [2026-09-15]", "Kanjium Pitch Accents")),
+            DictionaryCatalog.installedIds(
+                entries,
+                listOf(InstalledDictionary("JMdict [2026-09-15]"), InstalledDictionary("Kanjium Pitch Accents")),
+            ),
+        )
+        // `JMdict Forms` is a longer name, not the `JMdict` family, so it must
+        // not be mistaken for the dictionary itself.
+        assertEquals(
+            emptySet<String>(),
+            DictionaryCatalog.installedIds(entries, listOf(InstalledDictionary("JMdict Forms"))),
         )
     }
 

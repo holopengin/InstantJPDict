@@ -9,6 +9,10 @@
     "APK and needs no network. `title` is the dictionary's stable title family",
     "the installed DictionaryMeta.name is matched against (the upstream zip may",
     "append a revision in brackets, e.g. \"JMdict [2026-09-15]\").",
+    "Two entries may share a title family when they are mutually exclusive",
+    "variants (the two JMdict builds): the importer replaces by title, and the",
+    "installed DictionaryMeta.catalogId records which one is installed, so only",
+    "one row lights up. The first entry of a family is the title-only default.",
     "Licence labels point at the in-app Licenses viewer (#70), which ships the",
     "full CC BY-SA 4.0 / EDRDG texts."
   ],
@@ -16,11 +20,23 @@
     {
       "id": "jmdict-english",
       "name": "JMdict (English)",
-      "description": "The standard Japanese-to-English dictionary: words, readings, parts of speech and glosses. The one to install first.",
+      "description": "The standard Japanese-to-English dictionary: words, readings, parts of speech and glosses, without example sentences. The one to install first.",
       "kind": "yomitanZip",
       "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-15/JMdict_english.zip",
       "bytes": 15594803,
       "sha256": "58983250d41fb8e9ea656cb7678939ecc0f82b4a91a595ad04696f88fe599472",
+      "title": "JMdict",
+      "license": "CC BY-SA 4.0 (EDRDG)",
+      "source": "yomidevs/jmdict-yomitan @ 2026-09-15"
+    },
+    {
+      "id": "jmdict-english-with-examples",
+      "name": "JMdict (English, with examples)",
+      "description": "The same JMdict entry set, with example sentences from the Tatoeba Project on each sense. A larger download; install it instead of the plain JMdict, not alongside it.",
+      "kind": "yomitanZip",
+      "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-15/JMdict_english_with_examples.zip",
+      "bytes": 18080622,
+      "sha256": "cb7891fae661b901ae17f716d2e55ecaf377aa7c2dbf69841378af13d5e73cd8",
       "title": "JMdict",
       "license": "CC BY-SA 4.0 (EDRDG)",
       "source": "yomidevs/jmdict-yomitan @ 2026-09-15"

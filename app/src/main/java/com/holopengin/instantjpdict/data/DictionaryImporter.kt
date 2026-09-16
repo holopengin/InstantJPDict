@@ -23,7 +23,18 @@ class DictionaryImporter(private val context: Context) {
         const val TAG = "DictionaryImporter"
     }
 
-    suspend fun importZip(uri: android.net.Uri, fileName: String, onProgress: (Int) -> Unit): Result<Int> = withContext(Dispatchers.IO) {
+    /**
+     * [catalogId] is the catalog entry this import came from, when it did
+     * (#71 follow-up). It is stored on the imported dictionary's meta row so
+     * the catalog can distinguish variants that share an upstream title; the
+     * file-picker path passes nothing and leaves it null.
+     */
+    suspend fun importZip(
+        uri: android.net.Uri,
+        fileName: String,
+        catalogId: String? = null,
+        onProgress: (Int) -> Unit,
+    ): Result<Int> = withContext(Dispatchers.IO) {
         try {
             // #71: re-importing the same dictionary must replace it, not stack a
             // second copy. The zip's declared title is read from a first open
@@ -46,6 +57,7 @@ class DictionaryImporter(private val context: Context) {
                         fileName.removeSuffix(".zip"),
                         onProgress,
                         builtIn = false,
+                        catalogId = catalogId,
                     )
                 }
             )
@@ -63,7 +75,11 @@ class DictionaryImporter(private val context: Context) {
      * action is idempotent: tapping it twice leaves one dictionary, not two
      * stacked copies of the same 124k rows.
      */
-    suspend fun importBundledAsset(assetPath: String, onProgress: (Int) -> Unit): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun importBundledAsset(
+        assetPath: String,
+        catalogId: String? = null,
+        onProgress: (Int) -> Unit,
+    ): Result<Int> = withContext(Dispatchers.IO) {
         try {
             context.assets.open(assetPath).use { readZipTitle(it) }?.let { title ->
                 replaceExisting(title)
@@ -78,6 +94,7 @@ class DictionaryImporter(private val context: Context) {
                         assetPath.substringAfterLast('/').removeSuffix(".zip"),
                         onProgress,
                         builtIn = true,
+                        catalogId = catalogId,
                     )
                 }
             )
@@ -124,12 +141,19 @@ class DictionaryImporter(private val context: Context) {
         }
     }
 
-    /** Shared import core: reads a dictionary zip and writes its rows. */
+    /**
+     * Shared import core: reads a dictionary zip and writes its rows.
+     *
+     * [catalogId] is stamped on the meta row this import creates (#71
+     * follow-up), so a catalog install can be told apart from a file-picker or
+     * bundled one and from a variant with an identical upstream title.
+     */
     private suspend fun importZipStream(
         bufferedStream: BufferedInputStream,
         fallbackTitle: String,
         onProgress: (Int) -> Unit,
         builtIn: Boolean = false,
+        catalogId: String? = null,
     ): Int = coroutineScope {
             val startTime = System.currentTimeMillis()
             val db = AppDatabase.getDatabase(context)
@@ -140,6 +164,25 @@ class DictionaryImporter(private val context: Context) {
             var dictTitle = fallbackTitle
             var dictionaryId: Int? = null
             var totalProcessed = 0
+
+            /**
+             * Insert the meta row the first time a bank needs it, then reuse it.
+             * The row is created from whatever title is known at that moment
+             * (index.json usually comes first) and [DictionaryMeta.name] is
+             * corrected below if the title arrives later. `catalogId` is fixed
+             * for the whole import.
+             */
+            suspend fun ensureDictionary(): Int {
+                dictionaryId?.let { return it }
+                val maxPriority = dao.getMaxPriority() ?: -1
+                return dao.insertDictionary(
+                    DictionaryMeta(
+                        name = dictTitle,
+                        priority = maxPriority + 1,
+                        catalogId = catalogId,
+                    )
+                ).toInt().also { dictionaryId = it }
+            }
             
             val batchChannel = Channel<List<DictionaryEntry>>(capacity = 10)
             
@@ -167,39 +210,27 @@ class DictionaryImporter(private val context: Context) {
                         }
                     }
                     entry.name.startsWith("term_bank_") && entry.name.endsWith(".json") -> {
-                        if (dictionaryId == null) {
-                            val maxPriority = dao.getMaxPriority() ?: -1
-                            dictionaryId = dao.insertDictionary(DictionaryMeta(name = dictTitle, priority = maxPriority + 1)).toInt()
-                        }
+                        val id = ensureDictionary()
                         val reader = JsonReader(InputStreamReader(zipInputStream, "UTF-8"))
-                        processTermBank(reader, dictionaryId!!, batchChannel)
+                        processTermBank(reader, id, batchChannel)
                     }
                     entry.name.startsWith("kanji_bank_") && entry.name.endsWith(".json") -> {
-                        if (dictionaryId == null) {
-                            val maxPriority = dao.getMaxPriority() ?: -1
-                            dictionaryId = dao.insertDictionary(DictionaryMeta(name = dictTitle, priority = maxPriority + 1)).toInt()
-                        }
+                        val id = ensureDictionary()
                         val reader = JsonReader(InputStreamReader(zipInputStream, "UTF-8"))
-                        processKanjiBank(reader, dictionaryId!!, batchChannel)
+                        processKanjiBank(reader, id, batchChannel)
                     }
                     entry.name.startsWith("tag_bank_") && entry.name.endsWith(".json") -> {
-                        if (dictionaryId == null) {
-                            val maxPriority = dao.getMaxPriority() ?: -1
-                            dictionaryId = dao.insertDictionary(DictionaryMeta(name = dictTitle, priority = maxPriority + 1)).toInt()
-                        }
+                        val id = ensureDictionary()
                         val reader = JsonReader(InputStreamReader(zipInputStream, "UTF-8"))
-                        parseTagBank(reader, dao, dictionaryId!!)
+                        parseTagBank(reader, dao, id)
                     }
                     // #43: term-meta banks carry pitch-accent data (and freq,
                     // which we skip). Stored like a term entry so lookup finds
                     // it, then filtered out of the entry list at render time.
                     entry.name.startsWith("term_meta_bank_") && entry.name.endsWith(".json") -> {
-                        if (dictionaryId == null) {
-                            val maxPriority = dao.getMaxPriority() ?: -1
-                            dictionaryId = dao.insertDictionary(DictionaryMeta(name = dictTitle, priority = maxPriority + 1)).toInt()
-                        }
+                        val id = ensureDictionary()
                         val reader = JsonReader(InputStreamReader(zipInputStream, "UTF-8"))
-                        processTermMetaBank(reader, dictionaryId!!, batchChannel)
+                        processTermMetaBank(reader, id, batchChannel)
                     }
                 }
                 zipInputStream.closeEntry()
