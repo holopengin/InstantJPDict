@@ -172,6 +172,32 @@ class OcrOverlayView(
     private lateinit var imageView: android.widget.ImageView
     private lateinit var debugTextView: TextView
     private lateinit var progressBar: ProgressBar
+
+    /**
+     * #66 follow-up: the in-overlay confirmation for copy/bookmark actions.
+     *
+     * A system Toast cannot work from here. This view is an accessibility
+     * overlay (`TYPE_ACCESSIBILITY_OVERLAY`), which the window manager layers
+     * ABOVE `TYPE_TOAST`, and the overlay is full-screen — so the toast was
+     * posted, drawn underneath, and never seen. Confirming inside our own window
+     * is the only channel that works without giving up the overlay, and giving it
+     * up is exactly what this app must not do: the overlay is how a lookup
+     * happens without pausing the app being read.
+     *
+     * A lazily-created child of this view, brought to front, so it sits above the
+     * dictionary panel regardless of which container built that. `tag` is set for
+     * the same findViewWithTag-with-a-test-accessor reason the rest of the
+     * overlay's chrome is.
+     */
+    private var confirmation: TextView? = null
+    private val hideConfirmation = Runnable {
+        confirmation?.let { view ->
+            view.animate().cancel()
+            view.animate().alpha(0f).setDuration(160).withEndAction {
+                if (view === confirmation) view.visibility = View.GONE
+            }.start()
+        }
+    }
     private lateinit var gestureDetector: android.view.ScaleGestureDetector
     private lateinit var tapDetector: android.view.GestureDetector
 
@@ -1470,11 +1496,11 @@ class OcrOverlayView(
                 scope.launch {
                     val nowSaved = BookmarkStore.toggle(appContext, candidate)
                     renderState(nowSaved)
-                    Toast.makeText(
-                        appContext,
-                        if (nowSaved) "Bookmarked ${candidate.kanji}" else "Removed ${candidate.kanji}",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    // In-overlay confirmation, not a Toast: a toast is drawn
+                    // beneath an accessibility overlay. Same treatment as copy.
+                    showOverlayConfirmation(
+                        if (nowSaved) "Bookmarked ${candidate.kanji}" else "Removed ${candidate.kanji}"
+                    )
                 }
             }
         }
@@ -1512,7 +1538,54 @@ class OcrOverlayView(
                 }
             }
         )
-        Toast.makeText(context, LookupCopyTargets.copiedConfirmation(target.value), Toast.LENGTH_SHORT).show()
+        showOverlayConfirmation(LookupCopyTargets.copiedConfirmation(target.value))
+    }
+
+    /**
+     * Show a short confirmation inside the overlay.
+     *
+     * Replaces `Toast` for actions taken while the overlay is up (copy,
+     * bookmark), because a toast is drawn beneath an accessibility overlay and
+     * this one is full-screen — see the note on [confirmation]. The view is
+     * created once and reused: rapid actions restart the fade rather than
+     * stacking views, and the pending hide is cancelled so the second message
+     * does not inherit the first one's timeout.
+     *
+     * Positioned bottom-centre, above where the OCR status line sits, and brought
+     * to front so it clears the dictionary panel; the exact placement is a
+     * judgement call that wants the maintainer's eye on a device.
+     */
+    private fun showOverlayConfirmation(message: String) {
+        val density = resources.displayMetrics.density
+        val view = confirmation ?: TextView(context).apply {
+            tag = "overlay_confirmation"
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(235, 20, 20, 20))
+            setPadding((18 * density).toInt(), (10 * density).toInt(), (18 * density).toInt(), (10 * density).toInt())
+            textSize = 15f
+            includeFontPadding = false
+            OverlayFont.apply(context, this)
+            visibility = View.GONE
+            addView(
+                this,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    bottomMargin = (96 * density).toInt()
+                },
+            )
+            confirmation = this
+        }
+        view.text = message
+        view.visibility = View.VISIBLE
+        view.bringToFront()
+        view.animate().cancel()
+        view.alpha = 0f
+        view.animate().alpha(1f).setDuration(120).start()
+        view.removeCallbacks(hideConfirmation)
+        view.postDelayed(hideConfirmation, 1500)
     }
 
     /** #62: compact deinflection chain row, e.g. "食べた → 食べる" + past chip.
