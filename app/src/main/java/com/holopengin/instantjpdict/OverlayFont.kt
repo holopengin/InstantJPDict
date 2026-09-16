@@ -35,15 +35,16 @@ object OverlayFont {
     const val FACE_SERIF = "serif"
 
     /**
-     * Today's appearance: the sans face the overlay drew before the switch
+     * Today's appearance: the sans face the OCR overlay drew before the switch
      * existed.
      *
-     * NOT metric-identical to the platform face, which is what the first cut of
-     * this got wrong: the bundled Noto's `hhea` line box is 1.448 em against the
-     * platform font's ~1.0 em, so adopting it as the default silently widened
-     * every line of dictionary text. [OverlayTextMetrics] is what corrects that;
-     * the claim is recorded here because this constant's doc used to assert the
-     * opposite and would mislead the next reader.
+     * Note this is the face the OVERLAY uses, not the dictionary panel. The panel
+     * was returned to the system face separately (see [applySystem]): the bundled
+     * Noto's `hhea` line box is 1.448 em against the platform face's ~1.0 em, so
+     * painting the panel in it silently widened every definition line and pushed
+     * wrapped ink past the view's bounds. The overlay's own glyphs have no such
+     * constraint and keep the bundled faces, which is what #84 shipped the switch
+     * for.
      */
     const val DEFAULT_FACE = FACE_SANS
 
@@ -94,41 +95,44 @@ object OverlayFont {
     }
 
     /**
-     * Stamp [tv] with the selected face. One helper for every `TextView` the
-     * overlay builds, so the glyphs, dictionary panel, alternatives,
-     * neighbour chips and pitch line stay one face.
+     * The system face, for the dictionary panel's text.
+     *
+     * The maintainer's split: the OCR overlay keeps the bundled faces (that is
+     * what #84 shipped the switch for), while the dictionary panel goes back to
+     * the platform's own Japanese face. The reason is measured, not aesthetic —
+     * the bundled Noto's `hhea` box is 1.448 em against the platform face's
+     * ~1.0 em, so the dictionary panel's line spacing was silently ~45% looser
+     * than the layout was tuned for. Returning the panel to the system face
+     * restores that spacing exactly, without needing to correct the metric.
+     *
+     * `Typeface.SANS_SERIF` rather than `DEFAULT`: the panel draws Japanese, and
+     * the platform's sans family is what resolves a CJK face on Android, whereas
+     * DEFAULT can resolve a Latin-only face on some configurations.
+     */
+    fun systemTypeface(): Typeface = Typeface.SANS_SERIF
+
+    /**
+     * [systemTypeface] for a dictionary-panel `TextView`.
+     *
+     * Sets only the face. It deliberately does NOT touch `includeFontPadding` or
+     * `setLineSpacing`: each panel call site already carries the value it was
+     * tuned with against the system face, and overriding them here is how the
+     * panel's spacing got broken once already. The face is the whole change.
+     */
+    fun applySystem(ctx: Context, tv: TextView, bold: Boolean = false) {
+        tv.typeface = if (bold) Typeface.create(systemTypeface(), Typeface.BOLD) else systemTypeface()
+        tv.paint.isFakeBoldText = bold
+    }
+
+    /**
+     * Stamp [tv] with the selected bundled face. Used by the OCR overlay's own
+     * text (the line glyphs, neighbour chips, alternatives, manual input). The
+     * dictionary panel uses [applySystem] instead.
      */
     fun apply(ctx: Context, tv: TextView, bold: Boolean = false) {
         tv.typeface = typeface(ctx, bold)
         tv.paint.isFakeBoldText = bold
     }
-
-    /**
-     * [apply] for a block of body text — a definition, an example, the source
-     * caption. The bundled faces carry a taller line box than the platform font
-     * this layout was tuned against, so the excess is removed between lines here
-     * rather than at every call site. See [OverlayTextMetrics] for the measured
-     * numbers and why the top/bottom edges need their own padding.
-     *
-     * Callers must not also set `setLineSpacing` or `includeFontPadding` after
-     * this, or they re-introduce the conflict it exists to resolve.
-     */
-    fun applyBody(ctx: Context, tv: TextView, bold: Boolean = false) {
-        apply(ctx, tv, bold)
-        tv.includeFontPadding = false
-        tv.setLineSpacing(0f, OverlayTextMetrics.LINE_HEIGHT_MULTIPLIER)
-    }
-
-    /**
-     * The vertical padding a body-text block needs at its top and bottom, in
-     * pixels. Split out because it is applied to the *container* an example or
-     * sense sits in, not to the text view, and the two edges differ.
-     */
-    fun bodyTopPaddingPx(ctx: Context): Int =
-        (OverlayTextMetrics.BODY_TOP_PADDING_DP * ctx.resources.displayMetrics.density).toInt()
-
-    fun bodyBottomPaddingPx(ctx: Context): Int =
-        (OverlayTextMetrics.BODY_BOTTOM_PADDING_DP * ctx.resources.displayMetrics.density).toInt()
 
     private fun load(ctx: Context, asset: String): Typeface = try {
         Typeface.createFromAsset(ctx.assets, asset) ?: Typeface.SANS_SERIF
