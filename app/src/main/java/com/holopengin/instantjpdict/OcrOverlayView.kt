@@ -14,7 +14,6 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -1345,7 +1344,6 @@ class OcrOverlayView(
                 OverlayFont.apply(context, this)
                 includeFontPadding = false
                 minWidth = 0
-                minimumWidth = 0
                 setPadding(24, 8, 24, 8)
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#3a5a7a"))
@@ -1362,14 +1360,13 @@ class OcrOverlayView(
     }
 
     /** #66: `ClipboardManager.setPrimaryClip`, matching `MainActivity`'s
-     *  inference-log copy. Android 13+ draws its own copy preview, so the
-     *  toast is only for the older releases the app still supports. */
+     *  inference-log copy. The toast is the guaranteed feedback: the Android
+     *  13+ system copy preview only appears for a writable foreground app, and
+     *  an accessibility overlay is not one, so this host cannot rely on it. */
     private fun copyToClipboard(target: CopyTarget) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText(target.clipLabel, target.value))
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            Toast.makeText(context, "Copied: ${target.value}", Toast.LENGTH_SHORT).show()
-        }
+        Toast.makeText(context, "Copied: ${target.value}", Toast.LENGTH_SHORT).show()
     }
 
     /** #62: compact deinflection chain row, e.g. "食べた → 食べる" + past chip.
