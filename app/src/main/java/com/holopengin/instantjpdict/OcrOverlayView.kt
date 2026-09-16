@@ -1323,7 +1323,7 @@ class OcrOverlayView(
                 setTextColor(Color.GRAY)
                 gravity = Gravity.CENTER
                 textSize = 16f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 setPadding(0, 150, 0, 0)
             })
             return
@@ -1343,11 +1343,7 @@ class OcrOverlayView(
         matches.forEach { entry ->
             val termSection = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
-                // #84 follow-up: was 40dp. The bundled face's glyph box already
-                // carries more vertical rhythm than the platform font did, so the
-                // explicit entry gap is trimmed to keep the list readable without
-                // the entries drifting apart.
-                setPadding(0, 2, 0, 18)
+                setPadding(0, 4, 0, 40)
             }
             // #67 follow-up: the bookmark star lives in the entry's top-right
             // corner, overlaying the headword block rather than taking a line of
@@ -1413,7 +1409,7 @@ class OcrOverlayView(
                     text = name
                     setTextColor(Color.GRAY)
                     textSize = 12f
-                    OverlayFont.apply(context, this)
+                    OverlayFont.applySystem(context, this)
                     gravity = Gravity.END
                     setPadding(0, 8, 0, 0)
                 })
@@ -1524,7 +1520,7 @@ class OcrOverlayView(
                 text = "${chain.surface} → $term"
                 setTextColor(Color.LTGRAY)
                 textSize = 12f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 setPadding(0, 0, 12, 0)
                 includeFontPadding = false
             })
@@ -1557,7 +1553,7 @@ class OcrOverlayView(
                     text = hw.kanji
                     setTextColor(Color.CYAN)
                     textSize = 48f
-                    OverlayFont.apply(context, this, bold = true)
+                    OverlayFont.applySystem(context, this, bold = true)
                     setPadding(0, 0, 30, 0)
                 })
                 val readingStack = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -1586,7 +1582,7 @@ class OcrOverlayView(
             pairs.forEachIndexed { i, (kanji, reading) ->
                 flow.addView(createRubyView(kanji, reading, reserveRubySpace = reserveRubySpace))
                 if (i < pairs.size - 1) {
-                    flow.addView(TextView(context).apply { text = "、"; setTextColor(Color.GRAY); textSize = 24f; OverlayFont.apply(context, this); setPadding(5, 0, 5, 0) })
+                    flow.addView(TextView(context).apply { text = "、"; setTextColor(Color.GRAY); textSize = 24f; OverlayFont.applySystem(context, this); setPadding(5, 0, 5, 0) })
                 }
             }
             headwordList.addView(flow)
@@ -1599,7 +1595,7 @@ class OcrOverlayView(
                     group.pitchPositions.map { PitchAccentLine.Item(group.reading, it) }
                 }
                 PitchAccentLine.build(context, items, pitchTextSizePx)?.let { line ->
-                    OverlayFont.apply(context, line)
+                    OverlayFont.applySystem(context, line)
                     headwordList.addView(line, LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1975,7 +1971,7 @@ class OcrOverlayView(
             text = tag
             setTextColor(Color.WHITE)
             textSize = 10f
-            OverlayFont.apply(context, this, bold = true)
+            OverlayFont.applySystem(context, this, bold = true)
             setPadding(12, 2, 12, 2)
             background = GradientDrawable().apply { 
                 setColor(color)
@@ -2028,7 +2024,7 @@ class OcrOverlayView(
             text = term
             setTextColor(Color.CYAN)
             textSize = if (isMini) 15f else 32f
-            OverlayFont.apply(context, this, bold = true)
+            OverlayFont.applySystem(context, this, bold = true)
             includeFontPadding = false
             setPadding(0, 0, 0, 0)
         }
@@ -2044,7 +2040,7 @@ class OcrOverlayView(
                 text = reading
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -2070,7 +2066,7 @@ class OcrOverlayView(
                 text = label
                 setTextColor(Color.GRAY)
                 textSize = 12f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 setPadding(0, 0, 12, 0)
                 includeFontPadding = false
             })
@@ -2079,13 +2075,9 @@ class OcrOverlayView(
                 setTextColor(Color.LTGRAY)
                 // Same size as the furigana rows (non-mini ruby).
                 textSize = 13f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 includeFontPadding = false
                 setLineSpacing(0f, kunOnLineSpacingMult)
-                // #84 follow-up: long readings wrap, and a wrapped final line is
-                // exactly the clip case this fix exists for — line spacing cannot
-                // reach the last line's descent, so it gets real padding.
-                setPadding(0, OverlayFont.bodyTopPaddingPx(context), 0, OverlayFont.bodyBottomPaddingPx(context))
             })
         }
     }
@@ -2095,14 +2087,8 @@ class OcrOverlayView(
     /**
      * Wrapped-line spacing inside long readings values (#69): long 訓/音
      * lines must sit no looser than the gap between the rows themselves.
-     *
-     * #84 follow-up: this was `0.85f`, chosen when the face was the platform's
-     * ~1.0 em box, where it added useful air between wrapped rows. Against the
-     * bundled Noto the box already carries that space, so it is the shared zero
-     * multiplier — the readings rows get the same treatment as every other body
-     * block rather than their own value.
      */
-    private val kunOnLineSpacingMult = OverlayTextMetrics.LINE_HEIGHT_MULTIPLIER
+    private val kunOnLineSpacingMult = 0.85f
     /** Pitch-row typography (#43): matches the furigana reading size. */
     private val pitchTextSizePx: Float
         get() = 13f * resources.displayMetrics.scaledDensity
@@ -2118,7 +2104,7 @@ class OcrOverlayView(
                 text = ruby
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -2142,7 +2128,7 @@ class OcrOverlayView(
                 text = " "
                 setTextColor(Color.LTGRAY)
                 textSize = if (isMini) 9f else 13f
-                OverlayFont.apply(context, this)
+                OverlayFont.applySystem(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
             })
@@ -2155,7 +2141,7 @@ class OcrOverlayView(
         if (senseGroup.senses.isEmpty()) return
         
         if (senseGroup.tags.isNotEmpty()) {
-            val header = FlowLayout(context).apply { setPadding(20, 8, 0, 2) }
+            val header = FlowLayout(context).apply { setPadding(20, 15, 0, 5) }
             senseGroup.tags.forEach { header.addView(createTagView(it)) }
             container.addView(header)
         }
@@ -2163,10 +2149,10 @@ class OcrOverlayView(
         if (senseGroup.isForms) {
             val table = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
-                setPadding(30, 2, 10, 2)
+                setPadding(30, 5, 10, 5)
             }
             senseGroup.senses.forEach { sense ->
-                val row = FlowLayout(context).apply { setPadding(0, 2, 0, 2) }
+                val row = FlowLayout(context).apply { setPadding(0, 5, 0, 5) }
                 renderDefinition(row, sense.nodes)
                 table.addView(row)
             }
@@ -2175,23 +2161,18 @@ class OcrOverlayView(
             senseGroup.senses.forEach { sense ->
                 val senseLayout = LinearLayout(context).apply { 
                     orientation = LinearLayout.HORIZONTAL
-                    setPadding(30, 2, 10, 2)
+                    setPadding(30, 5, 10, 5)
                 }
                 senseLayout.addView(TextView(context).apply {
                     text = "${sense.index}. "
                     setTextColor(Color.WHITE)
                     textSize = 15f
-                    OverlayFont.apply(context, this)
+                    OverlayFont.applySystem(context, this)
                     setPadding(0, 0, 10, 0)
                 })
                 
                 val contentContainer = FlowLayout(context).apply {
-                    // #84 follow-up: the 15dp bottom used to provide the gap
-                    // under a sense. Noto's taller line box now supplies much of
-                    // that on its own, so the explicit value shrinks to the
-                    // correction padding [OverlayFont.applyBody] cannot reach —
-                    // the block's own bottom edge.
-                    setPadding(0, 0, 0, OverlayFont.bodyBottomPaddingPx(context))
+                    setPadding(0, 0, 0, 15)
                 }
                 renderDefinition(contentContainer, sense.nodes)
                 senseLayout.addView(contentContainer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -2216,10 +2197,8 @@ class OcrOverlayView(
                         text = sb.toString()
                         setTextColor(Color.WHITE)
                         textSize = 15f
-                        // #84 follow-up: body text, so the bundled face's extra
-                        // line box is corrected here — this is the view whose
-                        // wrapped last line was being clipped at the bottom.
-                        OverlayFont.applyBody(context, this)
+                        OverlayFont.applySystem(context, this)
+                        includeFontPadding = false
                     })
                     i = j
                 }
@@ -2243,8 +2222,8 @@ class OcrOverlayView(
                         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 15, 0, 15) }
                     }
                     if (node.japanese != null) {
-                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.applyBody(context, this); setPadding(0, 0, 0, OverlayFont.bodyBottomPaddingPx(context)) })
-                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.applyBody(context, this) }) }
+                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.applySystem(context, this); setPadding(0, 0, 0, 10) })
+                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.applySystem(context, this) }) }
                     } else if (node.content != null) {
                         val flow = FlowLayout(context)
                         renderDefinition(flow, node.content)
@@ -2684,33 +2663,8 @@ class OcrOverlayView(
         scope.cancel()
     }
 
-    /**
-     * Wraps children onto rows, baseline-aligned: headword flows and sense rows.
-     *
-     * KNOWN DEFECT (#84 follow-up), deliberately left in place: children are
-     * measured with an UNSPECIFIED height spec. For a wrapping TextView that
-     * means "measure as one unwrapped line", so a multi-line definition is
-     * measured at one line's height while it draws several, and the block is
-     * laid out short — the bottoms of wrapped definitions get clipped.
-     *
-     * Two attempts to correct it were reverted because each was worse than the
-     * defect and neither could be validated here (no device or emulator in this
-     * environment):
-     *   - `AT_MOST(heightSize - y)`: an UNSPECIFIED parent (a ScrollView's
-     *     content, which is where this layout lives) reports size 0, so children
-     *     measured at 0px and most of the overlay's text stopped rendering;
-     *   - wrap-before-accumulate ordering: changed how many rows the two passes
-     *     believed existed without fixing the spec.
-     * The ordering is therefore also left as it was.
-     *
-     * Fixing this properly needs the real measurement behaviour observed — an
-     * instrumentation test or a device run that prints, per definition, the
-     * TextView's measuredHeight against the height the flow reports. Do that
-     * before changing this method again; the arithmetic is not the hard part,
-     * the MeasureSpec contract is.
-     *
-     * Moved verbatim from the service.
-     */
+    /** Wraps children onto rows, baseline-aligned: headword flows and sense
+     *  rows. Moved verbatim from the service. */
     private class FlowLayout(context: Context) : android.view.ViewGroup(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -2732,10 +2686,6 @@ class OcrOverlayView(
                 } else {
                     MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.AT_MOST)
                 }
-                // Kept as the original until this can be verified on a device.
-                // See the note on FlowLayout: two attempts at "correcting" this
-                // spec each traded one visible bug for a worse one, and the
-                // semantics here cannot be settled by reading the code.
                 child.measure(
                     childWidthSpec,
                     MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
