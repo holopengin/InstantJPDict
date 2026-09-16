@@ -1868,6 +1868,10 @@ class OcrOverlayView(
                 OverlayFont.apply(context, this)
                 includeFontPadding = false
                 setLineSpacing(0f, kunOnLineSpacingMult)
+                // #84 follow-up: long readings wrap, and a wrapped final line is
+                // exactly the clip case this fix exists for — line spacing cannot
+                // reach the last line's descent, so it gets real padding.
+                setPadding(0, OverlayFont.bodyTopPaddingPx(context), 0, OverlayFont.bodyBottomPaddingPx(context))
             })
         }
     }
@@ -1877,8 +1881,15 @@ class OcrOverlayView(
     /**
      * Wrapped-line spacing inside long readings values (#69): long 訓/音
      * lines must sit no looser than the gap between the rows themselves.
+     *
+     * #84 follow-up: this was `0.85f`, chosen when the face was the platform's
+     * ~1.0 em box, and it ADDS to the font's line height. Against the bundled
+     * Noto (1.448 em) a positive multiplier compounded the excess rather than
+     * trimming it, so it is now the shared negative correction — the readings
+     * rows get the same treatment as every other block of body text instead of
+     * their own opposite-signed one.
      */
-    private val kunOnLineSpacingMult = 0.85f
+    private val kunOnLineSpacingMult = OverlayTextMetrics.lineHeightMultiplier
     /** Pitch-row typography (#43): matches the furigana reading size. */
     private val pitchTextSizePx: Float
         get() = 13f * resources.displayMetrics.scaledDensity
@@ -1962,7 +1973,12 @@ class OcrOverlayView(
                 })
                 
                 val contentContainer = FlowLayout(context).apply {
-                    setPadding(0, 0, 0, 15)
+                    // #84 follow-up: the 15dp bottom used to provide the gap
+                    // under a sense. Noto's taller line box now supplies much of
+                    // that on its own, so the explicit value shrinks to the
+                    // correction padding [OverlayFont.applyBody] cannot reach —
+                    // the block's own bottom edge.
+                    setPadding(0, 0, 0, OverlayFont.bodyBottomPaddingPx(context))
                 }
                 renderDefinition(contentContainer, sense.nodes)
                 senseLayout.addView(contentContainer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -1987,8 +2003,10 @@ class OcrOverlayView(
                         text = sb.toString()
                         setTextColor(Color.WHITE)
                         textSize = 15f
-                        OverlayFont.apply(context, this)
-                        includeFontPadding = false
+                        // #84 follow-up: body text, so the bundled face's extra
+                        // line box is corrected here — this is the view whose
+                        // wrapped last line was being clipped at the bottom.
+                        OverlayFont.applyBody(context, this)
                     })
                     i = j
                 }
@@ -2012,8 +2030,8 @@ class OcrOverlayView(
                         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 15, 0, 15) }
                     }
                     if (node.japanese != null) {
-                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.apply(context, this); setPadding(0, 0, 0, 10) })
-                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.apply(context, this) }) }
+                        box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.applyBody(context, this); setPadding(0, 0, 0, OverlayFont.bodyBottomPaddingPx(context)) })
+                        node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.applyBody(context, this) }) }
                     } else if (node.content != null) {
                         val flow = FlowLayout(context)
                         renderDefinition(flow, node.content)
