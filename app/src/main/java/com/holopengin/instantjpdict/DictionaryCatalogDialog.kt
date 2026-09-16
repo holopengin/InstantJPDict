@@ -68,12 +68,11 @@ object DictionaryCatalogDialog {
 
     private const val TAG = "DictionaryCatalog"
 
-    private val OK = Color.rgb(0x1B, 0x7F, 0x3B)
-    private val WARN = Color.rgb(0xB4, 0x54, 0x09)
-    private val ERR = Color.rgb(0xB0, 0x1C, 0x1C)
-    private val IDLE = Color.rgb(0x44, 0x44, 0x44)
-
     fun show(context: Context) {
+        // #71 follow-up: colours are resolved per day/night. The detail text used
+        // to be a hardcoded #444444, which is dark-on-dark against the DayNight
+        // theme's night dialog surface and was reported as unreadable.
+        val palette = CatalogPalette.of(context)
         val entries = try {
             DictionaryCatalog.parse(
                 readAsset(context, DictionaryCatalog.ASSET)
@@ -106,7 +105,7 @@ object DictionaryCatalogDialog {
                 "is added. Downloading needs a connection; everything else in the app " +
                 "stays offline."
             textSize = 12f
-            setTextColor(IDLE)
+            setTextColor(palette.neutral)
             setPadding(0, 0, 0, dp(context, 8))
         })
 
@@ -115,7 +114,7 @@ object DictionaryCatalogDialog {
         // the failure rather than asked ahead of time.
         val statusBanner = TextView(context).apply {
             textSize = 12f
-            setTextColor(WARN)
+            setTextColor(palette.warn)
             setPadding(0, 0, 0, dp(context, 8))
             visibility = View.GONE
         }
@@ -236,6 +235,7 @@ object DictionaryCatalogDialog {
             val row = CatalogRowView(
                 context = context,
                 entry = entry,
+                palette = palette,
                 onImport = { r -> startImport(entry, r) },
                 onCancel = { jobs[entry.id]?.cancel() },
             )
@@ -281,6 +281,7 @@ object DictionaryCatalogDialog {
     private class CatalogRowView(
         context: Context,
         val entry: CatalogEntry,
+        private val palette: CatalogPalette,
         private val onImport: (CatalogRowView) -> Unit,
         private val onCancel: () -> Unit,
     ) {
@@ -347,13 +348,13 @@ object DictionaryCatalogDialog {
             root.addView(TextView(context).apply {
                 text = entry.description
                 textSize = 12f
-                setTextColor(IDLE)
+                setTextColor(palette.neutral)
                 setPadding(0, dp(context, 2), 0, dp(context, 4))
             })
             root.addView(TextView(context).apply {
                 text = "${entry.sizeLabel()} · ${entry.license} · ${entry.source}"
                 textSize = 11f
-                setTextColor(IDLE)
+                setTextColor(palette.neutral)
             })
             root.addView(LinearLayout(context).apply {
                 // #71 follow-up: the phase text and its percentage share one
@@ -393,7 +394,7 @@ object DictionaryCatalogDialog {
                     } else {
                         "Installed"
                     }
-                    stateView.setTextColor(OK)
+                    stateView.setTextColor(palette.ok)
                     importButton.text = "Re-import"
                 }
                 else -> {
@@ -417,10 +418,10 @@ object DictionaryCatalogDialog {
             progress.max = total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             progress.progress = written.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             stateView.text = ImportProgress.download(written, total, fileName)
-            stateView.setTextColor(IDLE)
+            stateView.setTextColor(palette.neutral)
             percentView.visibility = View.VISIBLE
             percentView.text = "${ImportProgress.percentOf(written, total)}%"
-            percentView.setTextColor(IDLE)
+            percentView.setTextColor(palette.neutral)
             importButton.isEnabled = false
             cancelButton.visibility = View.VISIBLE
         }
@@ -431,7 +432,7 @@ object DictionaryCatalogDialog {
             progress.isIndeterminate = true
             percentView.visibility = View.GONE
             stateView.text = label
-            stateView.setTextColor(IDLE)
+            stateView.setTextColor(palette.neutral)
             importButton.isEnabled = false
             cancelButton.visibility = if (cancellable) View.VISIBLE else View.GONE
         }
@@ -441,7 +442,7 @@ object DictionaryCatalogDialog {
             percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             stateView.text = message
-            stateView.setTextColor(ERR)
+            stateView.setTextColor(palette.err)
             importButton.text = "Retry"
             importButton.isEnabled = true
         }
