@@ -2395,47 +2395,53 @@ class OcrOverlayView(
      * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ △ ✕ 古 旧) keep
      * their inline layout inside the cell.
      *
-     * The card and its cells carry the example box's palette (a 10-alpha white
-     * fill under an 80-alpha white stroke): without it the grid's cells ran
-     * together and the table was unreadable. Cells are separated by a small
-     * margin so their borders read as a grid rather than doubling into heavy
-     * shared edges.
+     * The card carries the example box's palette (a 10-alpha white fill under an
+     * 80-alpha white stroke); neighbouring cells share a single rule instead of
+     * each drawing its own rounded box, so the grid reads as one table rather
+     * than a tray of chips. The outer stroke is the container's, the interior
+     * rules are thin [divider] views.
      */
     private fun createDefinitionTable(rows: List<List<List<DefinitionNode>>>): View {
+        val border = android.graphics.Color.argb(80, 255, 255, 255)
         val table = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(6, 6, 6, 6)
             background = GradientDrawable().apply {
                 setColor(android.graphics.Color.argb(10, 255, 255, 255))
-                setStroke(3, android.graphics.Color.argb(80, 255, 255, 255))
+                setStroke(2, border)
                 cornerRadius = 12f
             }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { setMargins(0, 10, 0, 10) }
         }
         val columns = rows.maxOfOrNull { it.size } ?: 0
-        rows.forEach { cells ->
+        rows.forEachIndexed { rowIndex, cells ->
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
             for (column in 0 until columns) {
+                if (column > 0) row.addView(divider(border, vertical = true))
                 val cell = FlowLayout(context).apply {
                     setPadding(10, 8, 10, 8)
-                    background = GradientDrawable().apply {
-                        setColor(android.graphics.Color.argb(8, 255, 255, 255))
-                        setStroke(2, android.graphics.Color.argb(80, 255, 255, 255))
-                        cornerRadius = 6f
-                    }
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        .apply { setMargins(3, 3, 3, 3) }
                 }
                 renderDefinition(cell, cells.getOrNull(column).orEmpty())
                 row.addView(cell)
             }
             table.addView(row)
+            if (rowIndex < rows.lastIndex) table.addView(divider(border, vertical = false))
         }
         return table
+    }
+
+    /** #88: one grid rule, shared by the two cells it separates. */
+    private fun divider(color: Int, vertical: Boolean): View = View(context).apply {
+        setBackgroundColor(color)
+        layoutParams = if (vertical) {
+            LinearLayout.LayoutParams(2, ViewGroup.LayoutParams.MATCH_PARENT)
+        } else {
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 2)
+        }
     }
 
     private fun handleGamepad(event: KeyEvent): Boolean {
