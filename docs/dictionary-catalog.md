@@ -150,10 +150,11 @@ decision in the feature for the maintainer to ratify.
 
 ## Licences
 
-The catalog names each dictionary's licence and its **Licences** button opens
-the #70 viewer, where the CC BY-SA 4.0 and EDRDG texts ship in full. The
-catalog metadata asset itself is first-party app data and has its own entry in
-the bundled-licence index
+The catalog names each dictionary's licence; the full CC BY-SA 4.0 and EDRDG
+texts live in the main screen's **Licenses & attribution** surface, which the
+catalog does not duplicate — its own Licences button was redundant and has been
+removed. The catalog metadata asset itself is first-party app data and has its
+own entry in the bundled-licence index
 (`app/src/main/assets/licenses/notices/dictionary-catalog.txt`). The imported
 dictionaries' own licences travel with the import; see
 [licenses.md](licenses.md) ("Out of scope").

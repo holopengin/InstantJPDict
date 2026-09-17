@@ -60,13 +60,15 @@ import java.net.UnknownHostException
  * retires the old `CatalogPalette`, which existed only because the dialog was
  * not themed.
  *
- * Three things this deliberately reuses rather than reimplements:
+ * Two things this deliberately reuses rather than reimplements:
  *  - `DictionaryImporter.importZip` for the actual insert, so the catalog and
- *    the file picker write rows through one path;
+ *    the file picker write rows through one path; and
  *  - `DictionaryMeta` for installed state, so the row says "Installed" from the
- *    same truth the manager uses; and
- *  - the #70 [LicenseDialog] for licence text, reached from the Licences button
- *    instead of the catalog carrying its own copy.
+ *    same truth the manager uses.
+ *
+ * Rows name each dictionary's licence, but the full texts live in the main
+ * screen's Licenses & attribution surface — the catalog carries no copy of its
+ * own and no second way in.
  *
  * Offline is handled on the response, not asked about first: reading
  * connectivity costs `ACCESS_NETWORK_STATE`, and #71's acceptance criterion is
@@ -272,17 +274,10 @@ object DictionaryCatalogDialog {
         val dialog = MaterialAlertDialogBuilder(context)
             .setTitle("Dictionary catalog")
             .setView(root)
-            .setNeutralButton("Licences", null)
             .setNegativeButton("Close", null)
             .create()
 
         dialog.setOnShowListener {
-            // The neutral button opens the #70 licence surface, where the
-            // CC BY-SA 4.0 and EDRDG texts these dictionaries are under are
-            // shipped; set here so the click does not dismiss the dialog.
-            dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
-                LicenseDialog.show(context)
-            }
             // A definite window height is what gives the list its weight and lets
             // it scroll, while the intro, banner and buttons stay put.
             ui.sizeDialogWindow(dialog)
