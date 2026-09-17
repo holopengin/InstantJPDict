@@ -175,11 +175,13 @@ test run by `OverlayFontTest`, which parses the committed sfnt/GSUB headers.
 
 - The project's own licence is unchanged: `LICENSE` at the repo root stays AGPL-3.0,
   and the app's copy under `assets/licenses/texts/` is generated from it.
-- Licences for **user-imported** dictionaries (JMdict/KANJIDIC Yomitan zips). Their
-  notices live with the import; the app bundles no KANJIDIC data of its own. The
-  dictionary catalog (#71) names each importable dictionary's licence and points
-  its **Licences** button at this viewer, but the files themselves are downloaded
-  by the user and are not redistributed here.
+- Licences for **user-imported** dictionaries (JMdict/KANJIDIC/Jitendex Yomitan
+  zips). Their notices live with the import; the app bundles no KANJIDIC data of
+  its own. The dictionary catalog (#71/#88) names each importable dictionary's
+  licence and points its **Licences** button at this viewer, but the files
+  themselves are downloaded by the user and are not redistributed here. Jitendex
+  is CC BY-SA 4.0 (© Stephen Kraus), and its `index.json` attribution also names
+  EDRDG/JMdict and Tatoeba; that text travels inside the downloaded zip.
 - `models/archive/` and `tmp/` — not shipped, so not covered.
 
 ## Known gaps

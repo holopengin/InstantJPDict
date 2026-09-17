@@ -65,6 +65,13 @@ The upstream zip's `index.json` titles carry the release date — `JMdict
 family title with `DictionaryCatalog.baseTitle`, which strips a trailing
 bracketed revision. `JMdict Forms` therefore does **not** count as `JMdict`.
 
+Jitendex is the same rule with a different display name: its `index.json`
+declares **`Jitendex.org [2026-08-11]`**, so the stable family is
+`Jitendex.org` (what the row's `title` says) while the row shows the name
+`Jitendex` (what people call it). Confirmed from the pinned artifact rather
+than assumed to be the bare `Jitendex`; it is a family of its own, so it never
+collides with the JMdict variants.
+
 ### Shared titles: the two JMdict variants
 
 Upstream publishes two English JMdict builds that are alternatives to each
@@ -104,6 +111,44 @@ Dictionaries already bundled in the APK — the Kanjium pitch accents (#43) — 
 deliberately **not** listed: they install themselves at first launch, so there is
 nothing for the user to install. The catalog is only for downloads.
 
+## Rendering Jitendex structured content (#88)
+
+Jitendex is a Yomitan structured-content dictionary, and it is *richer* than the
+plain JMdict build: example sentences (Tatoeba), usage/etymology notes, cross
+references and antonyms, source-language info, and a spelling/reading
+**variant-forms table**. The importer is unchanged — term/kanji/tag/term-meta
+banks go through the same `DictionaryImporter` — so what #88 changed is the
+renderer (`OcrOverlayStateController.parseDefinition` and
+`OcrOverlayView.renderDefinition`):
+
+* **Tables render for real.** `table -> tr -> th/td` becomes
+  `DefinitionNode.Table(rows -> cells)`, drawn as an equal-weight grid. The old
+  code emitted `Table(emptyList())` and the view *skipped* it, which blanked the
+  whole forms block. A form-validity cell carries its meaning in a class, not
+  text, so `form-valid/rare/pri/irr/out/old` map to the glyphs upstream's own
+  `styles.css` draws — `◇ ▽ △ ✕ 古 旧`.
+* **Examples split into parts.** Jitendex wraps an example in an
+  `extra-box[data-content=example-sentence]` holding `example-sentence-a` (the
+  Japanese, with ruby) and `example-sentence-b` (the English). They become
+  `Example.parts`, one line each. Only the container matches as an example:
+  the `-a`/`-b` divisors and `example-keyword` spans used to match a loose
+  `contains("example")` test and nested a box inside a box.
+* **Notes and references are blocks.** The `data-content` classes
+  `sense-group`, `sense`, `forms`, `extra-info`, `xref`, `antonym`, `related`,
+  `sense-note`, `info-gloss`, `lang-source` and `attribution` are structural
+  blocks, so a note is not comma-joined onto the gloss before it.
+* **A ruby run is never punctuated.** `湾外` in a cross reference is two ruby
+  kanji; the walker no longer splices `", "` between them (it read `湾, 外`).
+* **The walker fails open.** An unknown tag, a malformed `ruby`, or a `table`
+  without rows renders its `content`/`list` instead of dropping the node — and
+  with it the sense. `JitendexStructuredContentTest` pins this.
+
+The plain-text path behind bookmark snapshots and CSV (`Definitions.render`)
+also ignores the presentation keys `data`, `href`, `style`, `path` and the other
+non-text attributes (`tag`, `title`, `class`, …) when an object has no
+`content`/`list`/`glossary`, so a form cell with only a class and a tooltip no
+longer exports as `valid form/reading combination, span, form-valid`.
+
 ## Idempotency
 
 `DictionaryImporter.importZip` reads the zip's declared title from a first open
@@ -126,6 +171,20 @@ Pinned to release `2026-09-15` of
 | JMdict (English) | `JMdict_english.zip` | 15,594,803 | `58983250d41fb8e9ea656cb7678939ecc0f82b4a91a595ad04696f88fe599472` |
 | JMdict (English, with examples) | `JMdict_english_with_examples.zip` | 18,080,622 | `cb7891fae661b901ae17f716d2e55ecaf377aa7c2dbf69841378af13d5e73cd8` |
 | KANJIDIC (English) | `KANJIDIC_english.zip` | 721,032 | `51a7a1aa3f996e60742b9e5f62144422926060d48208d9bdb9f51ecfe9dd4f74` |
+
+Jitendex is pinned separately, to release `2026.08.11.0` of
+[stephenmk/stephenmk.github.io](https://github.com/stephenmk/stephenmk.github.io),
+recorded 2026-09-17 from the real artifact:
+
+| Dictionary | URL (release `2026.08.11.0`) | Bytes | SHA-256 |
+|---|---|---|---|
+| Jitendex | `jitendex-yomitan.zip` | 38,698,313 | `8364e69e7bd0881c42011e96af921a7399d7fe06e2bf4fff4da6d18affff74fc` |
+
+Its `index.json` title is `Jitendex.org [2026-08-11]`; the row keeps the
+`Jitendex.org` family. The catalog lists JMdict first (smaller, the "install
+first" default) and Jitendex after it rather than leading with the upstream
+recommendation — reordering the rows is the maintainer's call, and the Open
+Question in #88 is left open on purpose.
 
 **Updating a pin.** Download the new asset, `sha256sum` it, `stat -c %s` it, and
 edit both the URL's release tag and the numbers together.
@@ -162,7 +221,8 @@ dictionaries' own licences travel with the import; see
 
 | Test | What it pins |
 |---|---|
-| `DictionaryCatalogTest` | the shipped asset lists both JMdict variants and KANJIDIC and no bundled row; every row is pinned to a dated release with size + hash; only the JMdict variants share a title, and `catalogId` resolves them to exactly one installed row; installed-state matching; strict parsing |
+| `DictionaryCatalogTest` | the shipped asset lists both JMdict variants, KANJIDIC and Jitendex and no bundled row; the Jitendex pin (URL, bytes, hash, licence, `Jitendex.org` family); every row is pinned to a dated release with size + hash; only the JMdict variants share a title, and `catalogId` resolves them to exactly one installed row; installed-state matching; strict parsing |
+| `JitendexStructuredContentTest` | six real Jitendex rows from the pinned artifact: the forms table's rows/cells and validity glyphs, example parts (with ruby), cross references, antonyms, notes and source-language info, sense-group retention, the pinned plain-text output, the absence of attribute noise, and fail-open for unknown tags, malformed ruby and unshaped tables |
 | `DictionaryDownloadTest` | verification against known-good SHA-256 literals; a file is deleted on a hash/size mismatch or cancellation; a verified file is kept |
 | `DictionaryMetaSchemaTest` | the hand-written `catalogId` migration DDL matches Room's generated shape (a nullable `TEXT` column), so the destructive fallback cannot fire |
 | `NetworkPermissionTest` | `INTERNET` is the only permission the feature adds, and the declaration says why |
