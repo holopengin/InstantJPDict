@@ -1,7 +1,7 @@
 package com.holopengin.instantjpdict
 
 import android.content.Context
-import android.graphics.Color
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
@@ -10,14 +10,20 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.shape.CornerFamily
+import com.google.android.material.shape.MaterialShapeDrawable
+import com.google.android.material.shape.ShapeAppearanceModel
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryDownloader
 import com.holopengin.instantjpdict.data.DictionaryImporter
@@ -41,6 +47,7 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import kotlin.math.min
 
 /**
  * #71: the in-app dictionary catalog — browse the bundled static list and
@@ -50,6 +57,14 @@ import java.net.UnknownHostException
  * upstream URL and integrity-checked before import, or an asset already in the
  * APK (the pitch dictionary, which needs no network). A network row shows
  * download progress and can be cancelled; a bundled row installs immediately.
+ *
+ * The surface is the app's "Harbour" Material 3 language (main-screen redesign):
+ * one tonal card per dictionary on `colorSurfaceContainerLow`, the Material 3
+ * type scale instead of hand-set sizes, `MaterialButton` roles for the actions,
+ * an M3 progress indicator, and every colour read from the theme — so day/night
+ * and Material You both flow through without a hand-maintained palette. That
+ * retires the old `CatalogPalette`, which existed only because the dialog was
+ * not themed.
  *
  * Three things this deliberately reuses rather than reimplements:
  *  - `DictionaryImporter.importZip` for the actual insert, so the catalog and
@@ -69,11 +84,11 @@ object DictionaryCatalogDialog {
 
     private const val TAG = "DictionaryCatalog"
 
+    /** Material 3 dialogs cap at 560 dp; the window is sized inside that. */
+    private const val WINDOW_MAX_WIDTH_DP = 560
+
     fun show(context: Context) {
-        // #71 follow-up: colours are resolved per day/night. The detail text used
-        // to be a hardcoded #444444, which is dark-on-dark against the DayNight
-        // theme's night dialog surface and was reported as unreadable.
-        val palette = CatalogPalette.of(context)
+        val colors = colorsFor(context)
         val entries = try {
             DictionaryCatalog.parse(
                 readAsset(context, DictionaryCatalog.ASSET)
@@ -97,36 +112,74 @@ object DictionaryCatalogDialog {
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 16), dp(context, 12), dp(context, 16), 0)
+            setPadding(dp(context, 24), 0, dp(context, 24), 0)
         }
 
         root.addView(TextView(context).apply {
             text = "Popular Yomitan dictionaries, downloaded and imported for you. " +
-                "Downloads are checked against a pinned size and SHA-256 before anything " +
-                "is added. Downloading needs a connection; everything else in the app " +
-                "stays offline."
-            textSize = 12f
-            setTextColor(palette.neutral)
-            setPadding(0, 0, 0, dp(context, 8))
+                "Each download is checked against a pinned size and SHA-256 before a " +
+                "single row is added. Downloading needs a connection; everything else " +
+                "in the app stays offline."
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(colors.onSurfaceVariant)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(context, 12) }
         })
 
         // Shown only after a download could not reach the network. The app holds
         // no permission to read connectivity state, so this is discovered from
         // the failure rather than asked ahead of time.
-        val statusBanner = TextView(context).apply {
-            textSize = 12f
-            setTextColor(palette.warn)
-            setPadding(0, 0, 0, dp(context, 8))
-            visibility = View.GONE
+        val bannerText = TextView(context).apply {
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(colors.onErrorContainer)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
-        root.addView(statusBanner)
+        val banner = MaterialCardView(context).apply {
+            radius = dp(context, 16).toFloat()
+            cardElevation = 0f
+            strokeWidth = 0
+            setCardBackgroundColor(colors.errorContainer)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(context, 12) }
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12))
+                addView(ImageView(context).apply {
+                    setImageResource(R.drawable.ic_info)
+                    imageTintList = ColorStateList.valueOf(colors.onErrorContainer)
+                    layoutParams = LinearLayout.LayoutParams(dp(context, 20), dp(context, 20))
+                        .apply { marginEnd = dp(context, 12) }
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                })
+                addView(bannerText)
+            })
+        }
+        root.addView(banner)
 
         val rowsContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        val rowsScroll = ScrollView(context).apply {
-            addView(rowsContainer)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        val rowsScroll = NestedScrollView(context).apply {
+            clipToPadding = false
+            addView(
+                rowsContainer,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            setPadding(0, dp(context, 2), 0, dp(context, 2))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
         }
         root.addView(rowsScroll)
 
@@ -214,7 +267,7 @@ object DictionaryCatalogDialog {
                             file.delete()
                         }
                     }
-                    ui { statusBanner.visibility = View.GONE }
+                    ui { banner.visibility = View.GONE }
                     refreshInstalledState()
                 } catch (e: CancellationException) {
                     ui { refreshRows() }
@@ -223,9 +276,9 @@ object DictionaryCatalogDialog {
                     Log.w(TAG, "Catalog import failed for ${entry.id}", e)
                     ui {
                         if (e.isConnectionFailure()) {
-                            statusBanner.text =
+                            bannerText.text =
                                 "Download unavailable — no connection. Connect and tap Retry."
-                            statusBanner.visibility = View.VISIBLE
+                            banner.visibility = View.VISIBLE
                             row.showFailure("Download unavailable — no connection")
                         } else {
                             row.showFailure(ImportProgress.failure(e.message))
@@ -241,7 +294,7 @@ object DictionaryCatalogDialog {
             val row = CatalogRowView(
                 context = context,
                 entry = entry,
-                palette = palette,
+                colors = colors,
                 onImport = { r -> startImport(entry, r) },
                 onCancel = { jobs[entry.id]?.cancel() },
             )
@@ -249,20 +302,28 @@ object DictionaryCatalogDialog {
             rowsContainer.addView(row.root)
         }
 
-        val dialog = AlertDialog.Builder(context)
-            .setTitle("Dictionary Catalog")
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle("Dictionary catalog")
             .setView(root)
             .setNeutralButton("Licences", null)
             .setNegativeButton("Close", null)
             .create()
 
-        // The neutral button opens the #70 licence surface, where the CC BY-SA 4.0
-        // and EDRDG texts these dictionaries are under are shipped; set after
-        // show() so the dialog is not dismissed by the click.
         dialog.setOnShowListener {
+            // The neutral button opens the #70 licence surface, where the
+            // CC BY-SA 4.0 and EDRDG texts these dictionaries are under are
+            // shipped; set here so the click does not dismiss the dialog.
             dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
                 LicenseDialog.show(context)
             }
+            // A definite window height is what gives the list its weight and lets
+            // it scroll, while the intro, banner and buttons stay put. Width stays
+            // inside Material 3's 560 dp dialog cap.
+            val metrics = context.resources.displayMetrics
+            dialog.window?.setLayout(
+                min((metrics.widthPixels * 0.94f).toInt(), dp(context, WINDOW_MAX_WIDTH_DP)),
+                (metrics.heightPixels * 0.82f).toInt(),
+            )
         }
         dialog.setOnDismissListener {
             jobs.values.forEach { it.cancel() }
@@ -283,172 +344,231 @@ object DictionaryCatalogDialog {
         this is UnknownHostException || this is ConnectException ||
             this is SocketTimeoutException || this is SocketException
 
-    /** One catalog row: the card's views and the states they can show. */
+    /** The theme roles the catalog draws with, resolved once per dialog. */
+    private data class CatalogColors(
+        val surfaceLow: Int,
+        val onSurface: Int,
+        val onSurfaceVariant: Int,
+        val primary: Int,
+        val primaryContainer: Int,
+        val onPrimaryContainer: Int,
+        val error: Int,
+        val errorContainer: Int,
+        val onErrorContainer: Int,
+    )
+
+    /** One catalog row: a tonal card and the states it can show. */
     private class CatalogRowView(
-        context: Context,
+        private val context: Context,
         val entry: CatalogEntry,
-        private val palette: CatalogPalette,
+        private val colors: CatalogColors,
         private val onImport: (CatalogRowView) -> Unit,
         private val onCancel: () -> Unit,
     ) {
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 10), dp(context, 10), dp(context, 10), dp(context, 10))
-            setBackgroundColor(Color.argb(10, 0, 0, 0))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(context, 10) }
+        /** A filled pill, for the "Installed" badge. */
+        private fun pill(fill: Int): MaterialShapeDrawable = MaterialShapeDrawable(
+            ShapeAppearanceModel.builder()
+                .setAllCorners(CornerFamily.ROUNDED, dp(context, 100).toFloat())
+                .build()
+        ).apply { fillColor = ColorStateList.valueOf(fill) }
+
+        private val installedChip = TextView(context).apply {
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
+            setTextColor(colors.onPrimaryContainer)
+            background = pill(colors.primaryContainer)
+            setPadding(dp(context, 12), dp(context, 4), dp(context, 12), dp(context, 4))
+            visibility = View.GONE
         }
 
         private val stateView = TextView(context).apply {
-            textSize = 12f
-            setPadding(0, dp(context, 2), 0, dp(context, 2))
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(colors.onSurfaceVariant)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         /**
-         * #71 follow-up: the line above the bar, split in two.
+         * The line above the bar, split in two.
          *
          * [stateView] carries the phase in words ("Downloading JMdict_english.zip
          * — 4.0 MB / 15.6 MB"); this carries the percentage alone, right-aligned
          * so it is a fixed column the eye can find. A determinate bar alone
          * shows "not done" but not "how far" — this is the number that says it.
-         * The percentage is throttled to whole percent so a transfer that
-         * repaints on every 64 KB chunk does not also rebuild the string on
-         * every chunk.
          */
         private val percentView = TextView(context).apply {
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(colors.onSurfaceVariant)
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 8), dp(context, 2), 0, dp(context, 2))
             visibility = View.GONE
         }
 
-        private val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+        private val progress = LinearProgressIndicator(context).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
+            trackCornerRadius = dp(context, 4)
             visibility = View.GONE
-            max = entry.bytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         }
 
-        private val importButton = Button(context).apply {
+        private val progressBlock = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(context, 10), 0, 0)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(stateView)
+                addView(percentView)
+            })
+            addView(progress)
+        }
+
+        private val importButton = MaterialButton(
+            context, null, com.google.android.material.R.attr.materialButtonStyle
+        ).apply {
             text = "Import"
+            isAllCaps = false
             setOnClickListener { onImport(this@CatalogRowView) }
         }
 
-        private val cancelButton = Button(context).apply {
+        private val cancelButton = MaterialButton(
+            context, null, com.google.android.material.R.attr.borderlessButtonStyle
+        ).apply {
             text = "Cancel"
+            isAllCaps = false
+            setTextColor(colors.primary)
             visibility = View.GONE
             setOnClickListener { onCancel() }
         }
 
+        val root = MaterialCardView(context).apply {
+            radius = dp(context, 24).toFloat()
+            cardElevation = 0f
+            strokeWidth = 0
+            setCardBackgroundColor(colors.surfaceLow)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(context, 12) }
+        }
+
         init {
-            root.addView(TextView(context).apply {
-                text = entry.name
-                textSize = 15f
-                setTypeface(null, Typeface.BOLD)
-            })
-            root.addView(TextView(context).apply {
-                text = entry.description
-                textSize = 12f
-                setTextColor(palette.neutral)
-                setPadding(0, dp(context, 2), 0, dp(context, 4))
-            })
-            root.addView(TextView(context).apply {
-                text = "${entry.sizeLabel()} · ${entry.license} · ${entry.source}"
-                textSize = 11f
-                setTextColor(palette.neutral)
-            })
             root.addView(LinearLayout(context).apply {
-                // #71 follow-up: the phase text and its percentage share one
-                // line, above the bar, so "what is happening" and "how far"
-                // read together and the bar below is unambiguously the thing
-                // the number belongs to.
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(stateView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(percentView)
-            })
-            root.addView(progress)
-            root.addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, dp(context, 6), 0, 0)
-                addView(importButton)
-                addView(cancelButton.apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { leftMargin = dp(context, 8) }
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(context, 20), dp(context, 16), dp(context, 20), dp(context, 16))
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(ImageView(context).apply {
+                        setImageResource(
+                            if (entry.kind == CatalogSource.BUNDLED_ASSET) R.drawable.ic_book
+                            else R.drawable.ic_download
+                        )
+                        layoutParams = LinearLayout.LayoutParams(dp(context, 24), dp(context, 24))
+                            .apply { marginEnd = dp(context, 12) }
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    })
+                    addView(TextView(context).apply {
+                        text = entry.name
+                        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+                        setTextColor(colors.onSurface)
+                        setTypeface(typeface, Typeface.BOLD)
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(installedChip)
+                })
+                addView(TextView(context).apply {
+                    text = entry.description
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                    setTextColor(colors.onSurfaceVariant)
+                    setPadding(0, dp(context, 6), 0, 0)
+                })
+                addView(TextView(context).apply {
+                    text = "${entry.sizeLabel()} · ${entry.license} · ${entry.source}"
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                    setTextColor(colors.onSurfaceVariant)
+                    setPadding(0, dp(context, 4), 0, 0)
+                })
+                addView(progressBlock)
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(context, 10), 0, 0)
+                    addView(importButton)
+                    addView(cancelButton.apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { leftMargin = dp(context, 8) }
+                    })
                 })
             })
         }
 
         /** Back to the resting state: installed, or ready to import. */
         fun bindState(installed: Boolean) {
-            progress.visibility = View.GONE
+            progressBlock.visibility = View.GONE
             progress.isIndeterminate = false
             percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             importButton.isEnabled = true
-            when {
-                installed -> {
-                    stateView.text = if (entry.kind == CatalogSource.BUNDLED_ASSET) {
-                        "Installed (bundled)"
-                    } else {
-                        "Installed"
-                    }
-                    stateView.setTextColor(palette.ok)
-                    importButton.text = "Re-import"
-                }
-                else -> {
-                    stateView.text = ""
-                    importButton.text = "Import"
-                }
+            if (installed) {
+                installedChip.text =
+                    if (entry.kind == CatalogSource.BUNDLED_ASSET) "Bundled" else "Installed"
+                installedChip.visibility = View.VISIBLE
+                importButton.text = "Re-import"
+            } else {
+                installedChip.visibility = View.GONE
+                importButton.text = "Import"
             }
+            stateView.text = ""
         }
 
         /**
          * Determinate download progress: the phase in words on the left, the
          * percentage on the right, the bar below.
-         *
-         * The percentage is recomputed from the whole-percent value, so the text
-         * changes when the number does rather than on every 64 KB chunk the
-         * download reports.
          */
         fun showDownloadProgress(written: Long, total: Long, fileName: String) {
+            progressBlock.visibility = View.VISIBLE
             progress.visibility = View.VISIBLE
             progress.isIndeterminate = false
             progress.max = total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            progress.progress = written.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            progress.setProgressCompat(
+                written.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                true,
+            )
             stateView.text = ImportProgress.download(written, total, fileName)
-            stateView.setTextColor(palette.neutral)
+            stateView.setTextColor(colors.onSurfaceVariant)
             percentView.visibility = View.VISIBLE
             percentView.text = "${ImportProgress.percentOf(written, total)}%"
-            percentView.setTextColor(palette.neutral)
+            percentView.setTextColor(colors.onSurfaceVariant)
             importButton.isEnabled = false
             cancelButton.visibility = View.VISIBLE
         }
 
         /** An import/verify step whose total is unknown; indeterminate bar. */
         fun showBusy(label: String, cancellable: Boolean) {
+            progressBlock.visibility = View.VISIBLE
             progress.visibility = View.VISIBLE
             progress.isIndeterminate = true
             percentView.visibility = View.GONE
             stateView.text = label
-            stateView.setTextColor(palette.neutral)
+            stateView.setTextColor(colors.onSurfaceVariant)
             importButton.isEnabled = false
             cancelButton.visibility = if (cancellable) View.VISIBLE else View.GONE
         }
 
         fun showFailure(message: String) {
+            // The state line carries the failure text, so the block stays visible
+            // while only the bar itself is hidden.
+            progressBlock.visibility = View.VISIBLE
             progress.visibility = View.GONE
+            progress.isIndeterminate = false
             percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             stateView.text = message
-            stateView.setTextColor(palette.err)
+            stateView.setTextColor(colors.error)
             importButton.text = "Retry"
             importButton.isEnabled = true
         }
@@ -461,12 +581,28 @@ object DictionaryCatalogDialog {
     }
 
     private fun errorDialog(context: Context, message: String) {
-        AlertDialog.Builder(context)
-            .setTitle("Dictionary Catalog")
+        MaterialAlertDialogBuilder(context)
+            .setTitle("Dictionary catalog")
             .setMessage(message)
             .setPositiveButton("Close", null)
             .show()
     }
+
+    private fun colorsFor(context: Context): CatalogColors = CatalogColors(
+        surfaceLow = attr(context, com.google.android.material.R.attr.colorSurfaceContainerLow),
+        onSurface = attr(context, com.google.android.material.R.attr.colorOnSurface),
+        onSurfaceVariant = attr(context, com.google.android.material.R.attr.colorOnSurfaceVariant),
+        primary = attr(context, com.google.android.material.R.attr.colorPrimary),
+        primaryContainer = attr(context, com.google.android.material.R.attr.colorPrimaryContainer),
+        onPrimaryContainer = attr(context, com.google.android.material.R.attr.colorOnPrimaryContainer),
+        error = attr(context, com.google.android.material.R.attr.colorError),
+        errorContainer = attr(context, com.google.android.material.R.attr.colorErrorContainer),
+        onErrorContainer = attr(context, com.google.android.material.R.attr.colorOnErrorContainer),
+    )
+
+    /** Resolve one colour from the current theme (day/night and Material You aware). */
+    private fun attr(context: Context, attribute: Int): Int =
+        MaterialColors.getColor(context, attribute, android.graphics.Color.GRAY)
 
     /** Density-independent pixels; one definition for the dialog and its rows. */
     private fun dp(context: Context, value: Int): Int =

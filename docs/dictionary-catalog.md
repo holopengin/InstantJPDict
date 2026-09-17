@@ -10,6 +10,17 @@ The built file picker (**Import Yomitan Dictionary (.zip)**) and the upstream
 browser link (**Download Dictionaries**) are unchanged. The catalog is additive:
 all three write rows through the one `DictionaryImporter` path.
 
+## Surface
+
+The dialog follows the app's "Harbour" Material 3 language (the main-screen
+redesign): one tonal `MaterialCardView` per dictionary on
+`colorSurfaceContainerLow`, the Material 3 type scale, `MaterialButton` roles
+for **Import**/**Cancel**, a `MaterialAlertDialog` and a
+`LinearProgressIndicator`. Every colour comes from the theme, so day/night and
+Material You both flow through untouched. That replaced the hand-rolled
+`CatalogPalette` (and its test): the palette existed only because the dialog was
+not themed, and it is what the #71 night-mode bug was fixed through.
+
 ## The asset
 
 `app/src/main/assets/catalog/dictionaries.json`, hand-maintained. Schema 1:
