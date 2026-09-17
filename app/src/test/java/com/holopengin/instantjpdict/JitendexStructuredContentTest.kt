@@ -58,6 +58,7 @@ class JitendexStructuredContentTest {
         is DefinitionNode.ListBlock -> node.items.flatten()
         is DefinitionNode.Example -> (node.content ?: emptyList()) + node.parts.flatten()
         is DefinitionNode.Table -> node.rows.flatten().flatten()
+        is DefinitionNode.Citation -> emptyList()
     }
 
     /** Readable tokens in render order: text runs and ruby headwords. */
@@ -173,6 +174,20 @@ class JitendexStructuredContentTest {
         val nodes = parse("袋小路文")
         assertTrue(hasToken(nodes, "Literally"))
         assertTrue(hasToken(nodes, "cul-de-sac sentence"))
+    }
+
+    @Test
+    fun the_source_line_is_a_citation_node_with_its_labels_joined() {
+        // 湾内 names both sources; the labels join in document order.
+        assertEquals(
+            "JMdict | Tatoeba",
+            flatten(parse("湾内")).filterIsInstance<DefinitionNode.Citation>().single().text,
+        )
+        // A JMdict-only entry still carries one.
+        assertEquals(
+            "JMdict",
+            flatten(parse("支持杭")).filterIsInstance<DefinitionNode.Citation>().single().text,
+        )
     }
 
     @Test

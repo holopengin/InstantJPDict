@@ -2305,6 +2305,19 @@ class OcrOverlayView(
                     container.addView(createTagView(node.text, node.category))
                     i++
                 }
+                is DefinitionNode.Citation -> {
+                    // #88 follow-up: the source line reads as a footnote — small
+                    // and faint, not definition-weight text.
+                    container.addView(TextView(context).apply {
+                        text = node.text
+                        setTextColor(android.graphics.Color.argb(120, 255, 255, 255))
+                        textSize = 11f
+                        OverlayFont.applySystem(context, this)
+                        includeFontPadding = false
+                        setPadding(0, 8, 0, 0)
+                    })
+                    i++
+                }
                 is DefinitionNode.Example -> {
                     val box = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL

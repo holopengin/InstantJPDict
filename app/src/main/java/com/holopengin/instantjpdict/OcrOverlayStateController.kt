@@ -82,6 +82,12 @@ sealed class DefinitionNode {
     data class ListBlock(val items: List<List<DefinitionNode>>, val type: String?) : DefinitionNode()
     data class Table(val rows: List<List<List<DefinitionNode>>>) : DefinitionNode()
     data class Group(val nodes: List<DefinitionNode>, val isInline: Boolean) : DefinitionNode()
+    /**
+     * #88 follow-up: the source citation that closes a Jitendex entry
+     * (`JMdict`, `JMdict | Tatoeba`). Its own node so the renderer can draw it
+     * as a small, faint footnote rather than definition-weight text.
+     */
+    data class Citation(val text: String) : DefinitionNode()
 }
 
 data class FormattedSense(
@@ -1254,6 +1260,11 @@ class OcrOverlayStateController {
                 val scClass = getAttr(data, "class")
 
                 when {
+                    // #88 follow-up: the source line that closes a Jitendex
+                    // entry; rendered as a faint citation, not definition text.
+                    contentClass(data) == "attribution" -> {
+                        nodes.add(DefinitionNode.Citation(citationText(content)))
+                    }
                     isExample(data) -> {
                         val jp = (data["japanese"] as? String) ?: (content as? String)
                         val en = data["english"] as? String
@@ -1353,6 +1364,25 @@ class OcrOverlayStateController {
     /** Yomitan structured-content class on a node, or null. */
     private fun contentClass(node: Any?): String? =
         ((node as? Map<*, *>)?.get("data") as? Map<*, *>)?.get("content") as? String
+
+    /**
+     * The plain text of a Jitendex `attribution` block: its link labels joined
+     * in order (`JMdict`, or `JMdict | Tatoeba`). Links carry only a label and
+     * an href, so the label is what a citation shows.
+     */
+    private fun citationText(content: Any?): String {
+        val parts = mutableListOf<String>()
+        fun walk(node: Any?) {
+            when (node) {
+                is String -> parts.add(node)
+                is List<*> -> node.forEach { walk(it) }
+                is Map<*, *> -> walk(node["content"])
+                else -> Unit
+            }
+        }
+        walk(content)
+        return parts.joinToString("").trim().replace(Regex("\\s+"), " ")
+    }
 
     private fun parseGlossary(data: Any?): ParsedGlossary {
         val groups = mutableListOf<ParsedSenseGroup>()
