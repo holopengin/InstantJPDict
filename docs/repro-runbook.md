@@ -234,16 +234,6 @@ temporary debug entry point or an `androidTest` and call the method. The
 asset/JNI/ARM-float proof they carry is kept for the next time the kana model or
 its conversion changes (#44, #86/E2).
 
-## Known wart: legacy meiki blobs vs LFS rule
-
-`models/archive/meiki.text.{detect,rec,rec.vertical}*.onnx` are committed as
-raw git blobs (14-18 MB) even though `.gitattributes` routes
-`models/archive/**/*.onnx` through LFS. Every fresh checkout prints
-`Encountered 3 files that should have been pointers, but weren't` and leaves
-them `M` in `git status`. They are pre-PP-OCRv6 legacy baselines, unused by
-this runbook -- ignore the noise, or repair by committing proper pointers /
-exempting `meiki*` from the filter (owner decision, touches representation).
-
 ## Open holes for the first nuke-and-pave run
 
 1. **Exporter validation**: `tools/export_rec_onnx.py` is a reconstruction --

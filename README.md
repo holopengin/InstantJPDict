@@ -29,8 +29,8 @@ The shipped OCR models are the **PP-OCRv6 small** detection and recognition pair
 
 This project was originally prototyped against the **MeikiOCR** models — the
 [repository](https://github.com/rtr46/meikiocr), `meiki.text.detect.v0` and
-`meiki.txt.recognition.v0` — which remain in `models/archive/` as legacy baselines
-and are not built into the app.
+`meiki.txt.recognition.v0`. Those baselines are deprecated and no longer stored
+in this repository; the PP-OCRv6 pair above supersedes them.
 
 This project was also heavily inspired by the **Yomitan** hover dictionary, uses its rule files,
 and ingests its dictionary format:

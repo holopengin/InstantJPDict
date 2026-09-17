@@ -117,7 +117,6 @@ models/archive/
   PP-OCRv6_small_det_onnx/ — inference.onnx, inference.pnnxsim.onnx, inference.json/yml
   PP-OCRv6_small_rec/ — inference.pdiparams, inference.json/yml  (Paddle)
   PP-OCRv6_small_rec_safetensors/ — model.safetensors, config.json  (HF canonical)
-  meiki.text.*.onnx — legacy Meiki baselines (pre-PP-OCRv6)
 app/src/main/assets/
   PP-OCRv6_small_ncnn/ — det.param/bin, rec_w{64,128,256,480}.param/bin, vocab.json (LFS + vocab, shipped, PP-OCR conversion)
 ```
