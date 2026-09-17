@@ -2381,10 +2381,22 @@ class OcrOverlayView(
      * stay aligned without knowing column widths ahead of time. Each cell is
      * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ △ ✕ 古 旧) keep
      * their inline layout inside the cell.
+     *
+     * The card and its cells carry the example box's palette (a 10-alpha white
+     * fill under an 80-alpha white stroke): without it the grid's cells ran
+     * together and the table was unreadable. Cells are separated by a small
+     * margin so their borders read as a grid rather than doubling into heavy
+     * shared edges.
      */
     private fun createDefinitionTable(rows: List<List<List<DefinitionNode>>>): View {
         val table = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(6, 6, 6, 6)
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.argb(10, 255, 255, 255))
+                setStroke(3, android.graphics.Color.argb(80, 255, 255, 255))
+                cornerRadius = 12f
+            }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { setMargins(0, 10, 0, 10) }
         }
@@ -2396,8 +2408,14 @@ class OcrOverlayView(
             }
             for (column in 0 until columns) {
                 val cell = FlowLayout(context).apply {
-                    setPadding(8, 6, 8, 6)
+                    setPadding(10, 8, 10, 8)
+                    background = GradientDrawable().apply {
+                        setColor(android.graphics.Color.argb(8, 255, 255, 255))
+                        setStroke(2, android.graphics.Color.argb(80, 255, 255, 255))
+                        cornerRadius = 6f
+                    }
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        .apply { setMargins(3, 3, 3, 3) }
                 }
                 renderDefinition(cell, cells.getOrNull(column).orEmpty())
                 row.addView(cell)
