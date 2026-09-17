@@ -2,11 +2,11 @@ package com.holopengin.instantjpdict
 
 import android.content.Context
 import android.graphics.Typeface
-import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import androidx.core.widget.NestedScrollView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.holopengin.instantjpdict.util.LicenseEntry
 import com.holopengin.instantjpdict.util.LicenseIndex
 import java.io.BufferedInputStream
@@ -19,7 +19,8 @@ import java.io.BufferedInputStream
  * component list on top and the selected component's notice plus full licence text
  * below, each individually scrollable: several components share one licence text
  * (every AndroidX module is Apache-2.0), so showing the text once per selection
- * beats repeating 11 KB of it twenty times down a single page.
+ * beats repeating 11 KB of it twenty times down a single page. It draws in the
+ * app's "Harbour" Material 3 language ([HarbourUi]).
  *
  * The EDRDG licence requires exactly this shape for a smartphone app — the
  * acknowledgement on a screen reached from a menu, not a line on a launch screen.
@@ -27,6 +28,7 @@ import java.io.BufferedInputStream
 object LicenseDialog {
 
     fun show(context: Context) {
+        val ui = HarbourUi.of(context)
         val index = try {
             readAsset(context, LicenseIndex.INDEX_ASSET)
                 ?: error("${LicenseIndex.INDEX_ASSET} is missing from the APK")
@@ -51,93 +53,112 @@ object LicenseDialog {
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 16), dp(context, 12), dp(context, 16), 0)
+            setPadding(ui.dp(24), 0, ui.dp(24), 0)
         }
 
-        root.addView(TextView(context).apply {
-            text = "${entries.size} bundled components, models and dictionaries. " +
+        root.addView(ui.body(
+            "${entries.size} bundled components, models and dictionaries. " +
                 "Every entry below is read from the APK — no network is used."
-            textSize = 12f
-            setTextColor(0xFF666666.toInt())
-            setPadding(0, 0, 0, dp(context, 8))
-        })
+        ))
 
         val detail = TextView(context).apply {
-            textSize = 11f
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
             typeface = Typeface.MONOSPACE
+            setTextColor(ui.onSurfaceVariant)
             setTextIsSelectable(true)
-            setPadding(0, dp(context, 8), 0, dp(context, 8))
+            setPadding(0, ui.dp(4), 0, ui.dp(4))
         }
-        val detailScroll = ScrollView(context).apply {
-            addView(detail)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        val detailScroll = NestedScrollView(context).apply {
+            clipToPadding = false
+            addView(
+                detail,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
             )
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                3f
+            )
+            visibility = android.view.View.INVISIBLE
         }
 
-        fun select(entry: LicenseEntry) {
-            detail.text = LicenseIndex.render(entry) { read(it) }
-            detailScroll.scrollTo(0, 0)
-        }
-
+        // The component list: one selectable row each, highlighted on selection.
         val listContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
         }
-        val rows = mutableListOf<Pair<View, LicenseEntry>>()
+        val rows = mutableListOf<TextView>()
+        var selected: TextView? = null
+
+        fun select(row: TextView, entry: LicenseEntry) {
+            selected?.let {
+                it.background = null
+                it.setTextColor(ui.onSurface)
+            }
+            row.background = ui.rounded(ui.secondaryContainer, 12)
+            row.setTextColor(ui.onSecondaryContainer)
+            selected = row
+            detail.text = LicenseIndex.render(entry) { read(it) }
+            detailScroll.scrollTo(0, 0)
+            detailScroll.visibility = android.view.View.VISIBLE
+        }
 
         entries.forEach { entry ->
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
+            val row = TextView(context).apply {
+                text = entry.summary()
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                setTextColor(ui.onSurface)
+                setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
                 isClickable = true
-                addView(TextView(context).apply {
-                    text = entry.summary()
-                    textSize = 13f
-                    setTypeface(null, Typeface.BOLD)
-                })
-                setOnClickListener {
-                    rows.forEach { (v, _) ->
-                        v.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    }
-                    setBackgroundColor(0x22000000)
-                    select(entry)
-                }
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = ui.dp(4) }
+                setOnClickListener { select(this, entry) }
             }
-            rows += row to entry
+            rows += row
             listContainer.addView(row)
         }
 
-        val listScroll = ScrollView(context).apply {
-            addView(listContainer)
+        val listScroll = NestedScrollView(context).apply {
+            clipToPadding = false
+            addView(
+                listContainer,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                2f
             )
         }
-
         root.addView(listScroll)
-        root.addView(TextView(context).apply {
-            text = "Licence text"
-            textSize = 11f
-            setTextColor(0xFF666666.toInt())
-            setPadding(0, dp(context, 8), 0, 0)
+
+        root.addView(ui.label("Licence text").apply {
+            setPadding(0, ui.dp(10), 0, 0)
         })
         root.addView(detailScroll)
 
-        rows.firstOrNull()?.let { (view, entry) ->
-            view.setBackgroundColor(0x22000000)
-            select(entry)
-        }
+        rows.firstOrNull()?.let { select(it, entries.first()) }
 
-        AlertDialog.Builder(context)
-            .setTitle("Licenses")
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle("Licenses & attribution")
             .setView(root)
             .setPositiveButton("Close", null)
-            .show()
+            .create()
+        dialog.setOnShowListener { ui.sizeDialogWindow(dialog, heightFraction = 0.85f) }
+        dialog.show()
     }
 
     private fun errorDialog(context: Context, message: String) {
-        AlertDialog.Builder(context)
-            .setTitle("Licenses")
+        MaterialAlertDialogBuilder(context)
+            .setTitle("Licenses & attribution")
             .setMessage(message)
             .setPositiveButton("Close", null)
             .show()
@@ -149,9 +170,6 @@ object LicenseDialog {
     } catch (t: Throwable) {
         null
     }
-
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
 
     /** Kept for callers that want the parsed list without opening a dialog. */
     fun entries(context: Context): List<LicenseEntry> {

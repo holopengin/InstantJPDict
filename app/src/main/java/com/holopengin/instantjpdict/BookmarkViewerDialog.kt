@@ -3,16 +3,17 @@ package com.holopengin.instantjpdict
 import android.content.Context
 import android.content.Intent
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
+import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.Bookmark
 import com.holopengin.instantjpdict.util.BookmarkCsv
@@ -25,12 +26,11 @@ import java.io.File
 /**
  * #67: the bookmark viewer.
  *
- * A dialog, not a new activity. The two existing second-level screens
- * (`DictionaryManagerDialog`, `LicenseDialog`) are dialogs opened from the same
- * MainActivity button column, and the viewer is the same size of surface: a
- * short list with a control row. A dialog needs no manifest entry and no second
- * `AppCompatActivity` lifecycle; the trade is that it competes with the host
- * window for height, which a bookmark list of tens of rows does not.
+ * A dialog, not a new activity. The other second-level surfaces
+ * ([DictionaryManagerDialog], [LicenseDialog]) are dialogs opened from the same
+ * MainActivity card, and the viewer is the same size of surface: a short list
+ * with a control row. It draws in the app's "Harbour" Material 3 language
+ * ([HarbourUi]).
  *
  * Sort default is insertion order (oldest first); the recency option is
  * newest-first. Export writes an RFC 4180 CSV to the app cache and hands it to
@@ -40,21 +40,28 @@ import java.io.File
 object BookmarkViewerDialog {
 
     fun show(context: Context) {
+        val ui = HarbourUi.of(context)
         val db = AppDatabase.getDatabase(context)
         val owner = context as? LifecycleOwner ?: return
 
+        val countLabel = ui.label("")
         val listContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(context, 8), 0, dp(context, 8))
         }
-        val scroll = ScrollView(context).apply {
-            addView(listContainer)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
-        val countLabel = TextView(context).apply {
-            textSize = 12f
-            setTextColor(0xFF666666.toInt())
-            setPadding(dp(context, 4), 0, dp(context, 4), dp(context, 4))
+        val scroll = NestedScrollView(context).apply {
+            clipToPadding = false
+            addView(
+                listContainer,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
         }
 
         var newestFirst = false
@@ -63,7 +70,7 @@ object BookmarkViewerDialog {
         fun renderRows(onRemoved: () -> Unit) {
             listContainer.removeAllViews()
             BookmarkSort.apply(rows, newestFirst).forEach { bookmark ->
-                listContainer.addView(row(context, bookmark) {
+                listContainer.addView(row(context, ui, bookmark) {
                     owner.lifecycleScope.launch {
                         withContext(Dispatchers.IO) {
                             db.bookmarkDao().deleteByKey(
@@ -91,48 +98,48 @@ object BookmarkViewerDialog {
             }
         }
 
-        val sortButton = Button(context).apply {
-            text = sortLabel(newestFirst)
-            textSize = 12f
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(dp(context, 12), 0, dp(context, 12), 0)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener {
-                newestFirst = !newestFirst
-                text = sortLabel(newestFirst)
-                renderRows { reload() }
-            }
+        lateinit var sortButton: MaterialButton
+        sortButton = ui.outlinedButton(sortLabel(newestFirst)) {
+            newestFirst = !newestFirst
+            sortButton.text = sortLabel(newestFirst)
+            renderRows { reload() }
         }
-        val exportButton = Button(context).apply {
-            text = "Export CSV"
-            textSize = 12f
-            minWidth = 0
-            minimumWidth = 0
-            setPadding(dp(context, 12), 0, dp(context, 12), 0)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        val exportButton = ui.tonalButton("Export CSV") {
             // Sorted the same way the list is shown: what is exported is what the
             // user is looking at.
-            setOnClickListener { exportCsv(context, BookmarkSort.apply(rows, newestFirst)) }
+            exportCsv(context, BookmarkSort.apply(rows, newestFirst))
         }
+        // The control row shares width evenly; keep the accent on Export.
+        sortButton.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { marginEnd = ui.dp(8) }
+        exportButton.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 16), dp(context, 8), dp(context, 16), 0)
-            addView(countLabel)
+            setPadding(ui.dp(24), 0, ui.dp(24), 0)
+            addView(countLabel.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = ui.dp(10) }
+            })
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 0, 0, ui.dp(10))
                 addView(sortButton)
                 addView(exportButton)
             })
             addView(scroll)
         }
 
-        AlertDialog.Builder(context)
+        val dialog = MaterialAlertDialogBuilder(context)
             .setTitle("Bookmarks")
             .setView(root)
             .setPositiveButton("Close", null)
-            .show()
+            .create()
+        dialog.setOnShowListener { ui.sizeDialogWindow(dialog, heightFraction = 0.8f) }
+        dialog.show()
 
         reload()
     }
@@ -142,49 +149,41 @@ object BookmarkViewerDialog {
 
     private fun row(
         context: Context,
+        ui: HarbourUi,
         bookmark: Bookmark,
-        onRemove: () -> Unit
-    ): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8))
-
-        val headword = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(context).apply {
-                text = bookmark.kanji
-                textSize = 20f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setPadding(0, 0, dp(context, 8), 0)
+        onRemove: () -> Unit,
+    ): View = ui.card(radiusDp = 20, bottomMarginDp = 10).apply {
+        addView(ui.cardBody(padH = 16, padV = 12).apply {
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = bookmark.kanji
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+                    setTextColor(ui.onSurface)
+                    setPadding(0, 0, ui.dp(8), 0)
+                })
+                addView(TextView(context).apply {
+                    text = bookmark.reading
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                    setTextColor(ui.onSurfaceVariant)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(ui.iconButton(R.drawable.ic_delete, "Remove ${bookmark.kanji}").apply {
+                    setOnClickListener { onRemove() }
+                })
             })
-            addView(TextView(context).apply {
-                text = bookmark.reading
-                textSize = 13f
-                setTextColor(0xFF666666.toInt())
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            if (bookmark.definitionsText.isNotBlank()) {
+                addView(TextView(context).apply {
+                    text = bookmark.definitionsText
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                    setTextColor(ui.onSurfaceVariant)
+                    setPadding(0, ui.dp(4), 0, 0)
+                })
+            }
+            addView(ui.label(bookmark.dictionaryName).apply {
+                setPadding(0, ui.dp(4), 0, 0)
             })
-            addView(TextView(context).apply {
-                text = "✕"
-                textSize = 18f
-                setPadding(dp(context, 12), 0, dp(context, 4), 0)
-                isClickable = true
-                setOnClickListener { onRemove() }
-            })
-        }
-        addView(headword)
-
-        if (bookmark.definitionsText.isNotBlank()) {
-            addView(TextView(context).apply {
-                text = bookmark.definitionsText
-                textSize = 13f
-                setPadding(0, dp(context, 2), 0, 0)
-            })
-        }
-        addView(TextView(context).apply {
-            text = bookmark.dictionaryName
-            textSize = 11f
-            setTextColor(0xFF888888.toInt())
-            setPadding(0, dp(context, 2), 0, 0)
         })
     }
 
@@ -217,7 +216,4 @@ object BookmarkViewerDialog {
 
     /** Matches the manifest's `${applicationId}.protofileprovider`. */
     private const val FILE_PROVIDER_SUFFIX = ".protofileprovider"
-
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
 }

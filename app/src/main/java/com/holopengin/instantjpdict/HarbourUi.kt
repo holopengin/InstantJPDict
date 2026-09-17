@@ -7,6 +7,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -72,6 +73,26 @@ internal class HarbourUi private constructor(private val context: Context) {
             view.setBackgroundResource(out.resourceId)
         }
     }
+
+    /** Give a view the theme's borderless ripple (for icon buttons). */
+    fun bindBorderlessRipple(view: View) {
+        val out = TypedValue()
+        if (context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, out, true)) {
+            view.setBackgroundResource(out.resourceId)
+        }
+    }
+
+    /** A 48 dp-touch-target icon button: a 24 dp glyph with a borderless ripple. */
+    fun iconButton(res: Int, contentDescription: String, tint: Int = onSurfaceVariant): ImageButton =
+        ImageButton(context).apply {
+            setImageResource(res)
+            imageTintList = ColorStateList.valueOf(tint)
+            this.contentDescription = contentDescription
+            minimumWidth = dp(48)
+            minimumHeight = dp(48)
+            scaleType = ImageView.ScaleType.CENTER
+            bindBorderlessRipple(this)
+        }
 
     /**
      * A tonal card: the grouping unit. Elevation 0 and no stroke, so sections
