@@ -1,7 +1,5 @@
 package com.holopengin.instantjpdict
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -11,19 +9,14 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -42,18 +35,12 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.shape.CornerFamily
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
-import com.google.android.material.slider.Slider
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryImporter
-import com.holopengin.instantjpdict.util.BlankGaps
-import com.holopengin.instantjpdict.util.KanaSizeFix
-import com.holopengin.instantjpdict.util.InferLog
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
-import kotlin.math.roundToInt
 
 /**
  * ui-deepseek design 1 — "Harbour".
@@ -97,7 +84,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences(OcrEngine.PREFS_NAME, MODE_PRIVATE)
 
         // The window is edge-to-edge — targetSdk 35 forces it on Android 15+, and
         // the share and camera activities already draw full-bleed. The insets are
@@ -444,7 +430,7 @@ class MainActivity : AppCompatActivity() {
         }
         dictBody.addView(listRow(
             R.drawable.ic_upload,
-            "Import Yomitan dictionary",
+            "Install Yomitan dictionary",
             "From a .zip on this device",
             chevron()
         ) { importLauncher.launch(arrayOf("application/zip")) })
@@ -492,330 +478,16 @@ class MainActivity : AppCompatActivity() {
             chevron()
         ) { LicenseDialog.show(this) })
 
-        // ————— debug switch + its tuning panel —————
-        val debugPrefsKey = "debug_settings_enabled"
-        val tuningContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-        }
-        val tuningCard = MaterialCardView(this).apply {
-            radius = dp(18).toFloat()
-            cardElevation = 0f
-            strokeWidth = dp(1)
-            strokeColor = cOutlineVariant
-            setCardBackgroundColor(cSurfaceHigh)
-            visibility = if (prefs.getBoolean(debugPrefsKey, false)) View.VISIBLE else View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-            addView(tuningContainer)
-        }
-        settingsBody.addView(switchRow(
+        // The debug/tuning surface is its own screen now: the switch that
+        // expanded it inline made the user-facing Settings card read as a
+        // wall, and the panel deserved room to be readable. Same controls,
+        // one level away — see DebugSettingsActivity.
+        settingsBody.addView(listRow(
             R.drawable.ic_tune,
             "Debug settings",
-            "Show PP-OCR tuning and diagnostics",
-            prefs.getBoolean(debugPrefsKey, false)
-        ) { checked ->
-            prefs.edit().putBoolean(debugPrefsKey, checked).apply()
-            tuningCard.visibility = if (checked) View.VISIBLE else View.GONE
-            Log.d("MainActivity", "debug_settings_enabled=$checked")
-        })
-        settingsBody.addView(tuningCard)
-
-        // Sub-header helper for the panel's two halves.
-        fun panelHeader(text: String) {
-            tuningContainer.addView(TextView(this).apply {
-                this.text = text
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
-                setTextColor(cOnSurface)
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(0, dp(12), 0, dp(4))
-            })
-        }
-
-        panelHeader("Overlay behaviour")
-        // The three feature switches the main screen used to carry, moved in here so the
-        // screen a user actually reads is not a wall of checkboxes. Each is a plain boolean
-        // preference — not a float tunable — read once to seed the switch and written back on
-        // change, and each is read again at its own point of use; where the row is drawn
-        // changes nothing about that.
-        //
-        // #43: pitch-accent display. Off by default; needs a pitch dictionary installed
-        // or the rows simply never appear. Read at popup build time, so the next lookup
-        // picks it up.
-        fun featureSwitch(label: String, checked: Boolean, onChanged: (Boolean) -> Unit) {
-            tuningContainer.addView(MaterialSwitch(this).apply {
-                text = label
-                isChecked = checked
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                setTextColor(cOnSurface)
-                setPadding(0, dp(10), 0, dp(10))
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                setOnCheckedChangeListener { _, value -> onChanged(value) }
-            })
-        }
-        featureSwitch("Show pitch accent in dictionary popup", PitchAccent.isEnabled(this)) { checked ->
-            PitchAccent.setEnabled(this, checked)
-            Log.d("MainActivity", "pitch_accent_enabled=$checked")
-        }
-        // #72: double-tap zoom is opt-in. While it is on, a tap on empty space
-        // must wait out the double-tap window before closing, so the default
-        // trades zoom for an instant close.
-        featureSwitch("Double-tap to zoom (makes tap-to-close wait)", DoubleTapZoom.isEnabled(this)) { checked ->
-            DoubleTapZoom.setEnabled(this, checked)
-            Log.d("MainActivity", "double_tap_zoom_enabled=$checked")
-        }
-        // #44 Feature 2: clickable blanks where the vertical spacing says a character was
-        // dropped. Vertical only (the horizontal trigger measured 13% false), and the blank
-        // is filled through the alternatives panel's manual IME entry.
-        featureSwitch("Clickable blanks where a character looks missing (vertical text)", BlankGaps.isEnabled(this)) { checked ->
-            BlankGaps.setEnabled(this, checked)
-            Log.d("MainActivity", "blank_gaps_enabled=$checked")
-        }
-        // #53: rotated-rect detection is opt-in, per the maintainer's scope note:
-        // axis-aligned lines are the simplest and most stable case and must stay
-        // the default; the richer geometry earns its place as an experiment.
-        featureSwitch("Detect rotated lines (experimental)", OcrEngine.isDetRotated(this)) { checked ->
-            OcrEngine.setDetRotated(this, checked)
-            Log.d("MainActivity", "det_rotated_enabled=$checked")
-        }
-
-        panelHeader("PP-OCR parameters")
-        tuningContainer.addView(TextView(this).apply {
-            text = "Tune for tight (but not too tight) crops and no missing っ / punctuation. " +
-                "Values are live from SharedPreferences (${OcrEngine.PREFS_NAME}); restart the overlay " +
-                "or re-run OCR to apply. Det input is ${OcrEngine.DET_MODEL_SIZE}×${OcrEngine.DET_MODEL_SIZE} " +
-                "(LONG_SIDE is clamped to it)."
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-            setTextColor(cOnSurfaceVariant)
-            setPadding(0, 0, 0, dp(8))
-        })
-
-        // live summary line that shows current values
-        val liveSummary = TextView(this).apply {
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-            setTextColor(cOnSurfaceVariant)
-            background = roundedBackground(cSurfaceHighest, dp(10))
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(4) }
-        }
-        tuningContainer.addView(liveSummary)
-        fun refreshLiveSummary() {
-            val thresh = prefs.getFloat(OcrEngine.PREF_DET_THRESH, OcrEngine.DEF_DET_THRESH)
-            val unclip = prefs.getFloat(OcrEngine.PREF_DET_UNCLIP, OcrEngine.DEF_DET_UNCLIP)
-            val longSide = OcrEngine.DEF_DET_LONG_SIDE
-            val xOver = prefs.getFloat(OcrEngine.PREF_X_OVERLAP, OcrEngine.DEF_X_OVERLAP)
-            val squish = prefs.getFloat(OcrEngine.PREF_REC_SQUISH, OcrEngine.DEF_REC_SQUISH)
-            // F5/#86: Locale.ROOT, so the decimal separator in this debug readout
-            // does not follow the phone's locale (lint's DefaultLocale).
-            val line = "live: detThresh=${String.format(Locale.ROOT, "%.2f", thresh)} " +
-                "unclip=${String.format(Locale.ROOT, "%.2f", unclip)} longSide=$longSide " +
-                "xOver=${String.format(Locale.ROOT, "%.2f", xOver)} " +
-                "squish=${String.format(Locale.ROOT, "%.1f", squish)}"
-            liveSummary.text = line
-        }
-        refreshLiveSummary()
-
-        // helper to add one tunable row: label + live value + Slider + EditText + Apply/Reset
-        fun addTunable(row: TuningRow) {
-            val label = row.label
-            val prefKey = row.key
-            val default = row.default
-            val min = row.min
-            val max = row.max
-            val step = row.step
-            val isInt = row.isInt
-            fun formatValue(v: Float): String =
-                if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
-            // The Slider runs continuous (stepSize 0) and the snap to the row's
-            // step happens on touch-up / Apply: a stepped slider whose range is not
-            // exactly divisible in float would refuse to lay out at all.
-            fun snap(v: Float): Float =
-                if (step <= 0f) v else (min + ((v - min) / step).roundToInt() * step).coerceIn(min, max)
-
-            val curRaw: Float = if (isInt) {
-                prefs.getInt(prefKey, default.roundToInt()).toFloat()
-            } else {
-                prefs.getFloat(prefKey, default)
-            }
-            val cur = curRaw.coerceIn(min, max)
-
-            val container = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(10), 0, dp(4))
-            }
-
-            container.addView(TextView(this).apply {
-                text = label
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelLarge)
-                setTextColor(cOnSurface)
-            })
-
-            val tvLive = TextView(this).apply {
-                text = "current ${formatValue(cur)} · default ${formatValue(default)}"
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-                setTextColor(cPrimary)
-            }
-            container.addView(tvLive)
-
-            val slider = Slider(this).apply {
-                valueFrom = min
-                valueTo = max
-                stepSize = 0f
-                value = cur
-                setLabelFormatter { formatValue(it) }
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            }
-            container.addView(slider)
-
-            val editRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, 0)
-            }
-            val edit = EditText(this).apply {
-                setText(formatValue(cur))
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                setTextColor(cOnSurface)
-                inputType = if (isInt) {
-                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
-                } else {
-                    InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
-                }
-                background = roundedBackground(cSurfaceHighest, dp(10))
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                minimumHeight = dp(48)
-                setSelectAllOnFocus(true)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                    .apply { marginEnd = dp(8) }
-            }
-            editRow.addView(edit)
-            val btnApply = MaterialButton(
-                this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
-            ).apply {
-                text = "Apply"
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = dp(8) }
-            }
-            editRow.addView(btnApply)
-            val btnReset = MaterialButton(
-                this, null, com.google.android.material.R.attr.borderlessButtonStyle
-            ).apply {
-                text = "Reset"
-                isAllCaps = false
-                setTextColor(cPrimary)
-            }
-            editRow.addView(btnReset)
-            container.addView(editRow)
-
-            var fromSlider = false
-            slider.addOnChangeListener { _, value, fromUser ->
-                if (!fromUser) return@addOnChangeListener
-                fromSlider = true
-                tvLive.text = "current ${formatValue(value)} · default ${formatValue(default)} (dragging)"
-                edit.setText(formatValue(value))
-            }
-            slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(s: Slider) {}
-                override fun onStopTrackingTouch(s: Slider) {
-                    val v = snap(s.value)
-                    if (isInt) prefs.edit().putInt(prefKey, v.roundToInt()).apply()
-                    else prefs.edit().putFloat(prefKey, v).apply()
-                    if (s.value != v) s.value = v
-                    tvLive.text = "current ${formatValue(v)} · default ${formatValue(default)}"
-                    refreshLiveSummary()
-                    Toast.makeText(this@MainActivity, "$label = ${formatValue(v)}", Toast.LENGTH_SHORT).show()
-                    Log.d("MainActivity", "tuning $prefKey = $v")
-                    fromSlider = false
-                }
-            })
-
-            btnApply.setOnClickListener {
-                val parsed = edit.text.toString().trim().toFloatOrNull()
-                if (parsed == null) {
-                    Toast.makeText(this, "Invalid number", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                if (parsed < min - 1e-6 || parsed > max + 1e-6) {
-                    Toast.makeText(this, "Out of range [$min, $max]", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                val v = if (isInt) parsed.roundToInt().toFloat() else parsed
-                if (isInt) prefs.edit().putInt(prefKey, v.roundToInt()).apply()
-                else prefs.edit().putFloat(prefKey, v).apply()
-                slider.value = v.coerceIn(min, max)
-                tvLive.text = "current ${formatValue(v)} · default ${formatValue(default)}"
-                refreshLiveSummary()
-                Toast.makeText(this, "$label = ${formatValue(v)}", Toast.LENGTH_SHORT).show()
-                Log.d("MainActivity", "tuning $prefKey = $v (via EditText)")
-            }
-            btnReset.setOnClickListener {
-                if (isInt) prefs.edit().putInt(prefKey, default.roundToInt()).apply()
-                else prefs.edit().putFloat(prefKey, default).apply()
-                slider.value = default.coerceIn(min, max)
-                edit.setText(formatValue(default))
-                tvLive.text = "current ${formatValue(default)} · default ${formatValue(default)}"
-                refreshLiveSummary()
-                Toast.makeText(this, "$label reset to ${formatValue(default)}", Toast.LENGTH_SHORT).show()
-                Log.d("MainActivity", "tuning $prefKey reset to $default")
-            }
-
-            // live: if user types, update the preview (don't commit)
-            edit.addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: Editable?) {
-                    if (fromSlider) return
-                    val t = s?.toString()?.trim() ?: return
-                    val pv = t.toFloatOrNull() ?: return
-                    if (pv in min..max) {
-                        tvLive.text = "current ${formatValue(pv)} · default ${formatValue(default)} (typed, press Apply)"
-                    }
-                }
-            })
-
-            tuningContainer.addView(container)
-        }
-
-        DebugTuning.rows.forEach { addTunable(it) }
-
-        outlinedButton(tuningContainer, "Copy inference log") {
-            val text = InferLog.dump()
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("infer-log", text))
-            Toast.makeText(this, "Inference log copied (${text.lines().size} lines)", Toast.LENGTH_SHORT).show()
-            Log.d("MainActivity", "inference log copied")
-        }
-
-        outlinedButton(tuningContainer, "Reset all tuning to defaults") {
-            // G1/#86: one source for the controls and the reset. Every row/feature the
-            // debug screen built comes from [DebugTuning], so there is no list here to
-            // keep in step (which is exactly how a new control used to survive a reset).
-            val editor = prefs.edit()
-            DebugTuning.rows.forEach { row ->
-                if (row.isInt) editor.putInt(row.key, row.default.roundToInt())
-                else editor.putFloat(row.key, row.default)
-            }
-            DebugTuning.features.forEach { editor.putBoolean(it.key, it.default) }
-            editor.apply()
-            Toast.makeText(this, "All tuning reset to defaults — reopen screen to refresh", Toast.LENGTH_LONG).show()
-            Log.d("MainActivity", "all tuning reset to defaults")
-            // Recreate to refresh the sliders and the feature switches.
-            recreate()
-        }
+            "PP-OCR tuning, experiments and diagnostics",
+            chevron()
+        ) { startActivity(Intent(this, DebugSettingsActivity::class.java)) })
 
         // ————————— the pinned camera affordance —————————
         // The camera is the app's purpose, so it is not a row in a list: it is an

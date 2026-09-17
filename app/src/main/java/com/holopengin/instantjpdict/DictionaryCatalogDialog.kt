@@ -427,7 +427,7 @@ object DictionaryCatalogDialog {
         private val importButton = MaterialButton(
             context, null, com.google.android.material.R.attr.materialButtonStyle
         ).apply {
-            text = "Import"
+            text = "Install"
             isAllCaps = false
             setOnClickListener { onImport(this@CatalogRowView) }
         }
@@ -517,10 +517,10 @@ object DictionaryCatalogDialog {
                 installedChip.text =
                     if (entry.kind == CatalogSource.BUNDLED_ASSET) "Bundled" else "Installed"
                 installedChip.visibility = View.VISIBLE
-                importButton.text = "Re-import"
+                importButton.text = "Reinstall"
             } else {
                 installedChip.visibility = View.GONE
-                importButton.text = "Import"
+                importButton.text = "Install"
             }
             stateView.text = ""
         }
