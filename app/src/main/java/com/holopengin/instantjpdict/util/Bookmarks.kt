@@ -63,6 +63,18 @@ object BookmarkSort {
  * A malformed blob falls back to the raw string rather than losing the senses.
  */
 object Definitions {
+    /**
+     * #88: structured-content keys that describe presentation, carry a link
+     * target or hold a tooltip — never the readable definition. The generic
+     * fallback below joins an object's values, and without this a Jitendex
+     * form cell (`<td class=form-valid><span title=…/></td>`) would export as
+     * "valid form/reading combination, span, form-valid".
+     */
+    private val NON_TEXT_KEYS = setOf(
+        "data", "href", "style", "path", "title",
+        "tag", "type", "lang", "class", "code", "id",
+    )
+
     /** One plain-text line per top-level sense; nested glosses join with ", ". */
     fun plain(definitionsJson: String): String {
         val root = runCatching { JsonParser.parseString(definitionsJson) }.getOrNull()
@@ -91,11 +103,14 @@ object Definitions {
                 .joinToString(", ")
                 .ifBlank { null }
         }
-        // Object: prefer the content-bearing keys, else every value.
+        // Object: prefer the content-bearing keys, else the values that are
+        // text rather than presentation/attribute noise.
         val obj = el.asJsonObject
         val content = obj.get("content") ?: obj.get("list") ?: obj.get("glossary")
         if (content != null) return render(content)
-        return obj.entrySet().mapNotNull { (_, value) -> render(value) }
+        return obj.entrySet()
+            .filter { (key, _) -> key !in NON_TEXT_KEYS }
+            .mapNotNull { (_, value) -> render(value) }
             .filter { it.isNotBlank() }
             .joinToString(", ")
             .ifBlank { null }

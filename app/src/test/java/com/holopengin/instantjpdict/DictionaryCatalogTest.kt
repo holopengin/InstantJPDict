@@ -29,6 +29,7 @@ class DictionaryCatalogTest {
                 "jmdict-english",
                 "jmdict-english-with-examples",
                 "kanjidic-english",
+                "jitendex",
             ),
             entries.map { it.id },
         )
@@ -94,6 +95,31 @@ class DictionaryCatalogTest {
                 e.source.contains(tag),
             )
         }
+    }
+
+    @Test
+    fun jitendex_is_pinned_to_its_dated_release_under_its_own_title_family() {
+        val jitendex = entries.single { it.id == "jitendex" }
+        // The pin came from the real 2026.08.11.0 artifact: `sha256sum` and
+        // `stat -c %s` of the downloaded `jitendex-yomitan.zip`.
+        assertEquals(
+            "https://github.com/stephenmk/stephenmk.github.io/releases/download/2026.08.11.0/jitendex-yomitan.zip",
+            jitendex.url,
+        )
+        assertEquals(38698313L, jitendex.bytes)
+        assertEquals("8364e69e7bd0881c42011e96af921a7399d7fe06e2bf4fff4da6d18affff74fc", jitendex.sha256)
+        assertEquals("CC BY-SA 4.0", jitendex.license)
+        assertEquals("stephenmk/stephenmk.github.io @ 2026.08.11.0", jitendex.source)
+        // The artifact's index.json declares `Jitendex.org [2026-08-11]`, so
+        // the stable family is `Jitendex.org` — confirmed from the zip, not
+        // assumed to be the display name `Jitendex`. It must therefore not
+        // merge with the JMdict family.
+        assertEquals("Jitendex.org", jitendex.title)
+        assertEquals("Jitendex.org", DictionaryCatalog.baseTitle("Jitendex.org [2026-08-11]"))
+        assertEquals(
+            setOf("jitendex"),
+            DictionaryCatalog.installedIds(entries, listOf(InstalledDictionary("Jitendex.org [2026-08-11]"))),
+        )
     }
 
     @Test

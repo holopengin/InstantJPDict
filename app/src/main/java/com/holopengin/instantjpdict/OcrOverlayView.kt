@@ -2223,7 +2223,14 @@ class OcrOverlayView(
             senseGroup.tags.forEach { header.addView(createTagView(it)) }
             container.addView(header)
         }
-        
+        // #88: Jitendex group metadata (part of speech, field, usage notes) is
+        // structured content rather than a string tag, and belongs to the group.
+        if (senseGroup.header.isNotEmpty()) {
+            val header = FlowLayout(context).apply { setPadding(20, 15, 0, 5) }
+            renderDefinition(header, senseGroup.header)
+            container.addView(header)
+        }
+
         if (senseGroup.isForms) {
             val table = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
@@ -2258,6 +2265,16 @@ class OcrOverlayView(
                 container.addView(senseLayout)
             }
         }
+
+        // #88: the forms table and attribution trail the senses, unnumbered.
+        if (senseGroup.trailing.isNotEmpty()) {
+            val trailer = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(30, 0, 10, 5)
+            }
+            renderDefinition(trailer, senseGroup.trailing)
+            container.addView(trailer)
+        }
     }
 
     private fun renderDefinition(container: ViewGroup, nodes: List<DefinitionNode>) {
@@ -2288,6 +2305,19 @@ class OcrOverlayView(
                     container.addView(createTagView(node.text, node.category))
                     i++
                 }
+                is DefinitionNode.Citation -> {
+                    // #88 follow-up: the source line reads as a footnote — small
+                    // and faint, not definition-weight text.
+                    container.addView(TextView(context).apply {
+                        text = node.text
+                        setTextColor(android.graphics.Color.argb(120, 255, 255, 255))
+                        textSize = 11f
+                        OverlayFont.applySystem(context, this)
+                        includeFontPadding = false
+                        setPadding(0, 8, 0, 0)
+                    })
+                    i++
+                }
                 is DefinitionNode.Example -> {
                     val box = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
@@ -2302,6 +2332,16 @@ class OcrOverlayView(
                     if (node.japanese != null) {
                         box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.applySystem(context, this); setPadding(0, 0, 0, 10) })
                         node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.applySystem(context, this) }) }
+                    } else if (node.parts.isNotEmpty()) {
+                        // #88: Jitendex example — the Japanese sentence (with
+                        // ruby) on its own line, the translation on the next.
+                        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                        node.parts.forEach { part ->
+                            val flow = FlowLayout(context)
+                            renderDefinition(flow, part)
+                            column.addView(flow)
+                        }
+                        box.addView(column)
                     } else if (node.content != null) {
                         val flow = FlowLayout(context)
                         renderDefinition(flow, node.content)
@@ -2324,7 +2364,7 @@ class OcrOverlayView(
                     i++
                 }
                 is DefinitionNode.Table -> {
-                    // Skip table for now
+                    if (node.rows.isNotEmpty()) container.addView(createDefinitionTable(node.rows))
                     i++
                 }
                 is DefinitionNode.Group -> {
@@ -2342,6 +2382,65 @@ class OcrOverlayView(
                     i++
                 }
             }
+        }
+    }
+
+    /**
+     * #88: render a structured-content table as a real grid — Jitendex's
+     * variant-forms table is the reason it exists; the previous renderer
+     * skipped tables entirely, which blanked the whole forms block.
+     *
+     * Rows are laid out as equal-weight columns so a header and its data cells
+     * stay aligned without knowing column widths ahead of time. Each cell is
+     * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ △ ✕ 古 旧) keep
+     * their inline layout inside the cell.
+     *
+     * The card carries the example box's palette (a 10-alpha white fill under an
+     * 80-alpha white stroke); neighbouring cells share a single rule instead of
+     * each drawing its own rounded box, so the grid reads as one table rather
+     * than a tray of chips. The outer stroke is the container's, the interior
+     * rules are thin [divider] views.
+     */
+    private fun createDefinitionTable(rows: List<List<List<DefinitionNode>>>): View {
+        val border = android.graphics.Color.argb(80, 255, 255, 255)
+        val table = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.argb(10, 255, 255, 255))
+                setStroke(2, border)
+                cornerRadius = 12f
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { setMargins(0, 10, 0, 10) }
+        }
+        val columns = rows.maxOfOrNull { it.size } ?: 0
+        rows.forEachIndexed { rowIndex, cells ->
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            for (column in 0 until columns) {
+                if (column > 0) row.addView(divider(border, vertical = true))
+                val cell = FlowLayout(context).apply {
+                    setPadding(10, 8, 10, 8)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                renderDefinition(cell, cells.getOrNull(column).orEmpty())
+                row.addView(cell)
+            }
+            table.addView(row)
+            if (rowIndex < rows.lastIndex) table.addView(divider(border, vertical = false))
+        }
+        return table
+    }
+
+    /** #88: one grid rule, shared by the two cells it separates. */
+    private fun divider(color: Int, vertical: Boolean): View = View(context).apply {
+        setBackgroundColor(color)
+        layoutParams = if (vertical) {
+            LinearLayout.LayoutParams(2, ViewGroup.LayoutParams.MATCH_PARENT)
+        } else {
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 2)
         }
     }
 
