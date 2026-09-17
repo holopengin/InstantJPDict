@@ -227,8 +227,9 @@ Acceptance: APK installs, bench sample texts match the #16/#23 record,
 `KanaSizeNcnn.selfCheck` and `KanaSizeNcnn.probeWithTrace` (the kana-size model's
 ten published validation vectors, and its step-by-step trace) have had no
 production caller since the "Check kana size model" button was removed from the
-debug screen — deliberately, that screen is user-facing (see the comment in
-`MainActivity`). Nothing calls them today, not even a test: to run them, add a
+user-facing screen — deliberately, so the button no longer exists. The tuning
+controls now live on their own Debug settings screen (`DebugSettingsActivity`,
+reached from Settings); the probe is not wired to it. Nothing calls them today, not even a test: to run them, add a
 temporary debug entry point or an `androidTest` and call the method. The
 asset/JNI/ARM-float proof they carry is kept for the next time the kana model or
 its conversion changes (#44, #86/E2).

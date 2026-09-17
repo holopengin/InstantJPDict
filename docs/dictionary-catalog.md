@@ -6,7 +6,7 @@ making the user find a zip, get it onto the phone and pick it. It is a static,
 bundled list (`app/src/main/assets/catalog/dictionaries.json`); there is no
 remote catalog service.
 
-The built file picker (**Import Yomitan Dictionary (.zip)**) and the upstream
+The built file picker (**Install Yomitan dictionary**) and the upstream
 browser link (**Download Dictionaries**) are unchanged. The catalog is additive:
 all three write rows through the one `DictionaryImporter` path.
 
@@ -15,7 +15,7 @@ all three write rows through the one `DictionaryImporter` path.
 The dialog follows the app's "Harbour" Material 3 language (the main-screen
 redesign): one tonal `MaterialCardView` per dictionary on
 `colorSurfaceContainerLow`, the Material 3 type scale, `MaterialButton` roles
-for **Import**/**Cancel**, a `MaterialAlertDialog` and a
+for **Install**/**Cancel**, a `MaterialAlertDialog` and a
 `LinearProgressIndicator`. Every colour comes from the theme, so day/night and
 Material You both flow through untouched. That replaced the hand-rolled
 `CatalogPalette` (and its test): the palette existed only because the dialog was
@@ -113,7 +113,7 @@ rows itself.
 `DictionaryImporter.importZip` reads the zip's declared title from a first open
 and deletes any existing dictionary with that title before importing — the same
 replace the bundled path always did. So re-importing the same dictionary (from
-the catalog's **Re-import** or from the file picker) repairs the install instead
+the catalog's **Reinstall** or from the file picker) repairs the install instead
 of stacking a second copy, and importing the other JMdict variant replaces the
 installed one rather than adding beside it. Installed state is read from
 `DictionaryMeta` — `name` plus `catalogId` — so the row says **Installed** from
@@ -149,7 +149,7 @@ The catalog adds `android.permission.INTERNET` — the only permission #71 adds,
 and the only change to the app's privacy posture. `NetworkPermissionTest` holds
 that: the declared set is exactly `CAMERA` (#78) + `INTERNET`.
 
-The app is offline until the user taps **Import**. The licence viewer, OCR,
+The app is offline until the user taps **Install**. The licence viewer, OCR,
 pitch install and manual `.zip` import never touch the network. If a download
 cannot reach the host (no DNS, refused connection, no route, timeout) the row
 shows **Download unavailable — no connection** and offers **Retry**, with a

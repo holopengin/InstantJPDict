@@ -33,7 +33,7 @@ that.
 | Title + bare status line | App bar with title/subtitle, and a status **banner** that hides itself entirely when there is nothing to say |
 | Long accessibility-settings paragraph in the open | One filled primary button + an "Access was denied?" disclosure that reveals the paragraph only when needed |
 | Camera as a plain button **below** the list | Extended FAB "Scan with camera", pinned, always reachable |
-| Debug tuning revealed inline in the middle of the button column | Debug tuning nested inside the Settings card as a bordered panel, split into "Overlay behaviour" and "PP-OCR parameters" |
+| Debug tuning revealed inline in the middle of the button column | Debug tuning on its own screen (`DebugSettingsActivity`, since 0a76d55), split into "Overlay behaviour" and "PP-OCR parameters", reached from Settings |
 | `SeekBar` rows with hand-tinted backgrounds | Material 3 `Slider`s with value tooltips, snapping to each row's step on touch-up |
 | `CheckBox`es | `MaterialSwitch` row items (≥56 dp targets, label as content description) |
 | `Theme.MaterialComponents.DayNight` | `Theme.Material3.DayNight` + `DynamicColors` via `App` |
@@ -75,8 +75,8 @@ night.
 - The FAB's clearance over the last card while scrolling, and over the gesture /
   3-button navigation bar.
 - Light **and** dark mode (the palette and both bar-icon polarities).
-- The Debug settings switch: does the nested panel read as subordinate to
-  Settings rather than as a peer of the camera?
+- The Debug settings row: does the tuning screen read as clearly secondary to
+  the home screen, and is the back navigation obvious?
 - TalkBack: switch rows, the disclosure, and the status banner.
 
 ---

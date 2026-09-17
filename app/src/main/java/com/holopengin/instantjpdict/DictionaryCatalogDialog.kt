@@ -18,12 +18,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
-import com.google.android.material.shape.CornerFamily
-import com.google.android.material.shape.MaterialShapeDrawable
-import com.google.android.material.shape.ShapeAppearanceModel
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryDownloader
 import com.holopengin.instantjpdict.data.DictionaryImporter
@@ -47,7 +43,6 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import kotlin.math.min
 
 /**
  * #71: the in-app dictionary catalog — browse the bundled static list and
@@ -84,11 +79,8 @@ object DictionaryCatalogDialog {
 
     private const val TAG = "DictionaryCatalog"
 
-    /** Material 3 dialogs cap at 560 dp; the window is sized inside that. */
-    private const val WINDOW_MAX_WIDTH_DP = 560
-
     fun show(context: Context) {
-        val colors = colorsFor(context)
+        val ui = HarbourUi.of(context)
         val entries = try {
             DictionaryCatalog.parse(
                 readAsset(context, DictionaryCatalog.ASSET)
@@ -112,7 +104,7 @@ object DictionaryCatalogDialog {
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 24), 0, dp(context, 24), 0)
+            setPadding(ui.dp(24), 0, ui.dp(24), 0)
         }
 
         root.addView(TextView(context).apply {
@@ -121,11 +113,11 @@ object DictionaryCatalogDialog {
                 "single row is added. Downloading needs a connection; everything else " +
                 "in the app stays offline."
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            setTextColor(colors.onSurfaceVariant)
+            setTextColor(ui.onSurfaceVariant)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(context, 12) }
+            ).apply { bottomMargin = ui.dp(12) }
         })
 
         // Shown only after a download could not reach the network. The app holds
@@ -133,28 +125,28 @@ object DictionaryCatalogDialog {
         // the failure rather than asked ahead of time.
         val bannerText = TextView(context).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-            setTextColor(colors.onErrorContainer)
+            setTextColor(ui.onErrorContainer)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         val banner = MaterialCardView(context).apply {
-            radius = dp(context, 16).toFloat()
+            radius = ui.dp(16).toFloat()
             cardElevation = 0f
             strokeWidth = 0
-            setCardBackgroundColor(colors.errorContainer)
+            setCardBackgroundColor(ui.errorContainer)
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(context, 12) }
+            ).apply { bottomMargin = ui.dp(12) }
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12))
+                setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12))
                 addView(ImageView(context).apply {
                     setImageResource(R.drawable.ic_info)
-                    imageTintList = ColorStateList.valueOf(colors.onErrorContainer)
-                    layoutParams = LinearLayout.LayoutParams(dp(context, 20), dp(context, 20))
-                        .apply { marginEnd = dp(context, 12) }
+                    imageTintList = ColorStateList.valueOf(ui.onErrorContainer)
+                    layoutParams = LinearLayout.LayoutParams(ui.dp(20), ui.dp(20))
+                        .apply { marginEnd = ui.dp(12) }
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 })
                 addView(bannerText)
@@ -174,7 +166,7 @@ object DictionaryCatalogDialog {
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             )
-            setPadding(0, dp(context, 2), 0, dp(context, 2))
+            setPadding(0, ui.dp(2), 0, ui.dp(2))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
@@ -294,7 +286,7 @@ object DictionaryCatalogDialog {
             val row = CatalogRowView(
                 context = context,
                 entry = entry,
-                colors = colors,
+                ui = ui,
                 onImport = { r -> startImport(entry, r) },
                 onCancel = { jobs[entry.id]?.cancel() },
             )
@@ -317,13 +309,8 @@ object DictionaryCatalogDialog {
                 LicenseDialog.show(context)
             }
             // A definite window height is what gives the list its weight and lets
-            // it scroll, while the intro, banner and buttons stay put. Width stays
-            // inside Material 3's 560 dp dialog cap.
-            val metrics = context.resources.displayMetrics
-            dialog.window?.setLayout(
-                min((metrics.widthPixels * 0.94f).toInt(), dp(context, WINDOW_MAX_WIDTH_DP)),
-                (metrics.heightPixels * 0.82f).toInt(),
-            )
+            // it scroll, while the intro, banner and buttons stay put.
+            ui.sizeDialogWindow(dialog)
         }
         dialog.setOnDismissListener {
             jobs.values.forEach { it.cancel() }
@@ -344,45 +331,25 @@ object DictionaryCatalogDialog {
         this is UnknownHostException || this is ConnectException ||
             this is SocketTimeoutException || this is SocketException
 
-    /** The theme roles the catalog draws with, resolved once per dialog. */
-    private data class CatalogColors(
-        val surfaceLow: Int,
-        val onSurface: Int,
-        val onSurfaceVariant: Int,
-        val primary: Int,
-        val primaryContainer: Int,
-        val onPrimaryContainer: Int,
-        val error: Int,
-        val errorContainer: Int,
-        val onErrorContainer: Int,
-    )
-
     /** One catalog row: a tonal card and the states it can show. */
     private class CatalogRowView(
         private val context: Context,
         val entry: CatalogEntry,
-        private val colors: CatalogColors,
+        private val ui: HarbourUi,
         private val onImport: (CatalogRowView) -> Unit,
         private val onCancel: () -> Unit,
     ) {
-        /** A filled pill, for the "Installed" badge. */
-        private fun pill(fill: Int): MaterialShapeDrawable = MaterialShapeDrawable(
-            ShapeAppearanceModel.builder()
-                .setAllCorners(CornerFamily.ROUNDED, dp(context, 100).toFloat())
-                .build()
-        ).apply { fillColor = ColorStateList.valueOf(fill) }
-
         private val installedChip = TextView(context).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
-            setTextColor(colors.onPrimaryContainer)
-            background = pill(colors.primaryContainer)
-            setPadding(dp(context, 12), dp(context, 4), dp(context, 12), dp(context, 4))
+            setTextColor(ui.onPrimaryContainer)
+            background = ui.pill(ui.primaryContainer)
+            setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4))
             visibility = View.GONE
         }
 
         private val stateView = TextView(context).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-            setTextColor(colors.onSurfaceVariant)
+            setTextColor(ui.onSurfaceVariant)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
@@ -397,7 +364,7 @@ object DictionaryCatalogDialog {
         private val percentView = TextView(context).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(colors.onSurfaceVariant)
+            setTextColor(ui.onSurfaceVariant)
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             visibility = View.GONE
         }
@@ -407,14 +374,14 @@ object DictionaryCatalogDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            trackCornerRadius = dp(context, 4)
+            trackCornerRadius = ui.dp(4)
             visibility = View.GONE
         }
 
         private val progressBlock = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(0, dp(context, 10), 0, 0)
+            setPadding(0, ui.dp(10), 0, 0)
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -437,26 +404,26 @@ object DictionaryCatalogDialog {
         ).apply {
             text = "Cancel"
             isAllCaps = false
-            setTextColor(colors.primary)
+            setTextColor(ui.primary)
             visibility = View.GONE
             setOnClickListener { onCancel() }
         }
 
         val root = MaterialCardView(context).apply {
-            radius = dp(context, 24).toFloat()
+            radius = ui.dp(24).toFloat()
             cardElevation = 0f
             strokeWidth = 0
-            setCardBackgroundColor(colors.surfaceLow)
+            setCardBackgroundColor(ui.surfaceLow)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(context, 12) }
+            ).apply { bottomMargin = ui.dp(12) }
         }
 
         init {
             root.addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(context, 20), dp(context, 16), dp(context, 20), dp(context, 16))
+                setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16))
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -465,14 +432,14 @@ object DictionaryCatalogDialog {
                             if (entry.kind == CatalogSource.BUNDLED_ASSET) R.drawable.ic_book
                             else R.drawable.ic_download
                         )
-                        layoutParams = LinearLayout.LayoutParams(dp(context, 24), dp(context, 24))
-                            .apply { marginEnd = dp(context, 12) }
+                        layoutParams = LinearLayout.LayoutParams(ui.dp(24), ui.dp(24))
+                            .apply { marginEnd = ui.dp(12) }
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     })
                     addView(TextView(context).apply {
                         text = entry.name
                         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-                        setTextColor(colors.onSurface)
+                        setTextColor(ui.onSurface)
                         setTypeface(typeface, Typeface.BOLD)
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     })
@@ -481,26 +448,26 @@ object DictionaryCatalogDialog {
                 addView(TextView(context).apply {
                     text = entry.description
                     setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                    setTextColor(colors.onSurfaceVariant)
-                    setPadding(0, dp(context, 6), 0, 0)
+                    setTextColor(ui.onSurfaceVariant)
+                    setPadding(0, ui.dp(6), 0, 0)
                 })
                 addView(TextView(context).apply {
                     text = "${entry.sizeLabel()} · ${entry.license} · ${entry.source}"
                     setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-                    setTextColor(colors.onSurfaceVariant)
-                    setPadding(0, dp(context, 4), 0, 0)
+                    setTextColor(ui.onSurfaceVariant)
+                    setPadding(0, ui.dp(4), 0, 0)
                 })
                 addView(progressBlock)
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(context, 10), 0, 0)
+                    setPadding(0, ui.dp(10), 0, 0)
                     addView(importButton)
                     addView(cancelButton.apply {
                         layoutParams = LinearLayout.LayoutParams(
                             ViewGroup.LayoutParams.WRAP_CONTENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT
-                        ).apply { leftMargin = dp(context, 8) }
+                        ).apply { leftMargin = ui.dp(8) }
                     })
                 })
             })
@@ -539,10 +506,10 @@ object DictionaryCatalogDialog {
                 true,
             )
             stateView.text = ImportProgress.download(written, total, fileName)
-            stateView.setTextColor(colors.onSurfaceVariant)
+            stateView.setTextColor(ui.onSurfaceVariant)
             percentView.visibility = View.VISIBLE
             percentView.text = "${ImportProgress.percentOf(written, total)}%"
-            percentView.setTextColor(colors.onSurfaceVariant)
+            percentView.setTextColor(ui.onSurfaceVariant)
             importButton.isEnabled = false
             cancelButton.visibility = View.VISIBLE
         }
@@ -554,7 +521,7 @@ object DictionaryCatalogDialog {
             progress.isIndeterminate = true
             percentView.visibility = View.GONE
             stateView.text = label
-            stateView.setTextColor(colors.onSurfaceVariant)
+            stateView.setTextColor(ui.onSurfaceVariant)
             importButton.isEnabled = false
             cancelButton.visibility = if (cancellable) View.VISIBLE else View.GONE
         }
@@ -568,7 +535,7 @@ object DictionaryCatalogDialog {
             percentView.visibility = View.GONE
             cancelButton.visibility = View.GONE
             stateView.text = message
-            stateView.setTextColor(colors.error)
+            stateView.setTextColor(ui.error)
             importButton.text = "Retry"
             importButton.isEnabled = true
         }
@@ -587,24 +554,4 @@ object DictionaryCatalogDialog {
             .setPositiveButton("Close", null)
             .show()
     }
-
-    private fun colorsFor(context: Context): CatalogColors = CatalogColors(
-        surfaceLow = attr(context, com.google.android.material.R.attr.colorSurfaceContainerLow),
-        onSurface = attr(context, com.google.android.material.R.attr.colorOnSurface),
-        onSurfaceVariant = attr(context, com.google.android.material.R.attr.colorOnSurfaceVariant),
-        primary = attr(context, com.google.android.material.R.attr.colorPrimary),
-        primaryContainer = attr(context, com.google.android.material.R.attr.colorPrimaryContainer),
-        onPrimaryContainer = attr(context, com.google.android.material.R.attr.colorOnPrimaryContainer),
-        error = attr(context, com.google.android.material.R.attr.colorError),
-        errorContainer = attr(context, com.google.android.material.R.attr.colorErrorContainer),
-        onErrorContainer = attr(context, com.google.android.material.R.attr.colorOnErrorContainer),
-    )
-
-    /** Resolve one colour from the current theme (day/night and Material You aware). */
-    private fun attr(context: Context, attribute: Int): Int =
-        MaterialColors.getColor(context, attribute, android.graphics.Color.GRAY)
-
-    /** Density-independent pixels; one definition for the dialog and its rows. */
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
 }

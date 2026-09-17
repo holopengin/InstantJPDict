@@ -59,11 +59,11 @@ import kotlinx.coroutines.withContext
  *   - "Get started" — the accessibility service, as the one filled button on the
  *     screen, with its long denial note behind a disclosure instead of in the
  *     flow;
- *   - "Dictionaries" — the catalog and the import/manage/bookmark verbs, one
+ *   - "Dictionaries" — the catalog and the install/manage/bookmark verbs, one
  *     obvious primary (tonal) action and the rest as list rows;
- *   - "Settings" — the overlay font, gamepad, licences and the debug switch,
- *     with the PP-OCR tuning block nested inside as a tonal panel rather than as
- *     a peer of the camera button.
+ *   - "Settings" — the overlay font, gamepad, licences and a row into the
+ *     debug/tuning screen, which is now an activity of its own rather than a
+ *     panel nested in this card.
  *
  * All of the behaviour lives exactly where it lived before: the same
  * SharedPreferences keys, the same [DictionaryCatalogDialog] / [LicenseDialog] /

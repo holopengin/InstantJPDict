@@ -132,7 +132,7 @@ files whose wording the index's labels are asserting):
 Dictionaries) opens a dialog listing every component with its licence; selecting one
 shows its notice, provenance and the full licence text. Everything is read from
 assets, so it works with airplane mode on — and without any network use. (The
-app's only network path is the dictionary catalog's Import, #71.)
+app's only network path is the dictionary catalog's Install, #71.)
 
 The EDRDG licence statement asks a smartphone app for exactly this: the
 acknowledgement on a separate screen reached from a menu, not on a launch screen
