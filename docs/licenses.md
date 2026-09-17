@@ -178,7 +178,8 @@ test run by `OverlayFontTest`, which parses the committed sfnt/GSUB headers.
 - Licences for **user-imported** dictionaries (JMdict/KANJIDIC/Jitendex Yomitan
   zips). Their notices live with the import; the app bundles no KANJIDIC data of
   its own. The dictionary catalog (#71/#88) names each importable dictionary's
-  licence and points its **Licences** button at this viewer, but the files
+  licence; the full texts are this viewer, reached from the main screen (the
+  catalog's own Licences button was removed as redundant), but the files
   themselves are downloaded by the user and are not redistributed here. Jitendex
   is CC BY-SA 4.0 (© Stephen Kraus), and its `index.json` attribution also names
   EDRDG/JMdict and Tatoeba; that text travels inside the downloaded zip.
