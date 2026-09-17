@@ -33,7 +33,6 @@ not themed, and it is what the #71 night-mode bug was fixed through.
       "id": "jmdict-english",
       "name": "JMdict (English)",
       "description": "…",
-      "kind": "yomitanZip",
       "url": "https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-15/JMdict_english.zip",
       "bytes": 15594803,
       "sha256": "58983250…",
@@ -49,9 +48,7 @@ not themed, and it is what the #71 night-mode bug was fixed through.
 |---|---|
 | `id` | stable catalog key, unique |
 | `name`, `description` | the row's title and body |
-| `kind` | `yomitanZip` (download) or `bundledAsset` (already in the APK) |
-| `url` | HTTPS source, **only** for `yomitanZip` |
-| `asset` | APK asset path, **only** for `bundledAsset` |
+| `url` | pinned HTTPS source of the zip |
 | `bytes`, `sha256` | the pinned size and digest, checked after download |
 | `title` | the dictionary's stable title family |
 | `license` | label shown on the row; full texts in the Licenses viewer (#70) |
@@ -92,21 +89,20 @@ family (the default, `jmdict-english`). So two entries may share a title family,
 and only one of them ever reports **Installed**. This is why the catalog may now
 list more entries than it has distinct titles.
 
-## The two import shapes
+## The import shape
 
-* **`yomitanZip`** — `DictionaryDownloader` GETs the URL with
-  `HttpURLConnection` (no HTTP client dependency, and GitHub release assets
-  need no `User-Agent`), streams it into the app cache, and
-  `DictionaryDownload.writeVerified` hashes as it writes. Nothing touches the
-  database until the size and SHA-256 match. The cached file is deleted after
-  the import, on a failed import, and on cancel.
-* **`bundledAsset`** — the pitch dictionary, installed from the APK with no
-  network at all.
+`DictionaryDownloader` GETs the URL with `HttpURLConnection` (no HTTP client
+dependency, and GitHub release assets need no `User-Agent`), streams it into the
+app cache, and `DictionaryDownload.writeVerified` hashes as it writes. Nothing
+touches the database until the size and SHA-256 match. The cached file is deleted
+after the import, on a failed import, and on cancel. It then calls the existing
+importer (`importZip` for the cached file via a `file://` Uri), passing the
+entry's `id` as `catalogId` so the install is attributable. The catalog never
+writes dictionary rows itself.
 
-Both then call the existing importer (`importZip` for the cached file via a
-`file://` Uri, `importBundledAsset` for the asset), passing the entry's `id` as
-`catalogId` so the install is attributable. The catalog never writes dictionary
-rows itself.
+Dictionaries already bundled in the APK — the Kanjium pitch accents (#43) — are
+deliberately **not** listed: they install themselves at first launch, so there is
+nothing for the user to install. The catalog is only for downloads.
 
 ## Idempotency
 
@@ -130,18 +126,9 @@ Pinned to release `2026-09-15` of
 | JMdict (English) | `JMdict_english.zip` | 15,594,803 | `58983250d41fb8e9ea656cb7678939ecc0f82b4a91a595ad04696f88fe599472` |
 | JMdict (English, with examples) | `JMdict_english_with_examples.zip` | 18,080,622 | `cb7891fae661b901ae17f716d2e55ecaf377aa7c2dbf69841378af13d5e73cd8` |
 | KANJIDIC (English) | `KANJIDIC_english.zip` | 721,032 | `51a7a1aa3f996e60742b9e5f62144422926060d48208d9bdb9f51ecfe9dd4f74` |
-| Kanjium pitch accents | bundled `pitch/kanjium_pitch_accents.zip` (#43) | 1,207,703 | `c1cdb4f4d930ff569490fe0b7d93b58eef23880c75f54660fd5fbca05b71740f` |
-
-The pitch row names its source, not a URL: the data is vendored in the APK (see
-[bundled-dictionaries.md](bundled-dictionaries.md)) and installed as a built-in
-at first launch, so the catalog row reflects that install and needs no network.
-That is the reconciliation of #43's pitch question with the maintainer's scope
-note: the catalog points at the bundled asset.
 
 **Updating a pin.** Download the new asset, `sha256sum` it, `stat -c %s` it, and
-edit both the URL's release tag and the numbers together. A pin that no longer
-matches either fails the download (and cleans up) or fails
-`DictionaryCatalogTest` for the bundled zip.
+edit both the URL's release tag and the numbers together.
 
 ## `INTERNET`, and the offline state
 
@@ -153,8 +140,8 @@ The app is offline until the user taps **Install**. The licence viewer, OCR,
 pitch install and manual `.zip` import never touch the network. If a download
 cannot reach the host (no DNS, refused connection, no route, timeout) the row
 shows **Download unavailable — no connection** and offers **Retry**, with a
-banner above the list saying the same; the bundled pitch row is unaffected. A
-failed or cancelled download leaves no cache file and no database row behind.
+banner above the list saying the same. A failed or cancelled download leaves no
+cache file and no database row behind.
 
 The offline state is reached from the failed request, not asked for ahead of
 time: reading connectivity would need `ACCESS_NETWORK_STATE`, and the acceptance
@@ -175,7 +162,7 @@ dictionaries' own licences travel with the import; see
 
 | Test | What it pins |
 |---|---|
-| `DictionaryCatalogTest` | the shipped asset lists both JMdict variants/KANJIDIC/pitch; every network row is pinned to a dated release with size + hash; the bundled row's pin matches the committed zip; only the JMdict variants share a title, and `catalogId` resolves them to exactly one installed row; installed-state matching; strict parsing |
+| `DictionaryCatalogTest` | the shipped asset lists both JMdict variants and KANJIDIC and no bundled row; every row is pinned to a dated release with size + hash; only the JMdict variants share a title, and `catalogId` resolves them to exactly one installed row; installed-state matching; strict parsing |
 | `DictionaryDownloadTest` | verification against known-good SHA-256 literals; a file is deleted on a hash/size mismatch or cancellation; a verified file is kept |
 | `DictionaryMetaSchemaTest` | the hand-written `catalogId` migration DDL matches Room's generated shape (a nullable `TEXT` column), so the destructive fallback cannot fire |
 | `NetworkPermissionTest` | `INTERNET` is the only permission the feature adds, and the declaration says why |

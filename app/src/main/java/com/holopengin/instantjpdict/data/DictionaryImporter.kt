@@ -77,7 +77,6 @@ class DictionaryImporter(private val context: Context) {
      */
     suspend fun importBundledAsset(
         assetPath: String,
-        catalogId: String? = null,
         onProgress: (Int) -> Unit,
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
@@ -94,7 +93,6 @@ class DictionaryImporter(private val context: Context) {
                         assetPath.substringAfterLast('/').removeSuffix(".zip"),
                         onProgress,
                         builtIn = true,
-                        catalogId = catalogId,
                     )
                 }
             )

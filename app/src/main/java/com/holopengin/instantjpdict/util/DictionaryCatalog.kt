@@ -11,13 +11,11 @@ import java.util.Locale
  * catalog service — so this type and [DictionaryCatalog] hold only the reading
  * side and no Android types, which keeps them JVM-unit-testable.
  *
- * A "dictionary" here is one importable artifact. Two shapes exist:
- *
- *  - [CatalogSource.YOMITAN_ZIP] — a Yomitan-format zip fetched from a pinned
- *    upstream URL ([url]), integrity-checked against [bytes] and [sha256], then
- *    handed to `DictionaryImporter`;
- *  - [CatalogSource.BUNDLED_ASSET] — an asset already in the APK ([asset]),
- *    installed with no network. This is the pitch-accent dictionary (#43).
+ * A "dictionary" here is one downloadable artifact: a Yomitan-format zip fetched
+ * from a pinned upstream URL ([url]), integrity-checked against [bytes] and
+ * [sha256], then handed to `DictionaryImporter`. Dictionaries already bundled in
+ * the APK (the Kanjium pitch accents, #43) are not listed — they are installed
+ * at first launch and need no catalog row.
  */
 data class CatalogEntry(
     /** Stable catalog id, e.g. `jmdict-english`. */
@@ -41,15 +39,9 @@ data class CatalogEntry(
     val bytes: Long,
     /** Lowercase hex SHA-256 of the artifact, pinned. */
     val sha256: String,
-    val kind: CatalogSource,
-    /** HTTPS source URL for [CatalogSource.YOMITAN_ZIP], else null. */
-    val url: String? = null,
-    /** APK asset path for [CatalogSource.BUNDLED_ASSET], else null. */
-    val asset: String? = null,
+    /** Pinned HTTPS source URL for the zip. */
+    val url: String,
 ) {
-    /** True when importing this row downloads from the network. */
-    val downloadable: Boolean get() = kind == CatalogSource.YOMITAN_ZIP
-
     /** Human size for the row, e.g. `15.6 MB`. */
     fun sizeLabel(): String = formatBytes(bytes)
 
@@ -64,10 +56,10 @@ data class CatalogEntry(
      */
     fun fileName(): String {
         val fromUrl = url
-            ?.substringBefore('?')
-            ?.substringBefore('#')
-            ?.substringAfterLast('/')
-            ?.takeIf { it.isNotBlank() && it != "/" }
+            .substringBefore('?')
+            .substringBefore('#')
+            .substringAfterLast('/')
+            .takeIf { it.isNotBlank() && it != "/" }
         return fromUrl ?: "$id.zip"
     }
 
@@ -87,16 +79,14 @@ data class CatalogEntry(
     }
 }
 
-/** Which importer a catalog row feeds. */
-enum class CatalogSource { YOMITAN_ZIP, BUNDLED_ASSET }
-
 /**
  * #71 follow-up: one installed dictionary as the catalog sees it.
  *
  * [name] is the title the importer wrote (`JMdict [2026-09-15]`); [catalogId]
- * is the catalog entry it came from, when it came through the catalog. A
- * file-picker or bundled install has no id, so [name] is still carried for the
- * title-family fallback in [DictionaryCatalog.installedIds].
+ * is the catalog entry it came from, when it came through the catalog. An
+ * install the catalog did not make — the file picker, or the bundled pitch
+ * dictionary — has no id, so [name] is still carried for the title-family
+ * fallback in [DictionaryCatalog.installedIds].
  */
 data class InstalledDictionary(val name: String, val catalogId: String? = null)
 
@@ -151,26 +141,10 @@ object DictionaryCatalog {
         require(bytes > 0) { where("must have a positive `bytes`") }
         val sha256 = required("sha256")
         require(SHA256.matches(sha256)) { where("`sha256` is not 64 lowercase hex chars: $sha256") }
-        val kind = when (val raw = required("kind")) {
-            "yomitanZip" -> CatalogSource.YOMITAN_ZIP
-            "bundledAsset" -> CatalogSource.BUNDLED_ASSET
-            else -> error(where("has unknown `kind` '$raw'"))
-        }
-        val url = o.string("url")
-        val asset = o.string("asset")
-        when (kind) {
-            CatalogSource.YOMITAN_ZIP -> {
-                require(!url.isNullOrBlank()) { where("has kind yomitanZip but no `url`") }
-                require(url.startsWith("https://")) { where("`url` is not https: $url") }
-                require(!url.contains("/releases/latest/")) {
-                    where("`url` points at /releases/latest/, which moves; pin a dated release: $url")
-                }
-                require(asset.isNullOrBlank()) { where("has kind yomitanZip and an `asset`") }
-            }
-            CatalogSource.BUNDLED_ASSET -> {
-                require(!asset.isNullOrBlank()) { where("has kind bundledAsset but no `asset`") }
-                require(url.isNullOrBlank()) { where("has kind bundledAsset and a `url`; a bundled row needs no network") }
-            }
+        val url = required("url")
+        require(url.startsWith("https://")) { where("`url` is not https: $url") }
+        require(!url.contains("/releases/latest/")) {
+            where("`url` points at /releases/latest/, which moves; pin a dated release: $url")
         }
         return CatalogEntry(
             id = id,
@@ -181,9 +155,7 @@ object DictionaryCatalog {
             title = title,
             bytes = bytes,
             sha256 = sha256,
-            kind = kind,
             url = url,
-            asset = asset,
         )
     }
 

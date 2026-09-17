@@ -25,8 +25,6 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.InferLog
-import com.holopengin.instantjpdict.util.KanaSizeFix
-import com.holopengin.instantjpdict.util.PitchAccent
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -120,17 +118,6 @@ class DebugSettingsActivity : AppCompatActivity() {
         val behaviourBody = ui.cardBody()
         behaviourBody.addView(ui.sectionHeader(R.drawable.ic_tune, "Overlay behaviour"))
         behaviourBody.addView(ui.body("Live toggles read at each point of use, so the next lookup picks a change up."))
-        // #43: pitch-accent display. Off by default; needs a pitch dictionary
-        // installed or the rows simply never appear.
-        behaviourBody.addView(ui.switchRow(
-            null,
-            "Show pitch accent in the dictionary popup",
-            "Needs a pitch dictionary installed to have any effect",
-            PitchAccent.isEnabled(this)
-        ) { checked ->
-            PitchAccent.setEnabled(this, checked)
-            Log.d(TAG, "pitch_accent_enabled=$checked")
-        })
         // #72: double-tap zoom is opt-in. While it is on, a tap on empty space
         // must wait out the double-tap window before closing.
         behaviourBody.addView(ui.switchRow(

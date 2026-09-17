@@ -14,10 +14,10 @@ see [licenses.md](licenses.md) and the **Licenses** button on the main screen
 ## Pitch accents — `pitch/kanjium_pitch_accents.zip`
 
 Yomitan term-meta-bank v3 dictionary of Tokyo pitch accents, in-app behind the
-**Show pitch accent in dictionary popup** checkbox (see #43). Vendored and
-installed at startup, needing no network. The dictionary catalog (#71) lists it
-as a **bundled** row: that row installs from this same asset with no URL and no
-download.
+**Display pitch accent** switch on the main screen (see #43). Vendored and
+installed at startup, needing no network. It is deliberately **not** a
+dictionary catalog row (#71): it installs itself, so there is nothing for the
+user to install, and the catalog is only for downloads.
 
 | | |
 |---|---|

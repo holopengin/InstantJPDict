@@ -2,7 +2,6 @@ package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.KanaSizeFix
-import com.holopengin.instantjpdict.util.PitchAccent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,9 +39,10 @@ class DebugTuningTest {
 
     @Test
     fun the_reset_owns_every_feature_switch() {
+        // Pitch accent is a home-screen setting now, not a debug-screen control,
+        // so the tuning reset deliberately does not own it (see DebugTuning).
         assertEquals(
             listOf(
-                PitchAccent.PREF_PITCH_ENABLED,
                 DoubleTapZoom.PREF_ENABLED,
                 BlankGaps.PREF_ENABLED,
                 OcrEngine.PREF_DET_ROTATED,

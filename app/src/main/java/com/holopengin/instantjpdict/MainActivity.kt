@@ -273,7 +273,7 @@ class MainActivity : AppCompatActivity() {
         fun switchRow(
             iconRes: Int,
             titleText: String,
-            supporting: String,
+            supporting: String? = null,
             checked: Boolean,
             onChanged: (Boolean) -> Unit
         ): LinearLayout {
@@ -464,6 +464,18 @@ class MainActivity : AppCompatActivity() {
             val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
             OverlayFont.setFace(this, face)
             Log.d("MainActivity", "overlay_font_face=$face")
+        })
+        // #43: pitch-accent display. A user-facing overlay preference, so it sits
+        // here with the serif face rather than on the debug screen. The pitch data
+        // is bundled and installed at first launch, so there is nothing to install
+        // first; off by default.
+        settingsBody.addView(switchRow(
+            R.drawable.ic_pitch,
+            "Display pitch accent",
+            checked = PitchAccent.isEnabled(this)
+        ) { checked ->
+            PitchAccent.setEnabled(this, checked)
+            Log.d("MainActivity", "pitch_accent_enabled=$checked")
         })
         settingsBody.addView(listRow(
             R.drawable.ic_gamepad,

@@ -24,7 +24,6 @@ import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryDownloader
 import com.holopengin.instantjpdict.data.DictionaryImporter
 import com.holopengin.instantjpdict.util.CatalogEntry
-import com.holopengin.instantjpdict.util.CatalogSource
 import com.holopengin.instantjpdict.util.DictionaryCatalog
 import com.holopengin.instantjpdict.util.ImportProgress
 import com.holopengin.instantjpdict.util.InstalledDictionary
@@ -49,9 +48,9 @@ import java.net.UnknownHostException
  * import a dictionary in one tap.
  *
  * Each row is one [CatalogEntry]: a Yomitan zip fetched from a pinned, dated
- * upstream URL and integrity-checked before import, or an asset already in the
- * APK (the pitch dictionary, which needs no network). A network row shows
- * download progress and can be cancelled; a bundled row installs immediately.
+ * upstream URL and integrity-checked before import. A row shows download
+ * progress and can be cancelled. Bundled dictionaries (the Kanjium pitch
+ * accents) are not listed — they install themselves at first launch.
  *
  * The surface is the app's "Harbour" Material 3 language (main-screen redesign):
  * one tonal card per dictionary on `colorSurfaceContainerLow`, the Material 3
@@ -199,14 +198,25 @@ object DictionaryCatalogDialog {
             row.showBusy("Preparing…", cancellable = true)
             jobs[entry.id] = scope.launch {
                 try {
-                    if (entry.kind == CatalogSource.BUNDLED_ASSET) {
-                        val asset = entry.asset!!
-                        // The bundled install reads the APK and inserts rows; it is
-                        // short and repairs itself, so it is left to finish. Its
-                        // callback fires only after a batch of rows is committed,
-                        // so the count shown cannot run ahead of what is in the DB.
-                        val result = withContext(NonCancellable) {
-                            importer.importBundledAsset(asset, catalogId = entry.id) { n ->
+                    val result = downloader.download(entry) { written ->
+                        ui { row.showDownloadProgress(written, entry.bytes, entry.fileName()) }
+                    }
+                    // The file is held here so the finally below can delete
+                    // it on every path that does not reach the import.
+                    val file = result
+                    try {
+                        ui {
+                            row.showBusy(
+                                ImportProgress.verify(entry.bytes, entry.fileName()),
+                                cancellable = false,
+                            )
+                        }
+                        // Once the file is verified the download is done and
+                        // Cancel is gone: an import that has started must not
+                        // be interrupted, because a half-written dictionary
+                        // has no completion marker and would look installed.
+                        val imported = withContext(NonCancellable) {
+                            importer.importZip(Uri.fromFile(file), entry.name, catalogId = entry.id) { n ->
                                 ui {
                                     row.showBusy(
                                         ImportProgress.importing(
@@ -220,44 +230,9 @@ object DictionaryCatalogDialog {
                                 }
                             }
                         }
-                        result.getOrThrow()
-                    } else {
-                        val result = downloader.download(entry) { written ->
-                            ui { row.showDownloadProgress(written, entry.bytes, entry.fileName()) }
-                        }
-                        // The file is held here so the finally below can delete
-                        // it on every path that does not reach the import.
-                        val file = result
-                        try {
-                            ui {
-                                row.showBusy(
-                                    ImportProgress.verify(entry.bytes, entry.fileName()),
-                                    cancellable = false,
-                                )
-                            }
-                            // Once the file is verified the download is done and
-                            // Cancel is gone: an import that has started must not
-                            // be interrupted, because a half-written dictionary
-                            // has no completion marker and would look installed.
-                            val imported = withContext(NonCancellable) {
-                                importer.importZip(Uri.fromFile(file), entry.name, catalogId = entry.id) { n ->
-                                    ui {
-                                        row.showBusy(
-                                            ImportProgress.importing(
-                                                processed = n,
-                                                total = null,
-                                                name = entry.name,
-                                                indeterminate = true,
-                                            ),
-                                            cancellable = false,
-                                        )
-                                    }
-                                }
-                            }
-                            imported.getOrThrow()
-                        } finally {
-                            file.delete()
-                        }
+                        imported.getOrThrow()
+                    } finally {
+                        file.delete()
                     }
                     ui { banner.visibility = View.GONE }
                     refreshInstalledState()
@@ -428,10 +403,7 @@ object DictionaryCatalogDialog {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     addView(ImageView(context).apply {
-                        setImageResource(
-                            if (entry.kind == CatalogSource.BUNDLED_ASSET) R.drawable.ic_book
-                            else R.drawable.ic_download
-                        )
+                        setImageResource(R.drawable.ic_download)
                         layoutParams = LinearLayout.LayoutParams(ui.dp(24), ui.dp(24))
                             .apply { marginEnd = ui.dp(12) }
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -481,8 +453,7 @@ object DictionaryCatalogDialog {
             cancelButton.visibility = View.GONE
             importButton.isEnabled = true
             if (installed) {
-                installedChip.text =
-                    if (entry.kind == CatalogSource.BUNDLED_ASSET) "Bundled" else "Installed"
+                installedChip.text = "Installed"
                 installedChip.visibility = View.VISIBLE
                 importButton.text = "Reinstall"
             } else {

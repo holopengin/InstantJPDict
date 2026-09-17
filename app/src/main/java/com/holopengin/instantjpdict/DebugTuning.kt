@@ -2,7 +2,6 @@ package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.KanaSizeFix
-import com.holopengin.instantjpdict.util.PitchAccent
 
 /**
  * G1/#86: the debug screen's tuning surface as data.
@@ -14,8 +13,9 @@ import com.holopengin.instantjpdict.util.PitchAccent
  * so the invariant is structural; [DebugTuningTest] pins that these lists cover
  * every control, which is the part structure cannot say on its own.
  *
- * Deliberately not here: `OverlayFont.PREF_FACE` (the overlay typeface) and the
- * debug-log toggle — user-visible, so a tuning reset must leave them alone.
+ * Deliberately not here: `OverlayFont.PREF_FACE` (the overlay typeface),
+ * `PitchAccent.PREF_PITCH_ENABLED` (moved to the home screen) and the debug-log
+ * toggle — user-visible settings, so a tuning reset must leave them alone.
  * Every constant referenced below is a `const val`, so this file (and its test)
  * stay Android-free.
  */
@@ -56,7 +56,6 @@ internal object DebugTuning {
 
     /** The feature switches the debug screen owns, which the reset also owns. */
     val features: List<FeatureRow> = listOf(
-        FeatureRow(PitchAccent.PREF_PITCH_ENABLED, PitchAccent.DEF_PITCH_ENABLED),
         FeatureRow(DoubleTapZoom.PREF_ENABLED, DoubleTapZoom.DEF_ENABLED),
         FeatureRow(BlankGaps.PREF_ENABLED, BlankGaps.DEF_ENABLED),
         FeatureRow(OcrEngine.PREF_DET_ROTATED, OcrEngine.DEF_DET_ROTATED),
