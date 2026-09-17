@@ -2302,6 +2302,16 @@ class OcrOverlayView(
                     if (node.japanese != null) {
                         box.addView(TextView(context).apply { text = node.japanese; setTextColor(Color.WHITE); textSize = 16f; OverlayFont.applySystem(context, this); setPadding(0, 0, 0, 10) })
                         node.english?.let { en -> box.addView(TextView(context).apply { text = en; setTextColor(Color.LTGRAY); textSize = 14f; OverlayFont.applySystem(context, this) }) }
+                    } else if (node.parts.isNotEmpty()) {
+                        // #88: Jitendex example — the Japanese sentence (with
+                        // ruby) on its own line, the translation on the next.
+                        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                        node.parts.forEach { part ->
+                            val flow = FlowLayout(context)
+                            renderDefinition(flow, part)
+                            column.addView(flow)
+                        }
+                        box.addView(column)
                     } else if (node.content != null) {
                         val flow = FlowLayout(context)
                         renderDefinition(flow, node.content)
@@ -2324,7 +2334,7 @@ class OcrOverlayView(
                     i++
                 }
                 is DefinitionNode.Table -> {
-                    // Skip table for now
+                    if (node.rows.isNotEmpty()) container.addView(createDefinitionTable(node.rows))
                     i++
                 }
                 is DefinitionNode.Group -> {
@@ -2343,6 +2353,41 @@ class OcrOverlayView(
                 }
             }
         }
+    }
+
+    /**
+     * #88: render a structured-content table as a real grid — Jitendex's
+     * variant-forms table is the reason it exists; the previous renderer
+     * skipped tables entirely, which blanked the whole forms block.
+     *
+     * Rows are laid out as equal-weight columns so a header and its data cells
+     * stay aligned without knowing column widths ahead of time. Each cell is
+     * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ △ ✕ 古 旧) keep
+     * their inline layout inside the cell.
+     */
+    private fun createDefinitionTable(rows: List<List<List<DefinitionNode>>>): View {
+        val table = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { setMargins(0, 10, 0, 10) }
+        }
+        val columns = rows.maxOfOrNull { it.size } ?: 0
+        rows.forEach { cells ->
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            for (column in 0 until columns) {
+                val cell = FlowLayout(context).apply {
+                    setPadding(8, 6, 8, 6)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                renderDefinition(cell, cells.getOrNull(column).orEmpty())
+                row.addView(cell)
+            }
+            table.addView(row)
+        }
+        return table
     }
 
     private fun handleGamepad(event: KeyEvent): Boolean {

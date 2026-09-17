@@ -165,6 +165,35 @@ class BookmarkExportTest {
     }
 
     @Test
+    fun definitions_ignore_non_text_attributes() {
+        // #88: a structured-content object with no content/list/glossary used
+        // to join every value, which dragged `data`/`href`/`style`/`path` and
+        // the `tag`/`title` metadata into bookmark text and CSV. Only genuine
+        // text survives.
+        assertEquals(
+            "jp, en",
+            Definitions.plain(
+                """{"tag":"span","href":"?query=x","path":"/x","style":{"fontSize":"130%"},""" +
+                    """"data":{"class":"form-valid","content":"noise"},""" +
+                    """"title":"a tooltip","japanese":"jp","english":"en"}""",
+            ),
+        )
+    }
+
+    @Test
+    fun definitions_render_nothing_for_a_jitendex_form_marker_cell() {
+        // A valid-form cell is a class plus an empty tooltip span; there is no
+        // definition text to export, and none of its attributes may leak.
+        assertEquals(
+            "",
+            Definitions.plain(
+                """{"tag":"td","data":{"class":"form-valid"},""" +
+                    """"content":{"tag":"span","title":"valid form/reading combination","data":{"class":"form-valid"}}}""",
+            ),
+        )
+    }
+
+    @Test
     fun definitions_plain_all_joins_entries_and_drops_duplicates() {
         assertEquals("one\ntwo", Definitions.plainAll(listOf("[\"one\"]", "[\"two\",\"one\"]")))
     }

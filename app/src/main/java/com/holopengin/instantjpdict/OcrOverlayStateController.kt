@@ -68,7 +68,17 @@ sealed class DefinitionNode {
     data class Text(val text: String) : DefinitionNode()
     data class Ruby(val term: String, val reading: String, val isMini: Boolean) : DefinitionNode()
     data class Tag(val text: String, val category: String = "general") : DefinitionNode()
-    data class Example(val japanese: String?, val english: String?, val content: List<DefinitionNode>?) : DefinitionNode()
+    data class Example(
+        val japanese: String?,
+        val english: String?,
+        val content: List<DefinitionNode>?,
+        /** #88: an example split into parts (Jitendex's `example-sentence-a`
+         *  Japanese and `example-sentence-b` English divisors); each part is
+         *  rendered as its own line, so a ruby-laden Japanese sentence is not
+         *  joined to its translation by a comma. Empty on the plain-content
+         *  shape. */
+        val parts: List<List<DefinitionNode>> = emptyList(),
+    ) : DefinitionNode()
     data class ListBlock(val items: List<List<DefinitionNode>>, val type: String?) : DefinitionNode()
     data class Table(val rows: List<List<List<DefinitionNode>>>) : DefinitionNode()
     data class Group(val nodes: List<DefinitionNode>, val isInline: Boolean) : DefinitionNode()
@@ -1058,34 +1068,114 @@ class OcrOverlayStateController {
     private fun getAttr(data: Map<*, *>, key: String) = 
         (data["data"] as? Map<*, *>)?.get(key) as? String ?: data["data-$key"] as? String ?: data[key] as? String
 
-    private fun isExample(data: Map<*, *>) = 
-        data["type"] == "sentence" || data["type"] == "example" || 
-        data.containsKey("japanese") || 
-        getAttr(data, "content")?.let { it.contains("example") || it == "examples" } == true ||
-        getAttr(data, "class")?.contains("example") == true
+    /**
+     * #88: the `data-content` classes that are structural blocks rather than
+     * inline text. A block never gets a comma spliced in front of it, and its
+     * own children keep their own layout. Verified against the Jitendex
+     * 2026.08.11.0 term banks (`sense-group`, `forms`, `extra-info`, `xref`,
+     * `antonym`, `sense-note`, `info-gloss`, `lang-source`, examples) plus the
+     * `sense` wrapper both Jitendex and some JMdict builds emit.
+     */
+    private val blockContentClasses = setOf(
+        "sense-groups", "sense-group", "sense",
+        "forms", "extra-info",
+        "example-sentence", "xref", "antonym", "related",
+        "sense-note", "info-gloss", "lang-source", "attribution", "graphic",
+    )
+
+    /**
+     * #88: `data-content` values that stay inline even when carried by a
+     * `ul`/`ol` — a bullet list of glosses reads as a comma-joined sentence.
+     * The set is the pre-#88 list, kept as-is so JMdict's existing layout does
+     * not shift; everything else in a list is a block.
+     */
+    private val inlineListClasses = setOf(
+        "glossary", "infoGlossary", "sourceLanguages", "info-gloss", "sense-note",
+    )
+
+    /**
+     * #88: Jitendex renders a valid/invalid/rare form cell as a `td` whose
+     * class carries the marker and whose only child is an empty tooltip span.
+     * These glyphs are the ones upstream's own `styles.css` draws, so the forms
+     * table reads the same in the app as it does in Yomitan.
+     */
+    private val formMarkers = mapOf(
+        "form-valid" to "◇",
+        "form-rare" to "▽",
+        "form-pri" to "△",
+        "form-irr" to "✕",
+        "form-out" to "古",
+        "form-old" to "旧",
+    )
+
+    /**
+     * #88: true only for an actual example container. The old test matched any
+     * `data-content` containing "example", which also caught Jitendex's
+     * `example-sentence-a`/`-b` divisors and `example-keyword` spans and wrapped
+     * each in its own nested box; matching the container exactly lets the
+     * sub-parts render as the sentence they are.
+     */
+    private fun isExample(data: Map<*, *>): Boolean {
+        val scContent = getAttr(data, "content")
+        return data["type"] == "sentence" || data["type"] == "example" ||
+            data.containsKey("japanese") ||
+            scContent == "example-sentence" || scContent == "examples" ||
+            getAttr(data, "class")?.contains("example") == true
+    }
 
     private fun isBlock(item: Any?): Boolean {
         if (item is List<*>) return item.any { isBlock(it) }
         val data = item as? Map<*, *> ?: return false
         if (isExample(data)) return true
 
-        val content = data["content"] ?: data["list"]
-        if (content != null && isBlock(content)) return true
-
         val tag = data["tag"] as? String
         val scContent = getAttr(data, "content")
-        
-        // Structural elements like tables and lists are blocks.
-        // Glosses, notes, and references should generally remain inline.
-        return tag == "table" || 
-               ((tag == "ul" || tag == "ol") && scContent !in listOf("glossary", "infoGlossary", "sourceLanguages", "info-gloss", "sense-note"))
+
+        if (tag == "table") return true
+        // Lists are blocks unless they are one of the inline gloss/reference
+        // enumerations; that decision is made before the block-class check so a
+        // `ul[data-content=sense-note]` keeps its pre-#88 inline treatment.
+        if (tag == "ul" || tag == "ol") return scContent !in inlineListClasses
+        if (scContent != null && scContent in blockContentClasses) return true
+
+        val content = data["content"] ?: data["list"]
+        return content != null && isBlock(content)
     }
 
     private fun isInlineNode(node: DefinitionNode): Boolean {
         return node is DefinitionNode.Text || node is DefinitionNode.Ruby || node is DefinitionNode.Tag
     }
 
-    private fun parseDefinition(data: Any?, inExample: Boolean = false): List<DefinitionNode> {
+    /**
+     * #88: split a Jitendex example box into its Japanese and English parts, so
+     * the renderer can lay each out as its own line. Returns null when the box
+     * does not have that shape (falls back to the generic content walk).
+     */
+    private fun exampleParts(content: Any?): List<List<DefinitionNode>>? {
+        val children = content as? List<*> ?: return null
+        val parts = children.mapNotNull { child ->
+            val map = child as? Map<*, *> ?: return@mapNotNull null
+            when (getAttr(map, "content")) {
+                "example-sentence-a" -> parseDefinition(map["content"], separator = "")
+                "example-sentence-b" -> parseDefinition(map["content"], separator = "")
+                else -> null
+            }
+        }
+        return parts.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * #88: turn Yomitan structured content into [DefinitionNode]s.
+     *
+     * [separator] is spliced between adjacent inline siblings: `", "` joins a
+     * gloss list, `"\n"` separates a JMdict example's Japanese/English lines,
+     * and `""` concatenates the fragments of one sentence (a Jitendex example
+     * is a sequence of ruby/string pieces that must not gain punctuation). The
+     * walker fails open: an unknown tag, a malformed ruby and an unshaped table
+     * all render their content rather than dropping the node — and with it the
+     * sense.
+     */
+    internal fun parseDefinition(data: Any?, separator: String = ", "): List<DefinitionNode> {
         val nodes = mutableListOf<DefinitionNode>()
         when (data) {
             is String -> {
@@ -1099,18 +1189,25 @@ class OcrOverlayStateController {
             }
             is List<*> -> {
                 data.forEach { item ->
-                    val itemNodes = parseDefinition(item, inExample)
+                    val itemNodes = parseDefinition(item, separator)
                     if (itemNodes.isNotEmpty()) {
-                        // Attach comma to PREVIOUS text node if possible to prevent it from wrapping to a new line alone (\n,)
-                        if (nodes.isNotEmpty() && !isBlock(item)) {
+                        // Attach the separator to the PREVIOUS text node where
+                        // possible, so it cannot wrap onto a line of its own.
+                        if (nodes.isNotEmpty() && separator.isNotEmpty() && !isBlock(item)) {
                             val last = nodes.last()
                             val first = itemNodes.first()
                             if (isInlineNode(last) && isInlineNode(first)) {
-                                val separator = if (inExample) "\n" else ", "
-                                if (last is DefinitionNode.Text) {
-                                    nodes[nodes.size - 1] = DefinitionNode.Text(last.text + separator)
-                                } else {
-                                    nodes.add(DefinitionNode.Text(separator))
+                                // #88: a ruby run is one word or sentence, not
+                                // an enumeration — never splice a separator
+                                // between its pieces (the xref 湾外 must not
+                                // render "湾, 外").
+                                val glue = if (last is DefinitionNode.Ruby || first is DefinitionNode.Ruby) "" else separator
+                                if (glue.isNotEmpty()) {
+                                    if (last is DefinitionNode.Text) {
+                                        nodes[nodes.size - 1] = DefinitionNode.Text(last.text + glue)
+                                    } else {
+                                        nodes.add(DefinitionNode.Text(glue))
+                                    }
                                 }
                             }
                         }
@@ -1131,30 +1228,67 @@ class OcrOverlayStateController {
                         if (jp != null) {
                             nodes.add(DefinitionNode.Example(jp, en, null))
                         } else {
-                            nodes.add(DefinitionNode.Example(null, null, parseDefinition(content, inExample = true)))
+                            val parts = exampleParts(content)
+                            if (parts != null) {
+                                nodes.add(DefinitionNode.Example(null, null, null, parts))
+                            } else {
+                                nodes.add(DefinitionNode.Example(null, null, parseDefinition(content, separator = "\n")))
+                            }
                         }
                     }
-                    scClass == "tag" || (tag == "span" && scContent?.endsWith("-info") == true) -> {
+                    // Jitendex marks form validity on the cell itself; the only
+                    // child is an empty tooltip span, so emit the glyph upstream
+                    // draws in its place.
+                    scClass != null && formMarkers.containsKey(scClass) -> {
+                        nodes.add(DefinitionNode.Text(formMarkers.getValue(scClass)))
+                    }
+                    scClass == "tag" && content is String -> {
+                        nodes.add(DefinitionNode.Tag(content))
+                    }
+                    tag == "span" && scContent?.endsWith("-info") == true -> {
                         nodes.add(DefinitionNode.Tag(content?.toString() ?: ""))
                     }
                     tag == "ruby" -> {
                         val rubyList = content as? List<*>
                         if (rubyList != null && rubyList.size >= 2) {
                             nodes.add(DefinitionNode.Ruby(rubyList[0].toString(), (rubyList[1] as? Map<*, *>)?.get("content")?.toString() ?: "", isMini = true))
+                        } else if (content != null) {
+                            // Fail open: a malformed ruby still shows its content.
+                            nodes.addAll(parseDefinition(content, separator))
                         }
                     }
                     tag == "table" -> {
-                        nodes.add(DefinitionNode.Table(emptyList())) // Placeholder
-                    }
-                    tag == "ul" || tag == "ol" -> {
-                        if (scContent in listOf("glossary", "infoGlossary", "sourceLanguages", "info-gloss", "sense-note")) {
-                            nodes.addAll(parseDefinition(content, inExample))
-                        } else {
-                            val items = (content as? List<*>)?.map { parseDefinition(it, inExample) } ?: emptyList()
-                            nodes.add(DefinitionNode.ListBlock(items, scContent))
+                        // Rows -> cells, real content this time (#88). Each cell
+                        // is itself structured content, so a cell can carry ruby.
+                        val rows = (content as? List<*>)?.map { row ->
+                            val cells = (row as? Map<*, *>)?.get("content") ?: row
+                            (cells as? List<*>)?.map { cell ->
+                                // Parse the whole cell, not just its content, so
+                                // a form-validity class on the `td` is seen.
+                                parseDefinition(cell, separator)
+                            } ?: emptyList()
+                        } ?: emptyList()
+                        if (rows.isNotEmpty()) {
+                            nodes.add(DefinitionNode.Table(rows))
+                        } else if (content != null) {
+                            // Fail open: an unshaped table still shows its content.
+                            nodes.addAll(parseDefinition(content, separator))
                         }
                     }
-                    content != null -> nodes.addAll(parseDefinition(content, inExample))
+                    tag == "ul" || tag == "ol" -> {
+                        if (scContent in inlineListClasses) {
+                            nodes.addAll(parseDefinition(content, separator))
+                        } else {
+                            val items = (content as? List<*>)?.map { parseDefinition(it, separator) } ?: emptyList()
+                            if (items.isNotEmpty()) {
+                                nodes.add(DefinitionNode.ListBlock(items, scContent))
+                            } else if (content != null) {
+                                nodes.addAll(parseDefinition(content, separator))
+                            }
+                        }
+                    }
+                    // Fail open: any other tag contributes its content.
+                    content != null -> nodes.addAll(parseDefinition(content, separator))
                 }
             }
         }

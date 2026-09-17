@@ -23,6 +23,16 @@ object TestAssets {
                 "(working dir ${File(".").absolutePath})")
     }
 
+    /**
+     * The text of a committed test resource, e.g. `jitendex/entries.json`.
+     * Read from the test classpath rather than the filesystem so it works
+     * whether the runner uses the module dir or the repo root.
+     */
+    fun resourceText(rel: String): String =
+        TestAssets::class.java.getResourceAsStream("/$rel")
+            ?.use { it.readBytes().toString(Charsets.UTF_8) }
+            ?: error("test resource $rel not found on the classpath")
+
     /** A file under `app/licenses/` (generation inputs), by its relative path. */
     fun licensesDirFile(rel: String): File {
         val candidates = listOf(
