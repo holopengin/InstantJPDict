@@ -2223,7 +2223,14 @@ class OcrOverlayView(
             senseGroup.tags.forEach { header.addView(createTagView(it)) }
             container.addView(header)
         }
-        
+        // #88: Jitendex group metadata (part of speech, field, usage notes) is
+        // structured content rather than a string tag, and belongs to the group.
+        if (senseGroup.header.isNotEmpty()) {
+            val header = FlowLayout(context).apply { setPadding(20, 15, 0, 5) }
+            renderDefinition(header, senseGroup.header)
+            container.addView(header)
+        }
+
         if (senseGroup.isForms) {
             val table = LinearLayout(context).apply { 
                 orientation = LinearLayout.VERTICAL
@@ -2257,6 +2264,16 @@ class OcrOverlayView(
                 
                 container.addView(senseLayout)
             }
+        }
+
+        // #88: the forms table and attribution trail the senses, unnumbered.
+        if (senseGroup.trailing.isNotEmpty()) {
+            val trailer = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(30, 0, 10, 5)
+            }
+            renderDefinition(trailer, senseGroup.trailing)
+            container.addView(trailer)
         }
     }
 

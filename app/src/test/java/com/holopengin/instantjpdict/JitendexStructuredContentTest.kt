@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.holopengin.instantjpdict.util.Definitions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -258,5 +259,81 @@ class JitendexStructuredContentTest {
             gson.fromJson("""{"tag":"table","content":"not rows"}""", Any::class.java),
         )
         assertEquals(listOf(DefinitionNode.Text("not rows")), nodes)
+    }
+
+    // —— sense numbering ————————————————————————————————————————
+
+    /** Format one real Jitendex row and return its sense groups. */
+    private fun formatted(term: String) = controller.formatDictionaryResults(
+        listOf(
+            TermMatch(
+                term,
+                listOf(
+                    DictionaryEntry(
+                        kanji = term,
+                        reading = fixture(term).reading,
+                        definitions = fixture(term).definitionsJson,
+                        rules = "",
+                        popularity = 0,
+                        dictionaryId = 1,
+                    )
+                )
+            )
+        ),
+        gson,
+        mapOf(1 to "Jitendex"),
+    ).single().readingGroups.single().senseGroups
+
+    @Test
+    fun senses_are_numbered_across_a_jitendex_entry_not_all_under_1() {
+        // あかんべえ is two sense-groups of one sense each.
+        assertEquals(
+            listOf(1, 2),
+            formatted("あかんべえ").flatMap { it.senses }.map { it.index },
+        )
+        // いじらしい is ONE sense-group holding two senses: the case that
+        // collapses to a single "1." when senses are counted per row.
+        assertEquals(
+            listOf(1, 2),
+            formatted("いじらしい").single().senses.map { it.index },
+        )
+    }
+
+    @Test
+    fun jitendex_group_metadata_is_a_header_and_forms_trail_the_senses() {
+        val group = formatted("支持杭").single()
+        // POS/field info is structured content, rendered once as the header.
+        assertTrue(group.header.isNotEmpty())
+        assertTrue(hasToken(group.header, "noun"))
+        // The forms table and attribution are trailing, not numbered senses.
+        assertEquals(1, group.senses.size)
+        assertTrue(group.trailing.isNotEmpty())
+        assertTrue(flatten(group.trailing).filterIsInstance<DefinitionNode.Table>().isNotEmpty())
+    }
+
+    @Test
+    fun a_plain_row_still_yields_a_single_sense() {
+        val out = controller.formatDictionaryResults(
+            listOf(
+                TermMatch(
+                    "他",
+                    listOf(
+                        DictionaryEntry(
+                            kanji = "他",
+                            reading = "た",
+                            definitions = "\"other\"",
+                            rules = "",
+                            popularity = 0,
+                            dictionaryId = 1,
+                        )
+                    )
+                )
+            ),
+            gson,
+            mapOf(1 to "Jitendex"),
+        )
+        val senses = out.single().readingGroups.single().senseGroups.flatMap { it.senses }
+        assertEquals(listOf(1), senses.map { it.index })
+        assertTrue(senses.single().nodes.isNotEmpty())
     }
 }

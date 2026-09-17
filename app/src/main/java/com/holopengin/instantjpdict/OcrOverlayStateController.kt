@@ -92,7 +92,18 @@ data class FormattedSense(
 data class FormattedSenseGroup(
     val tags: List<String>,
     val senses: List<FormattedSense>,
-    val isForms: Boolean
+    val isForms: Boolean,
+    /**
+     * #88: structured group-level metadata (Jitendex `part-of-speech-info`,
+     * `field-info`, `misc-info`, …), rendered once before [senses]. Empty for
+     * JMdict/KANJIDIC, whose group metadata is the string [tags] instead.
+     */
+    val header: List<DefinitionNode> = emptyList(),
+    /**
+     * #88: structured non-sense content that trails the senses — the Jitendex
+     * forms table and attribution — rendered once after [senses], unnumbered.
+     */
+    val trailing: List<DefinitionNode> = emptyList()
 )
 
 data class FormattedHeadword(
@@ -979,6 +990,14 @@ class OcrOverlayStateController {
                 var currentGroupTags: List<String>? = null
                 var currentGroupSenses = mutableListOf<FormattedSense>()
 
+                fun flushGroup() {
+                    val tagsToRender = currentGroupTags ?: return
+                    if (currentGroupSenses.isEmpty()) return
+                    val isForms = tagsToRender.any { it.equals("Forms", ignoreCase = true) || it.equals("Other forms", ignoreCase = true) }
+                    senseGroups.add(FormattedSenseGroup(tagsToRender.filter { groupSeenTags.add(it) }, currentGroupSenses, isForms))
+                    currentGroupSenses = mutableListOf()
+                }
+
                 for (e in readingEntries) {
                     val definitionsJson = try { gson.fromJson(e.definitions, Any::class.java) } catch (ex: Exception) { e.definitions }
                     val definitionsList = definitionsJson as? List<*> ?: listOf(definitionsJson)
@@ -1002,25 +1021,38 @@ class OcrOverlayStateController {
                     parseToMaps(segments.getOrNull(0))
                     parseToMaps(segments.getOrNull(2))
 
-                    val senseIdx = globalSenseNum++
                     val tags = (metaTags + (senseTagsMap[1] ?: emptyList())).distinct()
-                    val nodes = parseDefinition(definitionsList)
+                    val parsed = parseGlossary(definitionsList)
 
-                    if (currentGroupTags == null || tags == currentGroupTags) {
+                    if (parsed.structured) {
+                        // #88: Jitendex packs every sense into one row's glossary.
+                        // Each structured sense group is its own visual group with
+                        // its shared metadata as a header; the senses are numbered
+                        // individually (a group can hold more than one), and the
+                        // forms/attribution trailing blocks render after the last
+                        // one, unnumbered.
+                        flushGroup()
+                        currentGroupTags = null
+                        val last = parsed.groups.lastIndex
+                        parsed.groups.forEachIndexed { i, group ->
+                            senseGroups.add(FormattedSenseGroup(
+                                tags = emptyList(),
+                                senses = group.senses.map { FormattedSense(globalSenseNum++, it) },
+                                isForms = false,
+                                header = group.header,
+                                trailing = if (i == last) parsed.trailing + group.trailing else group.trailing,
+                            ))
+                        }
+                    } else if (currentGroupTags == null || tags == currentGroupTags) {
                         currentGroupTags = tags
-                        currentGroupSenses.add(FormattedSense(senseIdx, nodes))
+                        currentGroupSenses.add(FormattedSense(globalSenseNum++, parsed.plain))
                     } else {
-                        val tagsToRender = currentGroupTags!!
-                        val isForms = tagsToRender.any { it.equals("Forms", ignoreCase = true) || it.equals("Other forms", ignoreCase = true) }
-                        senseGroups.add(FormattedSenseGroup(tagsToRender.filter { groupSeenTags.add(it) }, currentGroupSenses, isForms))
+                        flushGroup()
                         currentGroupTags = tags
-                        currentGroupSenses = mutableListOf(FormattedSense(senseIdx, nodes))
+                        currentGroupSenses.add(FormattedSense(globalSenseNum++, parsed.plain))
                     }
                 }
-                currentGroupTags?.let { tagsToRender ->
-                    val isForms = tagsToRender.any { it.equals("Forms", ignoreCase = true) || it.equals("Other forms", ignoreCase = true) }
-                    senseGroups.add(FormattedSenseGroup(tagsToRender.filter { groupSeenTags.add(it) }, currentGroupSenses, isForms))
-                }
+                flushGroup()
 
                 FormattedReadingGroup(
                     reading,
@@ -1293,5 +1325,94 @@ class OcrOverlayStateController {
             }
         }
         return nodes
+    }
+
+    /** #88: one Jitendex `sense-group` split for numbering. */
+    private class ParsedSenseGroup(
+        val header: List<DefinitionNode>,
+        val senses: List<List<DefinitionNode>>,
+        val trailing: List<DefinitionNode>,
+    )
+
+    /**
+     * #88: a row's glossary, split for numbering.
+     *
+     * JMdict/KANJIDIC rows carry one sense per row, so [structured] is false and
+     * [plain] is the whole row's node list — the pre-#88 behaviour. Jitendex
+     * rows carry every sense in one glossary, so [structured] is true and
+     * [groups] holds each `sense-group`; [trailing] holds the non-sense blocks
+     * (the forms table, attribution) that must render unnumbered.
+     */
+    private class ParsedGlossary(
+        val structured: Boolean,
+        val groups: List<ParsedSenseGroup>,
+        val plain: List<DefinitionNode>,
+        val trailing: List<DefinitionNode>,
+    )
+
+    /** Yomitan structured-content class on a node, or null. */
+    private fun contentClass(node: Any?): String? =
+        ((node as? Map<*, *>)?.get("data") as? Map<*, *>)?.get("content") as? String
+
+    private fun parseGlossary(data: Any?): ParsedGlossary {
+        val groups = mutableListOf<ParsedSenseGroup>()
+        val trailing = mutableListOf<DefinitionNode>()
+
+        fun walk(node: Any?) {
+            when (node) {
+                is List<*> -> node.forEach { walk(it) }
+                is Map<*, *> -> when (contentClass(node)) {
+                    "sense-group" -> groups.add(splitSenseGroup(node))
+                    "sense" -> groups.add(ParsedSenseGroup(emptyList(), listOf(parseDefinition(node)), emptyList()))
+                    "forms", "attribution" -> trailing.addAll(parseDefinition(node))
+                    else -> walk(node["content"])
+                }
+                else -> Unit
+            }
+        }
+        walk(data)
+
+        return if (groups.isEmpty()) {
+            ParsedGlossary(
+                structured = false,
+                groups = emptyList(),
+                plain = parseDefinition(data),
+                trailing = emptyList(),
+            )
+        } else {
+            ParsedGlossary(structured = true, groups = groups, plain = emptyList(), trailing = trailing)
+        }
+    }
+
+    /**
+     * Split one Jitendex `sense-group` into its shared header (POS/field/misc
+     * info), one entry per `sense` child (each is numbered), and any forms or
+     * attribution block inside it. An unexpected shape falls back to the whole
+     * group as a single sense, so nothing is dropped.
+     */
+    private fun splitSenseGroup(senseGroup: Map<*, *>): ParsedSenseGroup {
+        val header = mutableListOf<DefinitionNode>()
+        val senses = mutableListOf<List<DefinitionNode>>()
+        val trailing = mutableListOf<DefinitionNode>()
+
+        fun walk(node: Any?) {
+            when (node) {
+                is List<*> -> node.forEach { walk(it) }
+                is Map<*, *> -> when (val cls = contentClass(node)) {
+                    "sense" -> senses.add(parseDefinition(node))
+                    "forms", "attribution" -> trailing.addAll(parseDefinition(node))
+                    null -> {
+                        val content = node["content"]
+                        if (content is List<*>) walk(content) else header.addAll(parseDefinition(node))
+                    }
+                    else -> header.addAll(parseDefinition(node))
+                }
+                else -> Unit
+            }
+        }
+        walk(senseGroup["content"])
+
+        if (senses.isEmpty()) senses.add(parseDefinition(senseGroup))
+        return ParsedSenseGroup(header, senses, trailing)
     }
 }
