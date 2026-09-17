@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         // ————— app bar —————
         val toolbar = MaterialToolbar(this).apply {
             title = "Instant JP Dict"
-            subtitle = "On-device Japanese OCR"
+            subtitle = "Offline OCR"
             // The title block is the app's identity, not a navigation affordance;
             // the two primary actions live in the body and the FAB.
             isTitleCentered = false
@@ -395,7 +395,8 @@ class MainActivity : AppCompatActivity() {
         val accessBody = newSection("Get started", R.drawable.ic_accessibility)
         bodyText(
             accessBody,
-            "Turn on the accessibility service, then point the overlay at any app and tap a word to look it up."
+            "Install a dictionary, then turn on the accessibility service and point the " +
+                "overlay at any app, and tap a word to look it up."
         )
         filledButton(accessBody, "Enable accessibility service", R.drawable.ic_accessibility) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -404,7 +405,7 @@ class MainActivity : AppCompatActivity() {
         // path between two buttons. It is only relevant when that popup appears, so
         // it is a disclosure now — the capability is intact, the wall of text is not.
         val accessNote = TextView(this).apply {
-            text = "If Android shows an \"App access was denied\" popup, go to system settings, " +
+            text = "If Android shows an \"App was denied access\" popup, go to system settings, " +
                 "find 'InstantJPDict' in the app list, open the three-dot menu and choose " +
                 "'Allow restricted settings'."
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
@@ -413,7 +414,7 @@ class MainActivity : AppCompatActivity() {
             visibility = View.GONE
         }
         accessBody.addView(accessNote)
-        textButton(accessBody, "Access was denied?") {
+        textButton(accessBody, "\"App was denied access\"?") {
             val showing = accessNote.visibility == View.VISIBLE
             accessNote.visibility = if (showing) View.GONE else View.VISIBLE
             Log.d("MainActivity", "accessibility_note_shown=${!showing}")
@@ -423,7 +424,7 @@ class MainActivity : AppCompatActivity() {
         val dictBody = newSection("Dictionaries", R.drawable.ic_book)
         bodyText(
             dictBody,
-            "Install a Yomitan-format dictionary, or grab one from the built-in catalog."
+            "Download dictionaries from the catalog, or install Yomitan-format dictionaries manually."
         )
         tonalButton(dictBody, "Dictionary catalog", R.drawable.ic_book) {
             DictionaryCatalogDialog.show(this)
@@ -435,22 +436,15 @@ class MainActivity : AppCompatActivity() {
             chevron()
         ) { importLauncher.launch(arrayOf("application/zip")) })
         dictBody.addView(listRow(
-            R.drawable.ic_download,
-            "Download dictionaries",
-            "Opens the upstream JMdict page",
-            chevron()
-        ) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/yomidevs/jmdict-yomitan"))) })
-        dictBody.addView(listRow(
             R.drawable.ic_book,
             "Manage dictionaries",
-            "Rename, reorder or remove installed dictionaries",
+            "Remove and reorder installed dictionaries",
             chevron()
         ) { DictionaryManagerDialog.show(this) })
         dictBody.addView(listRow(
             R.drawable.ic_bookmark,
             "Bookmarks",
-            "Headwords you saved from the lookup popup",
-            chevron()
+            trailing = chevron()
         ) { BookmarkViewerDialog.show(this) })
 
         // ————————— 3. Settings —————————
@@ -458,8 +452,7 @@ class MainActivity : AppCompatActivity() {
         settingsBody.addView(switchRow(
             R.drawable.ic_text_fields,
             "Serif overlay font",
-            "Use a mincho face in the OCR overlay",
-            OverlayFont.face(this) == OverlayFont.FACE_SERIF
+            checked = OverlayFont.face(this) == OverlayFont.FACE_SERIF
         ) { checked ->
             val face = if (checked) OverlayFont.FACE_SERIF else OverlayFont.FACE_SANS
             OverlayFont.setFace(this, face)
@@ -479,15 +472,13 @@ class MainActivity : AppCompatActivity() {
         })
         settingsBody.addView(listRow(
             R.drawable.ic_gamepad,
-            "Gamepad & hardware keys",
-            "Map buttons and volume keys to overlay actions",
-            chevron()
+            "Gamepad controls",
+            trailing = chevron()
         ) { GamepadSettingsDialog.show(this) })
         settingsBody.addView(listRow(
             R.drawable.ic_info,
             "Licenses & attribution",
-            "Everything bundled in the APK, offline",
-            chevron()
+            trailing = chevron()
         ) { LicenseDialog.show(this) })
 
         // The debug/tuning surface is its own screen now: the switch that
@@ -497,8 +488,7 @@ class MainActivity : AppCompatActivity() {
         settingsBody.addView(listRow(
             R.drawable.ic_tune,
             "Debug settings",
-            "PP-OCR tuning, experiments and diagnostics",
-            chevron()
+            trailing = chevron()
         ) { startActivity(Intent(this, DebugSettingsActivity::class.java)) })
 
         // ————————— the pinned camera affordance —————————

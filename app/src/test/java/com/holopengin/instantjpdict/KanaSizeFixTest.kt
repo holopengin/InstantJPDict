@@ -152,15 +152,6 @@ class KanaSizeFixTest {
     }
 
     @Test
-    fun `reports a summary for the in-app diagnostics`() {
-        KanaSizeFix.apply(listOf(line(smallText)), Stub(logitsFor(smallText) { 10f }).score())
-        val summary = KanaSizeFix.lastSummary
-        // Pinned exactly: this is the line the reader sees per press, and it is deliberately
-        // short - flips of candidates, nothing else. Detail lives in lastDeclined and the log.
-        assertEquals("kana fix: 1 of 1 flipped", summary)
-    }
-
-    @Test
     fun `a small flip and a big flip coexist in one page`() {
         val text = "きっゃと"
         val out = KanaSizeFix.apply(listOf(line(text)), Stub(logitsFor(text) { 10f }).score())

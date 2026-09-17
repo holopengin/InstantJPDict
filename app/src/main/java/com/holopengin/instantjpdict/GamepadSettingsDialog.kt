@@ -61,14 +61,14 @@ object GamepadSettingsDialog {
 
         // Repeat Delay
         val delayValue = prefs.getInt("repeat_delay", 500)
-        val delayText = TextView(context).apply { text = "Repeat Delay: ${delayValue}ms" }
+        val delayText = TextView(context).apply { text = "Key Repeat Delay: ${delayValue}ms" }
         val delaySeek = SeekBar(context).apply {
             max = 900 // 100 to 1000
             progress = delayValue - 100
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val value = progress + 100
-                    delayText.text = "Repeat Delay: ${value}ms"
+                    delayText.text = "Key Repeat Delay: ${value}ms"
                     prefs.edit().putInt("repeat_delay", value).apply()
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
@@ -81,7 +81,7 @@ object GamepadSettingsDialog {
         // Repeat Rate
         val rateValue = prefs.getInt("repeat_rate", 20)
         val rateText = TextView(context).apply { 
-            text = "Repeat Rate: $rateValue repeats/s" 
+            text = "Key Repeat Rate: $rateValue repeats/s" 
             setPadding(0, 32, 0, 0)
         }
         val rateSeek = SeekBar(context).apply {
@@ -90,7 +90,7 @@ object GamepadSettingsDialog {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val value = progress + 1
-                    rateText.text = "Repeat Rate: $value repeats/s"
+                    rateText.text = "Key Repeat Rate: $value repeats/s"
                     prefs.edit().putInt("repeat_rate", value).apply()
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}

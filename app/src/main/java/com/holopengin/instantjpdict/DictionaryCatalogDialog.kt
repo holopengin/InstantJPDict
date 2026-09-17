@@ -109,10 +109,7 @@ object DictionaryCatalogDialog {
         }
 
         root.addView(TextView(context).apply {
-            text = "Popular Yomitan dictionaries, downloaded and imported for you. " +
-                "Each download is checked against a pinned size and SHA-256 before a " +
-                "single row is added. Downloading needs a connection; everything else " +
-                "in the app stays offline."
+            text = "Single-click download and install for popular Yomitan format dictionaries."
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
             setTextColor(ui.onSurfaceVariant)
             layoutParams = LinearLayout.LayoutParams(
@@ -272,7 +269,7 @@ object DictionaryCatalogDialog {
         }
 
         val dialog = MaterialAlertDialogBuilder(context)
-            .setTitle("Dictionary catalog")
+            .setTitle("Dictionary Catalog")
             .setView(root)
             .setNegativeButton("Close", null)
             .create()
@@ -515,7 +512,7 @@ object DictionaryCatalogDialog {
 
     private fun errorDialog(context: Context, message: String) {
         MaterialAlertDialogBuilder(context)
-            .setTitle("Dictionary catalog")
+            .setTitle("Dictionary Catalog")
             .setMessage(message)
             .setPositiveButton("Close", null)
             .show()

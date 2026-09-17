@@ -41,12 +41,12 @@ object DictionaryManagerDialog {
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
         }
         root.addView(ui.body(
-            "Drag a dictionary by its handle to change search order — the ones higher " +
-                "in the list are searched first. Removing one deletes its entries too."
+            "Drag the handles on the left to re-order the dictionaries. " +
+                "Click the bin on the right to delete dictionaries."
         ))
 
         val empty = TextView(context).apply {
-            text = "No user dictionaries installed yet."
+            text = "No dictionaries installed yet."
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
             setTextColor(ui.onSurfaceVariant)
             gravity = Gravity.CENTER
@@ -117,7 +117,7 @@ object DictionaryManagerDialog {
         reload(context, recyclerView, empty)
 
         val dialog = MaterialAlertDialogBuilder(context)
-            .setTitle("Manage dictionaries")
+            .setTitle("Dictionary Manager")
             .setView(root)
             .setPositiveButton("Close", null)
             .create()
@@ -149,8 +149,8 @@ object DictionaryManagerDialog {
         onDone: () -> Unit,
     ) {
         MaterialAlertDialogBuilder(context)
-            .setTitle("Remove dictionary")
-            .setMessage("Delete '${dict.name}'? All of its entries and tags are removed.")
+            .setTitle("Remove Dictionary")
+            .setMessage("Delete '${dict.name}'? All of its entries and tags will be removed.")
             .setPositiveButton("Remove") { _, _ ->
                 val spinner = CircularProgressIndicator(context).apply {
                     isIndeterminate = true

@@ -90,9 +90,9 @@ object BookmarkViewerDialog {
                 rows = loaded
                 BookmarkStore.replace(loaded)
                 countLabel.text = when (loaded.size) {
-                    0 -> "No bookmarks yet. Save a word from the dictionary popup."
-                    1 -> "1 bookmarked headword"
-                    else -> "${loaded.size} bookmarked headwords"
+                    0 -> "No bookmarks yet. Save a word from the dictionary."
+                    1 -> "1 bookmarked word"
+                    else -> "${loaded.size} bookmarked words"
                 }
                 renderRows { reload() }
             }
@@ -145,7 +145,7 @@ object BookmarkViewerDialog {
     }
 
     private fun sortLabel(newestFirst: Boolean) =
-        if (newestFirst) "Sort: newest first" else "Sort: oldest first"
+        if (newestFirst) "Sort: newest" else "Sort: oldest"
 
     private fun row(
         context: Context,
@@ -205,7 +205,7 @@ object BookmarkViewerDialog {
                     putExtra(Intent.EXTRA_TITLE, file.name)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(Intent.createChooser(send, "Export bookmarks"))
+                context.startActivity(Intent.createChooser(send, "Export Bookmarks"))
             } catch (e: Exception) {
                 Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
             }

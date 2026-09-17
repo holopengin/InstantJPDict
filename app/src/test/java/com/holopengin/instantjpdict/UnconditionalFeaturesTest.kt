@@ -92,7 +92,6 @@ class UnconditionalFeaturesTest {
         )
         val out = KanaSizeFix.apply(listOf(line), score = { _, bases -> FloatArray(bases.size) { 10f } })
         assertEquals("the sure position must be flipped", "かつき", out[0].text)
-        assertEquals("kana fix: 1 of 1 flipped", KanaSizeFix.lastSummary)
     }
 
     // ————— no enable toggle left to read —————

@@ -57,8 +57,7 @@ object LicenseDialog {
         }
 
         root.addView(ui.body(
-            "${entries.size} bundled components, models and dictionaries. " +
-                "Every entry below is read from the APK — no network is used."
+            "${entries.size} bundled components, models and dictionaries."
         ))
 
         val detail = TextView(context).apply {
@@ -140,15 +139,12 @@ object LicenseDialog {
         }
         root.addView(listScroll)
 
-        root.addView(ui.label("Licence text").apply {
-            setPadding(0, ui.dp(10), 0, 0)
-        })
         root.addView(detailScroll)
 
         rows.firstOrNull()?.let { select(it, entries.first()) }
 
         val dialog = MaterialAlertDialogBuilder(context)
-            .setTitle("Licenses & attribution")
+            .setTitle("Licenses & Attribution")
             .setView(root)
             .setPositiveButton("Close", null)
             .create()
@@ -158,7 +154,7 @@ object LicenseDialog {
 
     private fun errorDialog(context: Context, message: String) {
         MaterialAlertDialogBuilder(context)
-            .setTitle("Licenses & attribution")
+            .setTitle("Licenses & Attribution")
             .setMessage(message)
             .setPositiveButton("Close", null)
             .show()

@@ -750,12 +750,10 @@ class OcrOverlayView(
                     val correctedLines = withContext(Dispatchers.IO) {
                         KanaSizeFix.correctPage(context, orderedLines.map { it.second })
                     }
-                    // Surface the outcome: without this the correction is invisible whether or not
-                    // it fired.
-                    InferLog.add(KanaSizeFix.lastSummary)
+                    // Surface the decline detail: without this the correction is
+                    // invisible whether or not it fired. No surrounding text: this
+                    // log gets copied out and shared.
                     if (KanaSizeFix.lastDeclined.isNotEmpty()) {
-                        // Which positions the model declined, and how close they were. No
-                        // surrounding text: this log gets copied out and shared.
                         InferLog.add("kana declined: " + KanaSizeFix.lastDeclined)
                     }
                     for ((i, entry) in orderedLines.withIndex()) {
@@ -766,12 +764,9 @@ class OcrOverlayView(
                         updateCursor()
                     }
                     val recMs = System.currentTimeMillis() - startTime
-                    // The kana outcome is part of the status line: whether it fired is otherwise
-                    // invisible from outside the app.
-                    val kanaNote = KanaSizeFix.lastSummary.removePrefix("kana fix: ")
-                    postStatus(gen, "${finishedLines.size} ln | ${controller.activeAllChars.size} chr | Det ${detMs}ms | Rec ${recMs}ms | kana: $kanaNote", hideProgress = true)
+                    postStatus(gen, "${finishedLines.size} ln | ${controller.activeAllChars.size} chr | Time ${detMs + recMs}ms", hideProgress = true)
                 } else {
-                    postStatus(gen, "Error: OCR Engine not ready", hideProgress = true)
+                    postStatus(gen, "Error: Failed to start OCR engine", hideProgress = true)
                 }
             } catch (e: CancellationException) {
                 // An interrupted run is not a failed one. Rotation, closing the overlay and
@@ -2017,7 +2012,7 @@ class OcrOverlayView(
         val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0)); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
         val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(60, 60, 60, 60); gravity = Gravity.CENTER_HORIZONTAL; elevation = 201f; setOnClickListener { } }
         panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); val size = (resources.displayMetrics.density * 120).toInt(); layoutParams = LinearLayout.LayoutParams(size, size); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
-        panel.addView(TextView(context).apply { text = "Enter character manually"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; OverlayFont.apply(context, this); setPadding(0, 30, 0, 10) })
+        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; OverlayFont.apply(context, this); setPadding(0, 30, 0, 10) })
         val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 36f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN); OverlayFont.apply(context, this) }
         panel.addView(editText, LinearLayout.LayoutParams(250, LinearLayout.LayoutParams.WRAP_CONTENT))
         panel.addView(Button(context).apply { text = "Confirm"; setOnClickListener { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) } } }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 20 })
@@ -2392,7 +2387,7 @@ class OcrOverlayView(
      *
      * Rows are laid out as equal-weight columns so a header and its data cells
      * stay aligned without knowing column widths ahead of time. Each cell is
-     * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ △ ✕ 古 旧) keep
+     * its own [FlowLayout], so ruby and the form glyphs (◇ ▽ ★ ✕ 古 旧) keep
      * their inline layout inside the cell.
      *
      * The card carries the example box's palette (a 10-alpha white fill under an

@@ -65,11 +65,6 @@ object KanaSizeFix {
     private val SMALL_OF: Map<Char, Char> =
         KanaSizeEncoder.SMALL_TO_BIG.entries.associate { (small, big) -> big to small }
 
-    /** Human-readable outcome of the last run, for the in-app diagnostics. */
-    @Volatile
-    var lastSummary: String = "kana fix: idle"
-        private set
-
     /**
      * The positions the model declined to change, lowest confidence first, as
      * `L<line>@<index> <char> p=<p>`. Deliberately no surrounding text: this is copied out of the
@@ -87,21 +82,17 @@ object KanaSizeFix {
         try {
             val model = KanaSizeNcnn.load(ctx)
             if (model == null) {
-                lastSummary = "kana fix: model unavailable"
                 lines
             } else {
-                val corrected = apply(
+                apply(
                     lines,
                     score = { wins, bases -> model.logits(wins, bases) },
                     epsilon = epsilon(ctx))
-                Log.d(TAG, lastSummary)
-                corrected
             }
         } catch (t: Throwable) {
             // Throwable, not Exception: an UnsatisfiedLinkError from the native library is an
             // Error, and catching only Exception would let it take down recognition.
             Log.e(TAG, "kana size correction failed", t)
-            lastSummary = "kana fix: failed (${t.javaClass.simpleName}: ${t.message})"
             lines
         }
 
@@ -126,7 +117,6 @@ object KanaSizeFix {
             }
         }
         if (cands.isEmpty()) {
-            lastSummary = "kana fix: no candidates"
             return lines
         }
 
@@ -141,13 +131,11 @@ object KanaSizeFix {
         val logits = score(wins, bases)
         if (logits == null || logits.size != cands.size) {
             // No Android logging here: `apply` stays dependency-free so the policy is testable
-            // on a plain JVM. The caller reports [lastSummary].
-            lastSummary = "kana fix: scorer returned ${logits?.size ?: "null"} for ${cands.size}"
+            // on a plain JVM.
             return lines
         }
 
         val flips = HashMap<Int, MutableList<Pair<Int, Pair<Char, Float>>>>()
-        var flipped = 0
         val declined = ArrayList<Pair<Triple<Int, Int, Char>, Float>>()
         for ((k, c) in cands.withIndex()) {
             // C1/#86: one sigmoid in the project — [KanaSizeNcnn.probBig]. This used to
@@ -159,12 +147,11 @@ object KanaSizeFix {
             val flipsIt = if (isSmall) p > 1f - epsilon else p < epsilon
             if (!flipsIt) {
                 // The closest few by name: this tells a threshold problem apart from the model
-                // simply agreeing with the recogniser. No near-threshold count any more - the
-                // p values here say it better, and the status line stays short.
+                // simply agreeing with the recogniser. The p values here say it better than a
+                // near-threshold count.
                 declined.add(Triple(c.line, c.index, c.char) to (if (isSmall) 1f - p else p))
                 continue
             }
-            flipped++
             flips.getOrPut(c.line) { mutableListOf() }.add(c.index to (target to p))
         }
         lastDeclined = declined.sortedBy { it.second }.take(5).joinToString(" / ") {
@@ -172,7 +159,6 @@ object KanaSizeFix {
         }
 
         if (flips.isEmpty()) {
-            lastSummary = "kana fix: 0 of %d flipped".format(cands.size)
             return lines
         }
 
@@ -190,7 +176,6 @@ object KanaSizeFix {
             }
             out[li] = line.copy(text = String(chars), overrides = overrides)
         }
-        lastSummary = "kana fix: %d of %d flipped".format(flipped, cands.size)
         return out
     }
 }

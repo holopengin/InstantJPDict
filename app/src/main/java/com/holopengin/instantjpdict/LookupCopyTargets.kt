@@ -47,7 +47,7 @@ object LookupCopyTargets {
         }
         headword(entries)
             ?.takeIf { it.isNotEmpty() && it != highlight }
-            ?.let { out += CopyTarget("Copy headword", HEADWORD_CLIP_LABEL, it) }
+            ?.let { out += CopyTarget("Copy word", HEADWORD_CLIP_LABEL, it) }
         return out
     }
 
@@ -76,7 +76,7 @@ object LookupCopyTargets {
     fun headwordTarget(entries: List<FormattedEntry>): CopyTarget? =
         headword(entries)
             ?.takeIf { it.isNotEmpty() }
-            ?.let { CopyTarget("Copy headword", HEADWORD_CLIP_LABEL, it) }
+            ?.let { CopyTarget("Copy word", HEADWORD_CLIP_LABEL, it) }
 
     /**
      * The menu a long-press on a neighbour-list character offers (#66
@@ -109,7 +109,7 @@ object LookupCopyTargets {
             ?.let { out += CopyTarget("Copy character", CHARACTER_CLIP_LABEL, it) }
         headword(entries)
             ?.takeIf { it.isNotEmpty() }
-            ?.let { out += CopyTarget("Copy headword", HEADWORD_CLIP_LABEL, it) }
+            ?.let { out += CopyTarget("Copy word", HEADWORD_CLIP_LABEL, it) }
         return out
     }
 }

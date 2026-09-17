@@ -44,7 +44,7 @@ class LookupCopyTargetsTest {
             ),
         )
 
-        assertEquals(listOf("Copy highlight", "Copy headword"), targets.map { it.label })
+        assertEquals(listOf("Copy highlight", "Copy word"), targets.map { it.label })
         assertEquals("食べた", targets[0].value)
         assertEquals("食べる", targets[1].value)
         assertEquals("lookup-highlight", targets[0].clipLabel)
@@ -63,7 +63,7 @@ class LookupCopyTargetsTest {
         )
 
         assertEquals("にほんじん", targets.single { it.label == "Copy highlight" }.value)
-        val headword = targets.single { it.label == "Copy headword" }.value
+        val headword = targets.single { it.label == "Copy word" }.value
         assertEquals("日本人", headword)
         assertTrue("the reading must not leak into the copied headword", "にほんじん" !in headword)
     }
@@ -118,7 +118,7 @@ class LookupCopyTargetsTest {
         )
 
         assertEquals(
-            listOf("Copy highlight", "Copy character", "Copy headword"),
+            listOf("Copy highlight", "Copy character", "Copy word"),
             menu.map { it.label },
         )
         assertEquals(listOf("食べた", "食", "食べる"), menu.map { it.value })
@@ -179,7 +179,7 @@ class LookupCopyTargetsTest {
             entries = listOf(entry(term = "読ん", reading = "よん")),
         )
 
-        assertEquals(listOf("Copy highlight", "Copy character", "Copy headword"), menu.map { it.label })
+        assertEquals(listOf("Copy highlight", "Copy character", "Copy word"), menu.map { it.label })
         assertEquals("読ん", menu.last().value)
     }
 
@@ -190,7 +190,7 @@ class LookupCopyTargetsTest {
         val target = LookupCopyTargets.headwordTarget(listOf(entry(term = "食べる", reading = "たべる")))
 
         assertEquals("食べる", target?.value)
-        assertEquals("Copy headword", target?.label)
+        assertEquals("Copy word", target?.label)
         assertEquals("lookup-headword", target?.clipLabel)
     }
 

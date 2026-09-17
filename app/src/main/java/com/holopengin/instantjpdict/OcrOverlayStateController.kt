@@ -1140,7 +1140,7 @@ class OcrOverlayStateController {
     private val formMarkers = mapOf(
         "form-valid" to "◇",
         "form-rare" to "▽",
-        "form-pri" to "△",
+        "form-pri" to "★",
         "form-irr" to "✕",
         "form-out" to "古",
         "form-old" to "旧",
