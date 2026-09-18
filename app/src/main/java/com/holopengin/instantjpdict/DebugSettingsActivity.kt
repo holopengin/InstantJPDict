@@ -168,9 +168,16 @@ class DebugSettingsActivity : AppCompatActivity() {
             val isInt = row.isInt
             fun formatValue(v: Float): String =
                 if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
-            // The Slider runs continuous (stepSize 0) and the snap to the row's
-            // step happens on touch-up: a stepped slider whose range is
-            // not exactly divisible in float would refuse to lay out at all.
+            // Material's Slider refuses to lay out when the range is not exactly
+            // divisible by stepSize in float (0.2..1.0 step 0.1 is not), which is
+            // why these rows ran continuous. A row with few enough steps instead
+            // drives the slider on an integer index scale (0..steps, step 1),
+            // which divides exactly and lets Material draw its tick dots; denser
+            // rows stay continuous and snap on touch-up.
+            val steps = if (step > 0f) ((max - min) / step).roundToInt() else 0
+            val discrete = steps in 1..MAX_TICK_STEPS
+            fun valueForIndex(i: Float): Float = (min + i * step).coerceIn(min, max)
+            fun indexForValue(v: Float): Float = ((v - min) / step).roundToInt().toFloat()
             fun snap(v: Float): Float =
                 if (step <= 0f) v else (min + ((v - min) / step).roundToInt() * step).coerceIn(min, max)
 
@@ -200,11 +207,18 @@ class DebugSettingsActivity : AppCompatActivity() {
             container.addView(tvLive)
 
             val slider = Slider(this).apply {
-                valueFrom = min
-                valueTo = max
-                stepSize = 0f
-                value = cur
-                setLabelFormatter { formatValue(it) }
+                if (discrete) {
+                    valueFrom = 0f
+                    valueTo = steps.toFloat()
+                    stepSize = 1f
+                    value = indexForValue(cur)
+                } else {
+                    valueFrom = min
+                    valueTo = max
+                    stepSize = 0f
+                    value = cur
+                }
+                setLabelFormatter { v -> formatValue(if (discrete) valueForIndex(v) else v) }
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -223,15 +237,17 @@ class DebugSettingsActivity : AppCompatActivity() {
 
             slider.addOnChangeListener { _, value, fromUser ->
                 if (!fromUser) return@addOnChangeListener
-                tvLive.text = "current ${formatValue(value)} · default ${formatValue(default)}"
+                val shown = if (discrete) valueForIndex(value) else value
+                tvLive.text = "current ${formatValue(shown)} · default ${formatValue(default)}"
             }
             slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
                 override fun onStartTrackingTouch(s: Slider) {}
                 override fun onStopTrackingTouch(s: Slider) {
-                    val v = snap(s.value)
+                    val v = if (discrete) valueForIndex(s.value) else snap(s.value)
                     if (isInt) prefs.edit().putInt(prefKey, v.roundToInt()).apply()
                     else prefs.edit().putFloat(prefKey, v).apply()
-                    if (s.value != v) s.value = v
+                    // Only the continuous slider can land between its steps.
+                    if (!discrete && s.value != v) s.value = v
                     tvLive.text = "current ${formatValue(v)} · default ${formatValue(default)}"
                     Log.d(TAG, "tuning $prefKey = $v")
                 }
@@ -240,7 +256,7 @@ class DebugSettingsActivity : AppCompatActivity() {
             btnReset.setOnClickListener {
                 if (isInt) prefs.edit().putInt(prefKey, default.roundToInt()).apply()
                 else prefs.edit().putFloat(prefKey, default).apply()
-                slider.value = default.coerceIn(min, max)
+                slider.value = if (discrete) indexForValue(default) else default.coerceIn(min, max)
                 tvLive.text = "current ${formatValue(default)} · default ${formatValue(default)}"
                 Log.d(TAG, "tuning $prefKey reset to $default")
             }
@@ -281,5 +297,14 @@ class DebugSettingsActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "DebugSettings"
+
+        /**
+         * A tunable is drawn with discrete ticks only when its range has no more
+         * steps than this; denser rows (250 steps for the unclip ratio, 99 for
+         * the kana epsilon) stay continuous, because a tick per step would be a
+         * comb. The ticked rows are the coarse ones: REC_SQUISH_FACTOR (8),
+         * OVERLAY_SCREENSHOT_ALPHA (14) and CROSSHAIR_GAP (19).
+         */
+        const val MAX_TICK_STEPS = 30
     }
 }
