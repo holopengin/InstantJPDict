@@ -256,12 +256,59 @@ object DictionaryCatalogDialog {
             }
         }
 
+        /**
+         * Delete the installed dictionary this row represents. Removal is
+         * destructive, so it is confirmed first; the row then refreshes from the
+         * same installed-state read the manager uses.
+         */
+        fun startRemove(entry: CatalogEntry, row: CatalogRowView) {
+            if (jobs[entry.id]?.isActive == true) return
+            MaterialAlertDialogBuilder(context)
+                .setTitle("Remove Dictionary")
+                .setMessage("Delete '${entry.name}'? All of its entries and tags will be removed.")
+                .setPositiveButton("Remove") { _, _ ->
+                    row.showBusy("Removing…", cancellable = false)
+                    jobs[entry.id] = scope.launch {
+                        try {
+                            val removed = withContext(Dispatchers.IO) {
+                                val metas = dao.getAllDictionaries()
+                                // A catalog install carries its id; a file-picker
+                                // install is matched by its title family instead.
+                                val meta = metas.firstOrNull { it.catalogId == entry.id }
+                                    ?: metas.firstOrNull {
+                                        it.catalogId == null &&
+                                            DictionaryCatalog.baseTitle(it.name) == entry.title
+                                    }
+                                if (meta == null) {
+                                    false
+                                } else {
+                                    dao.deleteEntriesForDictionary(meta.id)
+                                    dao.deleteTagsForDictionary(meta.id)
+                                    dao.deleteDictionary(meta.id)
+                                    true
+                                }
+                            }
+                            ui { banner.visibility = View.GONE }
+                            if (removed) refreshInstalledState() else ui { refreshRows() }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Catalog remove failed for ${entry.id}", e)
+                            ui { row.showFailure("Could not remove the dictionary.") }
+                        } finally {
+                            jobs.remove(entry.id)
+                        }
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
         entries.forEach { entry ->
             val row = CatalogRowView(
                 context = context,
                 entry = entry,
                 ui = ui,
                 onImport = { r -> startImport(entry, r) },
+                onRemove = { r -> startRemove(entry, r) },
                 onCancel = { jobs[entry.id]?.cancel() },
             )
             rows += row
@@ -304,6 +351,7 @@ object DictionaryCatalogDialog {
         val entry: CatalogEntry,
         private val ui: HarbourUi,
         private val onImport: (CatalogRowView) -> Unit,
+        private val onRemove: (CatalogRowView) -> Unit,
         private val onCancel: () -> Unit,
     ) {
         private val installedChip = TextView(context).apply {
@@ -379,6 +427,11 @@ object DictionaryCatalogDialog {
             isAllCaps = false
             setOnClickListener { onImport(this@CatalogRowView) }
         }
+
+        // The filled style's own tint and text colour, captured so an installed
+        // row can turn the same button red for Remove and restore it after.
+        private val importButtonTint = importButton.backgroundTintList
+        private val importButtonTextColor = importButton.currentTextColor
 
         private val cancelButton = MaterialButton(
             context, null, com.google.android.material.R.attr.borderlessButtonStyle
@@ -463,11 +516,19 @@ object DictionaryCatalogDialog {
                 installedChip.text = "Installed"
                 installedChip.visibility = View.VISIBLE
                 recommendedChip.visibility = View.GONE
-                importButton.text = "Reinstall"
+                // An installed row's action is removal, not re-install; the red
+                // filled button signals the destructive turn.
+                importButton.text = "Remove"
+                importButton.backgroundTintList = ColorStateList.valueOf(ui.error)
+                importButton.setTextColor(ui.onError)
+                importButton.setOnClickListener { onRemove(this@CatalogRowView) }
             } else {
                 installedChip.visibility = View.GONE
                 recommendedChip.visibility = if (entry.recommended) View.VISIBLE else View.GONE
                 importButton.text = "Install"
+                importButton.backgroundTintList = importButtonTint
+                importButton.setTextColor(importButtonTextColor)
+                importButton.setOnClickListener { onImport(this@CatalogRowView) }
             }
             stateView.text = ""
         }
