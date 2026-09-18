@@ -47,4 +47,10 @@
     <color name="md_surface_container_highest">#DFE2E8</color>
     <color name="md_outline">#71787E</color>
     <color name="md_outline_variant">#C1C7CE</color>
+
+    <!-- Recommended: a positive green for the catalog's "Recommended" badge.
+         Not a Material role (M3 has no success colour), so it lives here rather
+         than in themes.xml; the night file re-points it. -->
+    <color name="md_recommended">#1B7F3B</color>
+    <color name="md_on_recommended">#FFFFFF</color>
 </resources>

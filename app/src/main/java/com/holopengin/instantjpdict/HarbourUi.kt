@@ -53,6 +53,14 @@ internal class HarbourUi private constructor(private val context: Context) {
     val onErrorContainer = color(com.google.android.material.R.attr.colorOnErrorContainer)
     val outlineVariant = color(com.google.android.material.R.attr.colorOutlineVariant)
 
+    /**
+     * The catalog's "Recommended" badge. A positive green has no Material 3
+     * role, so it is a named app colour (defined per day and night in the
+     * values colour files) rather than a theme attribute.
+     */
+    val recommended = context.getColor(R.color.md_recommended)
+    val onRecommended = context.getColor(R.color.md_on_recommended)
+
     fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 
     /** Resolve one colour from the current theme (day/night and Material You aware). */

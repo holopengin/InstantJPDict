@@ -13,7 +13,7 @@
     "installed DictionaryMeta.catalogId records which one is installed, so only",
     "one row lights up. The first entry of a family is the title-only default.",
     "\"recommended\": true marks the entries the app steers new users to; an",
-    "uninstalled recommended row shows a red \"Recommended\" badge, and once it",
+    "uninstalled recommended row shows a green \"Recommended\" badge, and once it",
     "is installed that badge gives way to \"Installed\".",
     "Jitendex is a family of its own: its index.json title is",
     "\"Jitendex.org [2026-08-11]\", so the stable family is \"Jitendex.org\"",

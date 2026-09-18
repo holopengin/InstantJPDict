@@ -34,4 +34,8 @@
     <color name="md_surface_container_highest">#313538</color>
     <color name="md_outline">#8B9198</color>
     <color name="md_outline_variant">#41484D</color>
+
+    <!-- Recommended: the same positive green, re-pointed for a dark surface. -->
+    <color name="md_recommended">#7DD88F</color>
+    <color name="md_on_recommended">#00391A</color>
 </resources>

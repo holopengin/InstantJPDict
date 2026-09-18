@@ -363,15 +363,15 @@ object DictionaryCatalogDialog {
         }
 
         /**
-         * #71 follow-up: the red nudge on an uninstalled recommended entry. It
+         * #71 follow-up: the green nudge on an uninstalled recommended entry. It
          * shares the installed chip's slot, so only one of the two is ever
          * visible; an installed row shows "Installed" instead.
          */
         private val recommendedChip = TextView(context).apply {
             text = "Recommended"
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
-            setTextColor(ui.onError)
-            background = ui.pill(ui.error)
+            setTextColor(ui.onRecommended)
+            background = ui.pill(ui.recommended)
             setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4))
             visibility = View.GONE
         }
