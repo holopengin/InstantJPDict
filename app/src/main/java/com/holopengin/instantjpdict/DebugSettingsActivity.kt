@@ -21,6 +21,8 @@ import com.google.android.material.slider.Slider
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.InferLog
 import java.util.Locale
+import kotlin.math.floor
+import kotlin.math.log10
 import kotlin.math.roundToInt
 
 /**
@@ -166,8 +168,13 @@ class DebugSettingsActivity : AppCompatActivity() {
             val max = row.max
             val step = row.step
             val isInt = row.isInt
+            // Enough decimals to resolve a single step — CROSSHAIR_GAP steps by
+            // 0.005, which "%.2f" collapsed into indistinct values — and never
+            // fewer than the two the readouts have always shown.
+            val decimals = if (step > 0f) maxOf(2, -floor(log10(step.toDouble())).toInt()) else 2
             fun formatValue(v: Float): String =
-                if (isInt) v.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", v)
+                if (isInt) v.roundToInt().toString()
+                else String.format(Locale.ROOT, "%.${decimals}f", v)
             // Material's Slider refuses to lay out when the range is not exactly
             // divisible by stepSize in float (0.2..1.0 step 0.1 is not), which is
             // why these rows ran continuous. A row with few enough steps instead

@@ -26,13 +26,8 @@ object GamepadSettingsDialog {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
         }
-        root.addView(ui.body(
-            "Map a gamepad or the keyboard to the overlay's actions. Changes apply immediately."
-        ))
-
         val card = ui.card(bottomMarginDp = 8)
         val body = ui.cardBody()
-        body.addView(ui.sectionHeader(R.drawable.ic_gamepad, "Controls"))
 
         /**
          * A [HarbourUi.listRow]-shaped row whose supporting line is returned, so
