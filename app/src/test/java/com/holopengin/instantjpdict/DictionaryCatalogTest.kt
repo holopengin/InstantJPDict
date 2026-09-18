@@ -26,10 +26,10 @@ class DictionaryCatalogTest {
     fun the_catalog_ships_the_dictionaries_the_feature_promises() {
         assertEquals(
             listOf(
+                "jitendex",
+                "kanjidic-english",
                 "jmdict-english",
                 "jmdict-english-with-examples",
-                "kanjidic-english",
-                "jitendex",
             ),
             entries.map { it.id },
         )
