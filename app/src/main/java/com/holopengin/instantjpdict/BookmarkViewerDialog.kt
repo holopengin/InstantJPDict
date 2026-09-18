@@ -138,7 +138,8 @@ object BookmarkViewerDialog {
             .setView(root)
             .setPositiveButton("Close", null)
             .create()
-        dialog.setOnShowListener { ui.sizeDialogWindow(dialog, heightFraction = 0.8f) }
+        // Sized before the first frame (see HarbourUi.sizeDialogWindow).
+        ui.sizeDialogWindow(dialog, heightFraction = 0.8f)
         dialog.show()
 
         reload()

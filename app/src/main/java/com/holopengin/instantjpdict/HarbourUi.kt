@@ -279,8 +279,13 @@ internal class HarbourUi private constructor(private val context: Context) {
         }
 
     /**
-     * Give a Material 3 dialog a definite height so a weighted scroll child can
-     * resolve, while keeping its width inside the 560 dp dialog cap.
+     * Give a Material 3 dialog a definite size **before it is shown**.
+     *
+     * A weighted scroll child needs the dialog to have its final height on the
+     * very first measure. Sizing the window from `setOnShowListener` (the old
+     * shape) ran after that first layout, so the dialog appeared collapsed and
+     * then jumped into place (#91). Call this between `create()` and `show()`.
+     * Width stays inside the 560 dp dialog cap.
      */
     fun sizeDialogWindow(dialog: android.app.Dialog, widthFraction: Float = 0.94f, heightFraction: Float = 0.82f) {
         val metrics = context.resources.displayMetrics

@@ -321,11 +321,11 @@ object DictionaryCatalogDialog {
             .setNegativeButton("Close", null)
             .create()
 
-        dialog.setOnShowListener {
-            // A definite window height is what gives the list its weight and lets
-            // it scroll, while the intro, banner and buttons stay put.
-            ui.sizeDialogWindow(dialog)
-        }
+        // Sized BEFORE the first frame: the list is a weighted child, so the
+        // dialog has to be measured with its final height on the first pass.
+        // Resizing in onShow (the old shape) made the dialog appear collapsed
+        // and then jump to size.
+        ui.sizeDialogWindow(dialog)
         dialog.setOnDismissListener {
             jobs.values.forEach { it.cancel() }
             if (owner == null) scope.cancel()

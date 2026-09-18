@@ -127,6 +127,9 @@ object DictionaryManagerDialog {
             .setNeutralButton("Install .zip", null)
             .setPositiveButton("Close", null)
             .create()
+        // Sized before the first frame (see HarbourUi.sizeDialogWindow); the
+        // onShow listener only wires the bottom-left button.
+        ui.sizeDialogWindow(dialog, heightFraction = 0.75f)
         dialog.setOnShowListener {
             // The neutral button is the bottom-left one. Launching the .zip picker
             // dismisses the manager; the import runs on the host screen and reports
@@ -135,7 +138,6 @@ object DictionaryManagerDialog {
                 dialog.dismiss()
                 onInstallZip()
             }
-            ui.sizeDialogWindow(dialog, heightFraction = 0.75f)
         }
         dialog.show()
     }
