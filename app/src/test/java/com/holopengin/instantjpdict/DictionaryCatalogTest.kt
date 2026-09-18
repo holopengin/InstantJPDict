@@ -98,6 +98,14 @@ class DictionaryCatalogTest {
     }
 
     @Test
+    fun only_jitendex_and_kanjidic_are_recommended() {
+        assertEquals(
+            setOf("jitendex", "kanjidic-english"),
+            entries.filter { it.recommended }.map { it.id }.toSet(),
+        )
+    }
+
+    @Test
     fun jitendex_is_pinned_to_its_dated_release_under_its_own_title_family() {
         val jitendex = entries.single { it.id == "jitendex" }
         // The pin came from the real 2026.08.11.0 artifact: `sha256sum` and

@@ -39,6 +39,12 @@ data class CatalogEntry(
     val bytes: Long,
     /** Lowercase hex SHA-256 of the artifact, pinned. */
     val sha256: String,
+    /**
+     * #71 follow-up: an entry we steer users to (Jitendex, KANJIDIC). An
+     * uninstalled recommended row shows a red "Recommended" badge; once it is
+     * installed that badge gives way to "Installed".
+     */
+    val recommended: Boolean = false,
     /** Pinned HTTPS source URL for the zip. */
     val url: String,
 ) {
@@ -146,6 +152,9 @@ object DictionaryCatalog {
         require(!url.contains("/releases/latest/")) {
             where("`url` points at /releases/latest/, which moves; pin a dated release: $url")
         }
+        val recommended = o.get("recommended")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
+            ?.asBoolean ?: false
         return CatalogEntry(
             id = id,
             name = name,
@@ -155,6 +164,7 @@ object DictionaryCatalog {
             title = title,
             bytes = bytes,
             sha256 = sha256,
+            recommended = recommended,
             url = url,
         )
     }

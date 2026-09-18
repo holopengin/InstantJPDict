@@ -48,6 +48,7 @@ internal class HarbourUi private constructor(private val context: Context) {
     val secondaryContainer = color(com.google.android.material.R.attr.colorSecondaryContainer)
     val onSecondaryContainer = color(com.google.android.material.R.attr.colorOnSecondaryContainer)
     val error = color(com.google.android.material.R.attr.colorError)
+    val onError = color(com.google.android.material.R.attr.colorOnError)
     val errorContainer = color(com.google.android.material.R.attr.colorErrorContainer)
     val onErrorContainer = color(com.google.android.material.R.attr.colorOnErrorContainer)
     val outlineVariant = color(com.google.android.material.R.attr.colorOutlineVariant)

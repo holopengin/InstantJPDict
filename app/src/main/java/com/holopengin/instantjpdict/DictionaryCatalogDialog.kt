@@ -314,6 +314,20 @@ object DictionaryCatalogDialog {
             visibility = View.GONE
         }
 
+        /**
+         * #71 follow-up: the red nudge on an uninstalled recommended entry. It
+         * shares the installed chip's slot, so only one of the two is ever
+         * visible; an installed row shows "Installed" instead.
+         */
+        private val recommendedChip = TextView(context).apply {
+            text = "Recommended"
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
+            setTextColor(ui.onError)
+            background = ui.pill(ui.error)
+            setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4))
+            visibility = View.GONE
+        }
+
         private val stateView = TextView(context).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
             setTextColor(ui.onSurfaceVariant)
@@ -408,6 +422,7 @@ object DictionaryCatalogDialog {
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     })
                     addView(installedChip)
+                    addView(recommendedChip)
                 })
                 addView(TextView(context).apply {
                     text = entry.description
@@ -447,9 +462,11 @@ object DictionaryCatalogDialog {
             if (installed) {
                 installedChip.text = "Installed"
                 installedChip.visibility = View.VISIBLE
+                recommendedChip.visibility = View.GONE
                 importButton.text = "Reinstall"
             } else {
                 installedChip.visibility = View.GONE
+                recommendedChip.visibility = if (entry.recommended) View.VISIBLE else View.GONE
                 importButton.text = "Install"
             }
             stateView.text = ""
