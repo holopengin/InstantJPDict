@@ -1136,6 +1136,16 @@ class OcrOverlayStateController {
     )
 
     /**
+     * #88 follow-up: Jitendex's `extra-info` boxes (cross reference, antonym,
+     * related, usage note, source language). Each must render as its own line.
+     * Without this they parse to inline text and are concatenated onto the
+     * sense's glossary — "inside the baySee also 湾外 …".
+     */
+    private val boxedContentClasses = setOf(
+        "xref", "antonym", "related", "sense-note", "info-gloss", "lang-source",
+    )
+
+    /**
      * #88: `data-content` values that stay inline even when carried by a
      * `ul`/`ol` — a bullet list of glosses reads as a comma-joined sentence.
      * The set is the pre-#88 list, kept as-is so JMdict's existing layout does
@@ -1342,6 +1352,15 @@ class OcrOverlayStateController {
                             } else if (content != null) {
                                 nodes.addAll(parseDefinition(content, separator))
                             }
+                        }
+                    }
+                    // #88 follow-up: an extra-info box gets a block of its own,
+                    // so it starts a new line instead of being spliced into the
+                    // sense's inline text run.
+                    scContent != null && scContent in boxedContentClasses -> {
+                        val inner = parseDefinition(content, separator)
+                        if (inner.isNotEmpty()) {
+                            nodes.add(DefinitionNode.Group(inner, isInline = false))
                         }
                     }
                     // Fail open: any other tag contributes its content.

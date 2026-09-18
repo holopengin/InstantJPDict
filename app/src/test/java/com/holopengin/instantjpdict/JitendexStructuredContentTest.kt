@@ -6,6 +6,7 @@ import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.holopengin.instantjpdict.util.Definitions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -202,6 +203,17 @@ class JitendexStructuredContentTest {
         // "湾, 外". The old walker spliced a separator between every inline
         // pair, including ruby runs.
         assertFalse(tokens(parse("湾内")).contains(", "))
+    }
+
+    @Test
+    fun an_extra_info_box_starts_its_own_line() {
+        // 湾内's cross reference ("See also 湾外 beyond the bay") used to be
+        // concatenated onto the sense — "inside the baySee also …". It must sit
+        // in a non-inline Group node so the renderer gives it a line.
+        val block = flatten(parse("湾内"))
+            .filterIsInstance<DefinitionNode.Group>()
+            .firstOrNull { !it.isInline && hasToken(it.nodes, "See also") }
+        assertNotNull("the cross reference must be a block of its own", block)
     }
 
     @Test
