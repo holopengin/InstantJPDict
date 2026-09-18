@@ -235,6 +235,14 @@ object DictionaryManagerDialog {
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = ui.dp(56)
                 setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4))
+                // A RecyclerView item with no layout params defaults to
+                // wrap_content, which left the row as narrow as its text — the
+                // name's weight then had no spare width to push the delete
+                // button to the right edge.
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
                 addView(handle)
                 addView(name)
                 addView(delete)
