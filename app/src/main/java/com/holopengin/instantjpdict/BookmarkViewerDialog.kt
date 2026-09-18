@@ -114,15 +114,12 @@ object BookmarkViewerDialog {
             .apply { marginEnd = ui.dp(8) }
         exportButton.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
 
-        // Close lives inside the panel, after the weighted list, rather than in
-        // the dialog's button bar: the bar is a sibling of the panel and only
-        // reaches the window's bottom if the panel absorbs the leftover height,
-        // which left the button floating under the list (#91 follow-up).
-        val closeButton = ui.textButton("Close") { }
-
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
+            // See HarbourUi.dialogContentHeightPx: this is what lets the list
+            // absorb the space and keeps the button bar at the window's bottom.
+            minimumHeight = ui.dialogContentHeightPx()
             addView(countLabel.apply {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -137,21 +134,13 @@ object BookmarkViewerDialog {
                 addView(exportButton)
             })
             addView(scroll)
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
-                setPadding(0, ui.dp(8), 0, ui.dp(8))
-                addView(closeButton)
-            })
         }
 
         val dialog = MaterialAlertDialogBuilder(context)
             .setTitle("Bookmarks")
             .setView(root)
+            .setPositiveButton("Close", null)
             .create()
-        closeButton.setOnClickListener { dialog.dismiss() }
-        // Sized before the first frame (see HarbourUi.sizeDialogWindow).
-        ui.sizeDialogWindow(dialog, heightFraction = 0.8f)
         dialog.show()
 
         reload()

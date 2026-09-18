@@ -106,6 +106,9 @@ object DictionaryCatalogDialog {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
+            // See HarbourUi.dialogContentHeightPx: this is what lets the list
+            // absorb the space and keeps the button bar at the window's bottom.
+            minimumHeight = ui.dialogContentHeightPx()
         }
 
         root.addView(TextView(context).apply {
@@ -321,11 +324,6 @@ object DictionaryCatalogDialog {
             .setNegativeButton("Close", null)
             .create()
 
-        // Sized BEFORE the first frame: the list is a weighted child, so the
-        // dialog has to be measured with its final height on the first pass.
-        // Resizing in onShow (the old shape) made the dialog appear collapsed
-        // and then jump to size.
-        ui.sizeDialogWindow(dialog)
         dialog.setOnDismissListener {
             jobs.values.forEach { it.cancel() }
             if (owner == null) scope.cancel()

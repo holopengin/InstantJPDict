@@ -54,6 +54,9 @@ object LicenseDialog {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
+            // See HarbourUi.dialogContentHeightPx: this is what lets the two
+            // panes absorb the space and keeps the button bar at the bottom.
+            minimumHeight = ui.dialogContentHeightPx()
         }
 
         root.addView(ui.body(
@@ -148,8 +151,6 @@ object LicenseDialog {
             .setView(root)
             .setPositiveButton("Close", null)
             .create()
-        // Sized before the first frame (see HarbourUi.sizeDialogWindow).
-        ui.sizeDialogWindow(dialog, heightFraction = 0.85f)
         dialog.show()
     }
 

@@ -279,20 +279,24 @@ internal class HarbourUi private constructor(private val context: Context) {
         }
 
     /**
-     * Give a Material 3 dialog a definite size **before it is shown**.
+     * A definite **content** height for a dialog whose root holds weighted
+     * scroll children, in pixels. Assign it to the root's `minimumHeight`.
      *
-     * A weighted scroll child needs the dialog to have its final height on the
-     * very first measure. Sizing the window from `setOnShowListener` (the old
-     * shape) ran after that first layout, so the dialog appeared collapsed and
-     * then jumped into place (#91). Call this between `create()` and `show()`.
-     * Width stays inside the 560 dp dialog cap.
+     * The root is the only view the dialog lets us size: `AlertController`
+     * forces `MATCH_PARENT`/`MATCH_PARENT` layout params on the view it hosts,
+     * so its `layoutParams` are not ours to set, and `window.setLayout` is
+     * dropped before `show()` (applying it in `onShow` is what made the dialogs
+     * appear small and then jump, #91). A `minimumHeight` is untouched, so the
+     * root measures to this height on the first pass: the weighted list
+     * resolves, and the dialog wraps to title + root + button bar, which puts
+     * the bar at the window's bottom.
+     *
+     * [fraction] is of the screen height, clamped to leave room for the title
+     * and the button bar.
      */
-    fun sizeDialogWindow(dialog: android.app.Dialog, widthFraction: Float = 0.94f, heightFraction: Float = 0.82f) {
-        val metrics = context.resources.displayMetrics
-        dialog.window?.setLayout(
-            minOf((metrics.widthPixels * widthFraction).toInt(), dp(560)),
-            (metrics.heightPixels * heightFraction).toInt(),
-        )
+    fun dialogContentHeightPx(fraction: Float = 0.66f): Int {
+        val screen = context.resources.displayMetrics.heightPixels
+        return (screen * fraction).toInt().coerceAtMost(screen - dp(150))
     }
 
     companion object {

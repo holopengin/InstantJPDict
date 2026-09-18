@@ -44,6 +44,9 @@ object DictionaryManagerDialog {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
+            // See HarbourUi.dialogContentHeightPx: this is what lets the list
+            // absorb the space and keeps the button bar at the window's bottom.
+            minimumHeight = ui.dialogContentHeightPx()
         }
         root.addView(ui.body(
             "Drag the handles on the left to re-order the dictionaries. " +
@@ -127,9 +130,6 @@ object DictionaryManagerDialog {
             .setNeutralButton("Install .zip", null)
             .setPositiveButton("Close", null)
             .create()
-        // Sized before the first frame (see HarbourUi.sizeDialogWindow); the
-        // onShow listener only wires the bottom-left button.
-        ui.sizeDialogWindow(dialog, heightFraction = 0.75f)
         dialog.setOnShowListener {
             // The neutral button is the bottom-left one. Launching the .zip picker
             // dismisses the manager; the import runs on the host screen and reports
