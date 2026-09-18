@@ -29,6 +29,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // RC/test sideload signing: the same debug key every other installable
+            // artifact uses, so a release RC can be installed over one. Replace
+            // with a real release keystore before any store distribution.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -51,7 +55,14 @@ android {
     }
     packaging {
         jniLibs {
-            keepDebugSymbols += "*/arm64-v8a/*.so"
+            // libncnn_jni.so carries ~34 MB of DWARF, which this glob kept in
+            // every APK (the #90 size report: 74 MB release, 38 MB stripped).
+            // Symbols are stripped by default, including release; pass
+            // -PkeepNativeDebugSymbols to keep them for local native-crash
+            // triage. The unstripped .so stays in the CMake intermediates.
+            if (providers.gradleProperty("keepNativeDebugSymbols").isPresent) {
+                keepDebugSymbols += "*/arm64-v8a/*.so"
+            }
         }
     }
     androidResources {
