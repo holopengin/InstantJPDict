@@ -26,8 +26,13 @@ object GamepadSettingsDialog {
             orientation = LinearLayout.VERTICAL
             setPadding(ui.dp(24), 0, ui.dp(24), 0)
         }
-        val card = ui.card(bottomMarginDp = 8)
-        val body = ui.cardBody()
+        val card = ui.card(bottomMarginDp = 8).apply {
+            // The dialog title is outside this view, so the card needs its own
+            // space below it; the pane's inner top is tightened because the
+            // section header that used to sit here is gone.
+            (layoutParams as LinearLayout.LayoutParams).topMargin = ui.dp(12)
+        }
+        val body = ui.cardBody(padV = 8)
 
         /**
          * A [HarbourUi.listRow]-shaped row whose supporting line is returned, so
