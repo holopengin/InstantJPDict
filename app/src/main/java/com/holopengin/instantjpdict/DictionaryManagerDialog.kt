@@ -23,15 +23,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The installed-dictionary manager: reorder, and remove.
+ * The installed-dictionary manager: install a local .zip, reorder, and remove.
  *
  * Rows are drag handles + names on a tonal card in the app's "Harbour" Material 3
  * language ([HarbourUi]); the confirmations are `MaterialAlertDialog`s. Built-in
  * dictionaries (#43) are hidden — they are app data, not user dictionaries.
+ *
+ * [onInstallZip] is the host's file-picker launch: the manager is where a local
+ * .zip is installed now, so its bottom-left button hands control back to the
+ * caller rather than owning the picker itself (the picker is registered on the
+ * Activity, and the import status lives on the host screen too).
  */
 object DictionaryManagerDialog {
 
-    fun show(context: Context) {
+    fun show(context: Context, onInstallZip: () -> Unit) {
         val ui = HarbourUi.of(context)
         val db = AppDatabase.getDatabase(context)
         val lifecycleOwner = context as? LifecycleOwner
@@ -119,9 +124,19 @@ object DictionaryManagerDialog {
         val dialog = MaterialAlertDialogBuilder(context)
             .setTitle("Dictionary Manager")
             .setView(root)
+            .setNeutralButton("Install .zip", null)
             .setPositiveButton("Close", null)
             .create()
-        dialog.setOnShowListener { ui.sizeDialogWindow(dialog, heightFraction = 0.75f) }
+        dialog.setOnShowListener {
+            // The neutral button is the bottom-left one. Launching the .zip picker
+            // dismisses the manager; the import runs on the host screen and reports
+            // there, so this dialog is not left showing a stale list.
+            dialog.getButton(android.content.DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
+                dialog.dismiss()
+                onInstallZip()
+            }
+            ui.sizeDialogWindow(dialog, heightFraction = 0.75f)
+        }
         dialog.show()
     }
 

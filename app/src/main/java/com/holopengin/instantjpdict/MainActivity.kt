@@ -56,11 +56,12 @@ import kotlinx.coroutines.withContext
  *
  * The redesign keeps every entry point and regroups them by what the user is
  * trying to do:
- *   - "Get started" — the accessibility service, as the one filled button on the
- *     screen, with its long denial note behind a disclosure instead of in the
- *     flow;
- *   - "Dictionaries" — the catalog and the install/manage/bookmark verbs, one
- *     obvious primary (tonal) action and the rest as list rows;
+ *   - "Get started" — the dictionary catalog as a tonal button, then the
+ *     accessibility service as the one filled button on the screen, with its
+ *     long denial note behind a disclosure instead of in the flow;
+ *   - "Manage dictionaries" and "Bookmarks" — top-level buttons, directly on
+ *     the screen rather than nested in a section; installing a local .zip lives
+ *     on the dictionary manager's own dialog, not here;
  *   - "Settings" — the overlay font, gamepad, licences and a row into the
  *     debug/tuning screen, which is now an activity of its own rather than a
  *     panel nested in this card.
@@ -398,6 +399,11 @@ class MainActivity : AppCompatActivity() {
             "Install a dictionary, then turn on the accessibility service and point the " +
                 "overlay at any app, and tap a word to look it up."
         )
+        // The catalog leads the card: a first-run user needs a dictionary before the
+        // service is worth enabling.
+        tonalButton(accessBody, "Dictionary catalog", R.drawable.ic_book) {
+            DictionaryCatalogDialog.show(this)
+        }
         filledButton(accessBody, "Enable accessibility service", R.drawable.ic_accessibility) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -420,32 +426,16 @@ class MainActivity : AppCompatActivity() {
             Log.d("MainActivity", "accessibility_note_shown=${!showing}")
         }
 
-        // ————————— 2. Dictionaries —————————
-        val dictBody = newSection("Dictionaries", R.drawable.ic_book)
-        bodyText(
-            dictBody,
-            "Download dictionaries from the catalog, or install Yomitan-format dictionaries manually."
-        )
-        tonalButton(dictBody, "Dictionary catalog", R.drawable.ic_book) {
-            DictionaryCatalogDialog.show(this)
+        // ————————— 2. Manage dictionaries / Bookmarks —————————
+        // The "Dictionaries" card is gone: the catalog moved into Get started and
+        // the .zip install moved onto the manager's own dialog, so its two
+        // remaining destinations are top-level buttons.
+        outlinedButton(content, "Manage dictionaries", R.drawable.ic_book) {
+            DictionaryManagerDialog.show(this) { importLauncher.launch(arrayOf("application/zip")) }
         }
-        dictBody.addView(listRow(
-            R.drawable.ic_upload,
-            "Install Yomitan dictionary",
-            "From a .zip on this device",
-            chevron()
-        ) { importLauncher.launch(arrayOf("application/zip")) })
-        dictBody.addView(listRow(
-            R.drawable.ic_book,
-            "Manage dictionaries",
-            "Remove and reorder installed dictionaries",
-            chevron()
-        ) { DictionaryManagerDialog.show(this) })
-        dictBody.addView(listRow(
-            R.drawable.ic_bookmark,
-            "Bookmarks",
-            trailing = chevron()
-        ) { BookmarkViewerDialog.show(this) })
+        outlinedButton(content, "Bookmarks", R.drawable.ic_bookmark) {
+            BookmarkViewerDialog.show(this)
+        }
 
         // ————————— 3. Settings —————————
         val settingsBody = newSection("Settings", R.drawable.ic_settings)
