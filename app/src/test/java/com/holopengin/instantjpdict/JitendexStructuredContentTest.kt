@@ -81,6 +81,68 @@ class JitendexStructuredContentTest {
     // —— the variant-forms table ————————————————————————————————
 
     @Test
+    fun a_repeated_reading_glossary_is_not_rendered_twice() {
+        // お前 ships one row per reading (おまえ, おまい) carrying the same
+        // glossary, so rendering senses per reading repeated the sense — and its
+        // example — once per reading. The second reading keeps its headword but
+        // not a second copy of the senses.
+        val definitions = fixture("お前").definitionsJson
+        fun row(reading: String) = DictionaryEntry(
+            kanji = "お前", reading = reading, definitions = definitions,
+            rules = "", popularity = 0, dictionaryId = 1,
+        )
+        val out = controller.formatDictionaryResults(
+            listOf(TermMatch("お前", listOf(row("おまえ"), row("おまい")))),
+            gson, mapOf(1 to "Jitendex"),
+        )
+        val groups = out.single().readingGroups
+        assertEquals(listOf("おまえ", "おまい"), groups.map { it.reading })
+        assertEquals(listOf(true, false), groups.map { it.renderSenses })
+
+        val examples = groups.filter { it.renderSenses }
+            .flatMap { it.senseGroups }
+            .flatMap { sg -> flatten(sg.senses.flatMap { it.nodes }) }
+            .filterIsInstance<DefinitionNode.Example>()
+        assertEquals("the example must render exactly once", 1, examples.size)
+    }
+
+    @Test
+    fun a_lone_sense_is_not_echoed_into_the_header() {
+        // Jitendex emits `ol` with its single `li[sense]` as an object, not a
+        // one-element array (the real `分` (ぶ) shape). Treating that object as
+        // header copy put the sense and its example in the unnumbered header and
+        // rendered the same group again as the numbered fallback sense.
+        val definitions = fixtures.single { it.term == "分" && it.reading == "ぶ" }.definitionsJson
+        val out = controller.formatDictionaryResults(
+            listOf(
+                TermMatch(
+                    "分",
+                    listOf(
+                        DictionaryEntry(
+                            kanji = "分", reading = "ぶ", definitions = definitions,
+                            rules = "", popularity = 0, dictionaryId = 1,
+                        )
+                    )
+                )
+            ),
+            gson, mapOf(1 to "Jitendex"),
+        )
+        val groups = out.single().readingGroups.single().senseGroups
+        var outsideSenses = 0
+        var inSenses = 0
+        groups.forEach { group ->
+            outsideSenses += flatten(group.header).filterIsInstance<DefinitionNode.Example>().size
+            outsideSenses += flatten(group.trailing).filterIsInstance<DefinitionNode.Example>().size
+            inSenses += group.senses.flatMap { s -> flatten(s.nodes) }
+                .filterIsInstance<DefinitionNode.Example>().size
+        }
+        // 分 (ぶ) has two sense-groups, each with one example; none may appear
+        // unnumbered in a header (the echo this test pins).
+        assertEquals("no example may sit outside a numbered sense", 0, outsideSenses)
+        assertEquals(2, inSenses)
+    }
+
+    @Test
     fun the_forms_table_parses_into_rows_and_cells() {
         val table = parse("支持杭").filterIsInstance<DefinitionNode.Table>().single()
         // Header row (blank corner + the spelling) and one row per reading.

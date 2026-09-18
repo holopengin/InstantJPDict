@@ -1415,8 +1415,11 @@ class OcrOverlayView(
                 }
             }
             entry.readingGroups.forEach { group ->
+                // A reading that repeats an already-rendered glossary shows its
+                // headword but not a second copy of the senses (and examples).
+                if (!group.renderSenses) return@forEach
                 renderSensesForReading(termSection, group)
-                
+
                 termSection.addView(View(context).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { topMargin = 20 }
                     setBackgroundColor(Color.DKGRAY)

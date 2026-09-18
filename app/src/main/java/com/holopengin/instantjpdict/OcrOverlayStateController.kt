@@ -125,7 +125,15 @@ data class FormattedReadingGroup(
     val isKanjiEntry: Boolean,
     /** #43: downstep positions for this reading (empty = no pitch data).
      * Rendered as one colored-morae item on the entry's pitch line. */
-    val pitchPositions: List<Int> = emptyList()
+    val pitchPositions: List<Int> = emptyList(),
+    /**
+     * False when an earlier reading group already rendered this same glossary.
+     * A word's readings are all shown in the headword block, and Jitendex (and
+     * JMdict) repeat one glossary across the rows of every reading, so
+     * rendering the senses per reading would repeat every sense — and its
+     * example box — once per reading.
+     */
+    val renderSenses: Boolean = true
 )
 
 data class FormattedEntry(
@@ -981,6 +989,8 @@ class OcrOverlayStateController {
             // never merge into a single block. findByTexts returns priority
             // order, so groupBy preserves dictionary ranking.
             termEntries.groupBy { it.dictionaryId }.map { (dictId, dictEntries) ->
+            // Glossaries already rendered for an earlier reading of this word.
+            val seenGlossaries = mutableSetOf<String>()
             val readingGroups = dictEntries.groupBy { it.reading }.map { (reading, readingEntries) ->
                 val isKanjiEntry = readingEntries.firstOrNull()?.let { it.onyomi != null || it.kunyomi != null } ?: false
                 val kanjiVariants = readingEntries.map { it.kanji }.distinct()
@@ -1065,7 +1075,11 @@ class OcrOverlayStateController {
                     headwords,
                     senseGroups,
                     isKanjiEntry,
-                    pitchPositions = pitchByReading[reading].orEmpty()
+                    pitchPositions = pitchByReading[reading].orEmpty(),
+                    // A reading whose row repeats a glossary already rendered
+                    // keeps its headword but not a second copy of the senses.
+                    renderSenses = readingEntries.firstOrNull()?.definitions
+                        ?.let { seenGlossaries.add(it) } ?: true,
                 )
             }
             FormattedEntry(
@@ -1432,8 +1446,18 @@ class OcrOverlayStateController {
                     "sense" -> senses.add(parseDefinition(node))
                     "forms", "attribution" -> trailing.addAll(parseDefinition(node))
                     null -> {
+                        // A wrapper node may carry its single child as an object
+                        // rather than a one-element array — Jitendex emits `ol`
+                        // with one `li[sense]` this way. Descend into either
+                        // shape; treating the object form as header copy put the
+                        // sense (and its example) in the unnumbered header and
+                        // then rendered it again as the fallback sense.
                         val content = node["content"]
-                        if (content is List<*>) walk(content) else header.addAll(parseDefinition(node))
+                        if (content is List<*> || content is Map<*, *>) {
+                            walk(content)
+                        } else {
+                            header.addAll(parseDefinition(node))
+                        }
                     }
                     else -> header.addAll(parseDefinition(node))
                 }
