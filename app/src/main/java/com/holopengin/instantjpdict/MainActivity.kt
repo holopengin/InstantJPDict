@@ -393,7 +393,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(statusCard)
 
         // ————————— 1. Get started —————————
-        val accessBody = newSection("Get started", R.drawable.ic_accessibility)
+        val accessBody = newSection("Get started", R.drawable.ic_checklist)
         bodyText(
             accessBody,
             "Install a dictionary, then turn on the accessibility service and point the " +
