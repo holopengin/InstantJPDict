@@ -359,9 +359,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // ————— status banner —————
-        // The status line still carries import and pitch-install progress, but it
-        // now has a surface of its own and disappears entirely when there is
-        // nothing to say — no reserved empty strip above the fold.
+        // The status line carries dictionary-import progress (the bundled pitch
+        // install is deliberately silent), and it disappears entirely when there
+        // is nothing to say — no reserved empty strip above the fold.
         tvStatus = TextView(this).apply {
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
             setTextColor(cOnSecondaryContainer)
@@ -651,36 +651,20 @@ class MainActivity : AppCompatActivity() {
      * There is no button for this: the install completes the flag it is checked
      * by, so a wiped database, a corrupted row or an import killed part-way all
      * repair themselves on the next launch.
+     *
+     * Deliberately invisible: it is not a user action, so it writes no status.
+     * A failure is logged and pitch accents simply do not appear.
      */
     private fun installBundledPitchDictionary() {
         lifecycleScope.launch {
             try {
-                val importer = DictionaryImporter(applicationContext)
-                val result = importer.importBundledAsset(PitchAccent.BUNDLED_ASSET) { progress ->
-                    lifecycleScope.launch(Dispatchers.Main) {
-                        setStatus("Installing pitch dictionary: $progress entries...")
-                    }
-                }
-                withContext(Dispatchers.Main) {
-                    // A3/#86: the failure message is the fold's result, so it must be
-                    // assigned — as a bare expression the status line kept showing
-                    // "Installing pitch dictionary: N entries…" after a failed import.
-                    setStatus(result.fold(
-                        onSuccess = { count ->
-                            if (PitchAccent.isEnabled(this@MainActivity)) {
-                                "Pitch dictionary installed: $count entries"
-                            } else {
-                                "Pitch dictionary installed: $count entries " +
-                                    "(turn on pitch accent in Debug settings)"
-                            }
-                        },
-                        onFailure = { e -> "Pitch dictionary error: ${e.message}" },
-                    ))
+                val result = DictionaryImporter(applicationContext)
+                    .importBundledAsset(PitchAccent.BUNDLED_ASSET) {}
+                result.onFailure { e ->
+                    Log.e("MainActivity", "bundled pitch dictionary install failed", e)
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    setStatus("Error installing pitch dictionary: ${e.message}")
-                }
+                Log.e("MainActivity", "bundled pitch dictionary install failed", e)
             }
         }
     }
