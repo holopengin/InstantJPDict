@@ -1,37 +1,16 @@
-<!--
-  ~ Copyright (C) 2026 The Android Open Source Project
-  ~
-  ~ Licensed under the Apache License, Version 2.0 (the "License");
-  ~ you may not use this file except in compliance with the License.
-  ~ You may obtain a copy of the License at
-  ~
-  ~      http://www.apache.org/licenses/LICENSE-2.0
-  ~
-  ~ Unless required by applicable law or agreed to in writing, software
-  ~ distributed under the License is distributed on an "AS IS" BASIS,
-  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
-  -->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #87 follow-up: generated from logo.svg (repo-authored), no Image-Asset tool padding. The disc. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="120"
     android:viewportHeight="120">
-  <group android:scaleX="0.61"
-      android:scaleY="0.61"
-      android:translateX="23.4"
-      android:translateY="23.4">
+  <group android:scaleX="0.676" android:scaleY="0.676" android:pivotX="60" android:pivotY="60">
     <path
-        android:pathData="M60,60m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0"
-        android:strokeWidth="9"
         android:fillColor="#00ffff"
-        android:strokeColor="#00000000"/>
+        android:pathData="M0,60A60,60 0 1 0 120,60A60,60 0 1 0 0,60Z"/>
     <path
-        android:pathData="M60,60m-53.88,0a53.88,53.88 0,1 1,107.77 0a53.88,53.88 0,1 1,-107.77 0"
-        android:strokeWidth="11.931"
         android:fillColor="#000000"
-        android:strokeColor="#00000000"/>
+        android:pathData="M6.115105,60A53.884895,53.884895 0 1 0 113.884895,60A53.884895,53.884895 0 1 0 6.115105,60Z"/>
   </group>
 </vector>
