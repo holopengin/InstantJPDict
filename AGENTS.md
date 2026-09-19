@@ -25,9 +25,17 @@ Single-context (one `CONTEXT.md` + `docs/adr/` at repo root). See `docs/agents/d
 
 It is R8-minified + resource-shrunk, native debug symbols stripped
 (`keepDebugSymbols` is off unless `-PkeepNativeDebugSymbols` is passed), and
-signed with the debug key so it sideloads over a debug install. Expected size
-~38 MB. Give the maintainer a bare, short URL named by the short commit hash
-(no markdown link), e.g. `http://100.112.14.102:8001/<short-sha>.apk`.
+signed with the maintainer's release key when
+`~/.config/instantjpdict/keystore.properties` exists (keystore at
+`~/keys/instantjpdict-release.p12`; the password manager holds the backup and
+password). Without that file the build falls back to the debug key and warns
+on the console — never hand a fallback build to testers as a release. The
+debug→release signing switch was one-way: installs signed with the old debug
+key needed one uninstall/reinstall. Verify any artifact with
+`~/android-sdk/build-tools/36.0.0/apksigner verify --print-certs <apk>`.
+Expected size ~38 MB. Give the maintainer a bare, short URL named by the short
+commit hash (no markdown link), e.g.
+`http://100.112.14.102:8001/<short-sha>.apk`.
 
 Build a debug or benchmark variant only when there is a real reason (native
 symbol triage, a benchmark run, or a bug that only reproduces outside R8), and

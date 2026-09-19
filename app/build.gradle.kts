@@ -1,7 +1,72 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
+}
+
+// ————— Release signing —————
+// The keystore and its passwords live OUTSIDE the working tree, so no
+// `git add -A`, stash or worktree can ever pick them up:
+//
+//   ~/.config/instantjpdict/keystore.properties   (0600)
+//     storeFile=…/keys/instantjpdict-release.p12
+//     storeType=PKCS12
+//     storePassword=…
+//     keyAlias=instantjpdict
+//     keyPassword=…
+//
+// `providers.fileContents` rather than a raw File read: creating or editing
+// the file invalidates the configuration cache instead of silently reusing a
+// configuration that fell back to the debug key. The env override exists for
+// testing; real builds use the default path. See AGENTS.md.
+val keystorePropertiesFile: File =
+    System.getenv("IJPD_KEYSTORE_PROPERTIES")?.let { File(it) }
+        ?: File(System.getProperty("user.home"), ".config/instantjpdict/keystore.properties")
+
+val releaseKeystore: Properties? =
+    providers.fileContents(objects.fileProperty().fileValue(keystorePropertiesFile))
+        .asText.orNull
+        ?.let { text -> Properties().apply { text.reader().use { load(it) } } }
+        ?.also { props ->
+            val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+                .filter { props.getProperty(it).isNullOrBlank() }
+            check(missing.isEmpty()) {
+                "${keystorePropertiesFile.path} is missing: ${missing.joinToString()}"
+            }
+            val store = File(props.getProperty("storeFile"))
+            check(store.isFile) {
+                "${keystorePropertiesFile.path} points at a missing storeFile: ${store.path}"
+            }
+        }
+
+/** Built-in "debug" when the release keystore is not configured. */
+val releaseSigningConfig: String = if (releaseKeystore != null) "release" else "debug"
+
+if (releaseKeystore == null) {
+    logger.warn(
+        "release signing: ${keystorePropertiesFile.path} not found; " +
+            "release/benchmark APKs will be debug-signed"
+    )
+}
+
+// Configuration-time warnings vanish when the configuration cache is reused,
+// so say it at execution time too: a debug-signed "release" must never ship.
+// Values are captured into locals inside configureEach; referencing script
+// properties from the action would make the configuration cache unserializable.
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    val debugSigned = releaseKeystore == null
+    val keystorePathForLog = keystorePropertiesFile.path
+    doLast {
+        if (debugSigned) {
+            println(
+                "release signing: $keystorePathForLog not found; " +
+                    "the APK just assembled is DEBUG-SIGNED"
+            )
+        }
+    }
 }
 
 android {
@@ -25,14 +90,28 @@ android {
         }
     }
 
+    signingConfigs {
+        // Declared only when the real keystore is configured; otherwise the
+        // build types below name the built-in debug config.
+        releaseKeystore?.let { props ->
+            create("release") {
+                storeFile = File(props.getProperty("storeFile"))
+                storeType = props.getProperty("storeType") ?: "PKCS12"
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // RC/test sideload signing: the same debug key every other installable
-            // artifact uses, so a release RC can be installed over one. Replace
-            // with a real release keystore before any store distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            // The maintainer's release key when ~/.config/instantjpdict is
+            // configured, the debug key otherwise (with a warning). Installs
+            // signed with the old debug key cannot update over this switch.
+            signingConfig = signingConfigs.getByName(releaseSigningConfig)
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,7 +119,9 @@ android {
         }
         create("benchmark") {
             initWith(getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
+            // Same key as release so a benchmark build installs over a release
+            // install without an uninstall.
+            signingConfig = signingConfigs.getByName(releaseSigningConfig)
             isMinifyEnabled = false
             isShrinkResources = false
             isDebuggable = false

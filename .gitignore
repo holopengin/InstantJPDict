@@ -14,5 +14,11 @@
 .cxx
 local.properties
 misc/
+# release signing secrets — the live copies live outside the tree
+keystore.properties
+release-keystore.properties
+*.jks
+*.keystore
+*.p12
 # local scratch: raw books used for OCR bench work (copyrighted, never commit)
 tmp/
