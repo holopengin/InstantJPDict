@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
 import java.io.File
@@ -40,23 +41,32 @@ object Feedback {
             "(API ${Build.VERSION.SDK_INT})"
 
     /**
-     * Always `ACTION_SEND` as `message/rfc822`: the one shape that both
-     * prefills subject/body (Gmail ignores the extras on `ACTION_SENDTO`) and
-     * can carry the optional crash-log stream, with a read grant for the
-     * FileProvider URI. `message/rfc822` keeps the chooser to mail apps, where
-     * `text/plain` would offer chat apps too.
+     * Without an attachment: `ACTION_SENDTO` to a `mailto:` URI whose query
+     * carries the subject and body. That keeps the chooser email-only, and the
+     * prefill survives — Gmail ignores `EXTRA_SUBJECT`/`EXTRA_TEXT` on
+     * `ACTION_SENDTO` (verified on device) but honours the URI parameters.
+     *
+     * With one: `ACTION_SEND` as `message/rfc822`, the only shape that can
+     * carry the crash-log stream, with a read grant for the FileProvider URI.
      */
     fun emailIntent(
         context: Context,
         subject: String,
         body: String,
         attachment: File? = null,
-    ): Intent = Intent(Intent.ACTION_SEND).apply {
-        type = "message/rfc822"
-        putExtra(Intent.EXTRA_EMAIL, arrayOf(ADDRESS))
-        putExtra(Intent.EXTRA_SUBJECT, subject)
-        putExtra(Intent.EXTRA_TEXT, body)
-        attachment?.takeIf { it.isFile }?.let { file ->
+    ): Intent {
+        val file = attachment?.takeIf { it.isFile }
+        if (file == null) {
+            val uri = Uri.parse(
+                "mailto:$ADDRESS?subject=${Uri.encode(subject)}&body=${Uri.encode(body)}"
+            )
+            return Intent(Intent.ACTION_SENDTO, uri)
+        }
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "message/rfc822"
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(ADDRESS))
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, body)
             putExtra(
                 Intent.EXTRA_STREAM,
                 FileProvider.getUriForFile(
