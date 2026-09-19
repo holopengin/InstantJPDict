@@ -32,17 +32,30 @@ object CrashReporter {
     private const val DIR = "crashes"
     private const val MAX_FILES = 5
 
+    /**
+     * A report younger than this means the crash screen's own process crashed
+     * on the way up (the classic case: a real crash in `Application.onCreate`,
+     * which runs in every process). Starting another screen would loop; the
+     * report is still written and the platform handles this crash instead.
+     */
+    private const val LOOP_WINDOW_MS = 20_000L
+
     fun install(app: Application) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val captured = try {
+                val looping = recentReport(crashDir(app))
                 val file = writeCrashFile(app, thread, throwable)
                 prune(app, keep = file)
-                app.startActivity(
-                    CrashReportActivity.intent(app, file)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                true
+                if (looping) {
+                    Log.w(TAG, "crash loop: report written, not starting another screen")
+                } else {
+                    app.startActivity(
+                        CrashReportActivity.intent(app, file)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+                !looping
             } catch (t: Throwable) {
                 Log.e(TAG, "could not capture the crash", t)
                 false
@@ -51,11 +64,16 @@ object CrashReporter {
                 Process.killProcess(Process.myPid())
                 exitProcess(10)
             } else {
-                // Capture failed: leave the crash to the platform rather than
-                // dying silently.
+                // Capture failed (or looping): leave the crash to the platform
+                // rather than dying silently.
                 previous?.uncaughtException(thread, throwable)
             }
         }
+    }
+
+    private fun recentReport(dir: File): Boolean {
+        val now = System.currentTimeMillis()
+        return dir.listFiles()?.any { now - it.lastModified() < LOOP_WINDOW_MS } == true
     }
 
     fun crashDir(context: Context): File = File(context.cacheDir, DIR)

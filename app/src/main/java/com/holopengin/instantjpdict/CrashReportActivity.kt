@@ -191,16 +191,19 @@ class CrashReportActivity : AppCompatActivity() {
             }
         }
         val attachment = crashFile?.takeIf { includeAttachment }
+        // No finish(): the picker is a dialog on this activity, and after the
+        // mail app returns the user is back here to tap Close.
         try {
-            startActivity(
+            Feedback.launch(
+                this,
                 Feedback.emailIntent(
                     this,
                     subject = "InstantJPDict crash report",
                     body = body,
                     attachment = attachment,
-                )
+                ),
+                chooserTitle = "Email crash report",
             )
-            finish()
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, "No email app found to send the report", Toast.LENGTH_LONG).show()
         }

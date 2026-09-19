@@ -29,6 +29,17 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+    <!-- The feedback/crash email picker resolves the installed mail apps with
+         queryIntentActivities, which package visibility (API 30+) otherwise
+         filters down to nothing. Declaring the mailto intent makes apps that
+         answer it visible to us. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:enableOnBackInvokedCallback="false"

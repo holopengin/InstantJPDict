@@ -1,10 +1,13 @@
 package com.holopengin.instantjpdict
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 
 /**
@@ -39,6 +42,42 @@ object Feedback {
     fun deviceInfo(): String =
         "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} " +
             "(API ${Build.VERSION.SDK_INT})"
+
+    /**
+     * Start an email intent directly. A crash report must not land in a chat
+     * app: the share sheet for an attachment (`ACTION_SEND`) also offers
+     * Signal, LINE, Quick Share and friends, and `EXTRA_EXCLUDE_COMPONENTS` is
+     * not honoured for the Direct Share row on current Android. So the target
+     * set is computed here — packages that also answer `ACTION_SENDTO
+     * mailto:` — and one mail app is launched directly, or a short in-app
+     * picker when there are several. With no email app at all the system
+     * chooser is the fallback, so the report can still go somewhere.
+     *
+     * The caller's activity stays alive (the picker is a dialog), so it must
+     * not finish inside this call.
+     */
+    fun launch(context: Context, intent: Intent, chooserTitle: String) {
+        val mailPackages = context.packageManager.queryIntentActivities(
+            Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")), 0
+        ).map { it.activityInfo.packageName }.toSet()
+        val emails = context.packageManager.queryIntentActivities(intent, 0)
+            .filter { it.activityInfo.packageName in mailPackages }
+            .distinctBy { it.activityInfo.packageName }
+        when (emails.size) {
+            0 -> context.startActivity(intent)
+            1 -> context.startActivity(intent.forTarget(emails[0]))
+            else -> MaterialAlertDialogBuilder(context)
+                .setTitle(chooserTitle)
+                .setItems(
+                    emails.map { it.loadLabel(context.packageManager).toString() }.toTypedArray()
+                ) { _, index -> context.startActivity(intent.forTarget(emails[index])) }
+                .show()
+        }
+    }
+
+    private fun Intent.forTarget(info: ResolveInfo): Intent = apply {
+        component = ComponentName(info.activityInfo.packageName, info.activityInfo.name)
+    }
 
     /**
      * Without an attachment: `ACTION_SENDTO` to a `mailto:` URI whose query
