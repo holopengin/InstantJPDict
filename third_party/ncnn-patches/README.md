@@ -1,4 +1,4 @@
-# ncnn fork patches (all merged into vgf89/ncnn — mboxes kept as record)
+# ncnn fork patches (all merged into holopengin/ncnn — mboxes kept as record)
 
 The fork carries three local fixes on top of upstream, all required by our
 models; `tools/build_ncnn.sh` builds the fork at `FORK_PIN` and enforces

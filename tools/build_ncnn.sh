@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild the ncnn tree this project quantizes with and ships.
 #
-# Source of truth is the vgf89/ncnn fork at a pinned commit (FORK_PIN).
+# Source of truth is the holopengin/ncnn fork at a pinned commit (FORK_PIN).
 # Required tree content is enforced by marker grep, not by patch
 # application — any tree (pinned or dirty `--src`) missing a marker fails
 # fast, so a lib built without e.g. the fused-GELU patch can never ship
@@ -29,8 +29,8 @@
 #     tree is refused unless --allow-dirty. Markers are verified either way.
 set -euo pipefail
 
-FORK=https://github.com/vgf89/ncnn.git
-FORK_PIN=a2b8507f6a3449e80f1c2585a127e3c08e3a9f3f # fork master; bump to follow
+FORK=https://github.com/holopengin/ncnn.git
+FORK_PIN=b498fc0786102a68af498ecf36c05b0b3b1fc074 # fork master; bump to follow
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 
 OUT=""

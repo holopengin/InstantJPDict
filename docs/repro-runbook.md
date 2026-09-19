@@ -46,7 +46,7 @@ cp /tmp/ncnn_build/android-arm64/lib/libncnn.a app/src/main/cpp/ncnn/lib/arm64-v
 cp -r /tmp/ncnn_build/android-arm64/include/. app/src/main/cpp/ncnn/include/
 ```
 
-Verifies itself: applied tree is `diff -r`-identical to `vgf89/ncnn @ 0c9625b0`.
+Verifies itself: applied tree is `diff -r`-identical to `holopengin/ncnn @ b498fc07`.
 
 ## 3. Calibration inputs
 

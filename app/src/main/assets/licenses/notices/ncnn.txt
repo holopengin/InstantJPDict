@@ -14,8 +14,8 @@ Licence text : licenses/texts/bsd-3-clause-ncnn.txt
                headers — so nothing further is needed for those.)
 
 Upstream     : https://github.com/Tencent/ncnn
-Built from   : https://github.com/vgf89/ncnn
-Pinned ref   : a2b8507f6a3449e80f1c2585a127e3c08e3a9f3f (fork master, FORK_PIN in
+Built from   : https://github.com/holopengin/ncnn
+Pinned ref   : b498fc0786102a68af498ecf36c05b0b3b1fc074 (fork master, FORK_PIN in
                tools/build_ncnn.sh). Upstream commit 2130e00 is documented as the
                base in docs/ncnn-conversion.md.
 Build script : tools/build_ncnn.sh — clones the fork at the pin, enforces the
@@ -25,7 +25,7 @@ Build script : tools/build_ncnn.sh — clones the fork at the pin, enforces the
 Where the licence text came from
 --------------------------------
 
-  https://raw.githubusercontent.com/vgf89/ncnn/a2b8507f6a3449e80f1c2585a127e3c08e3a9f3f/LICENSE.txt
+  https://raw.githubusercontent.com/holopengin/ncnn/b498fc0786102a68af498ecf36c05b0b3b1fc074/LICENSE.txt
 
 Modifications
 -------------

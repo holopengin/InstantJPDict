@@ -93,7 +93,7 @@ dependency, and every one of those was checked against its own published POM.
 | InstantJPDict (the app) | AGPL-3.0-only | `texts/agpl-3.0.txt` | repo `LICENSE`, copied by the generator |
 | 87 Gradle runtime modules (AndroidX, Material, Gson, Kotlin stdlib, coroutines, jspecify, error_prone_annotations, guava listenablefuture) | Apache-2.0 | `texts/apache-2.0.txt` | each module's own POM `<licenses>` (Google Maven / Maven Central), 2026-09-13 |
 | JNA 5.14.0 (`@aar`, ships `libjnidispatch.so`) | LGPL-2.1-or-later OR Apache-2.0 — Apache-2.0 elected | `texts/apache-2.0.txt`, `texts/lgpl-2.1.txt` | its POM `<licenses>`; note in `notices/jna.txt` |
-| ncnn (fork `vgf89/ncnn@a2b8507f`, upstream `Tencent/ncnn`) | BSD-3-Clause | `texts/bsd-3-clause-ncnn.txt` | `LICENSE.txt` at the pinned commit, fetched 2026-09-13 |
+| ncnn (fork `holopengin/ncnn@b498fc07`, upstream `Tencent/ncnn`) | BSD-3-Clause | `texts/bsd-3-clause-ncnn.txt` | `LICENSE.txt` at the pinned commit, fetched 2026-09-13 |
 | PP-OCRv6 small det + rec models + `vocab.json` | Apache-2.0 | `texts/apache-2.0.txt` | HF model cards `PaddlePaddle/PP-OCRv6_small_{det_onnx,rec_safetensors}`: `license: apache-2.0` |
 | kana-size model `nb_all` | **unstated** | none — notice only | gap recorded in `notices/kana-size-model.txt`; training corpora attributed |
 | char n-gram `char_lm.bin` | public domain (Aozora Bunko) | none needed | `assets/lm/PROVENANCE.txt` |
@@ -120,7 +120,7 @@ files whose wording the index's labels are asserting):
 | `gpl-3.0.txt` | `https://www.gnu.org/licenses/gpl-3.0.txt` |
 | `lgpl-2.1.txt` | `https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt` |
 | `mpl-2.0.txt` | `https://www.mozilla.org/media/MPL/2.0/index.txt` |
-| `bsd-3-clause-ncnn.txt` | `https://raw.githubusercontent.com/vgf89/ncnn/a2b8507f.../LICENSE.txt` |
+| `bsd-3-clause-ncnn.txt` | `https://raw.githubusercontent.com/holopengin/ncnn/b498fc07.../LICENSE.txt` |
 | `cc-by-sa-4.0.txt` | `https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt` |
 | `unicode-licence-v3.txt` | `https://www.unicode.org/license.txt` |
 | `edrdg-licence.txt` | `https://www.edrdg.org/edrdg/licence.html`, converted to plain text |
