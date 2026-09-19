@@ -859,9 +859,12 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      */
     private fun rotate(clockwise: Boolean) {
         rotations = RotationQueue.press(rotations, clockwise)
-        // The turn is cheap and the user asked for it now, so show it now whatever the
-        // OCR is doing — waiting for the pass in flight is what made a second press feel
-        // stuck. The pass for the new orientation follows from runRotations.
+        // The turn is shown at once, whatever the OCR is doing: the display pump
+        // composes RotationQueue.displayTurns (the net asked for, including any
+        // presses already queued behind a running pass) and showImageWithoutResults
+        // drops -- and so cancels -- the run it replaces. Only the next PASS is
+        // coalesced: RotationQueue.press queues while one is in flight and
+        // runRotations runs a single pass for the net once it ends.
         if (rotateDisplayJob?.isActive != true) {
             rotateDisplayJob = overlayScope.launch { runDisplayTurns() }
         }
@@ -881,14 +884,17 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * the new pass runs.
      */
     private suspend fun runDisplayTurns() {
-        while (rotations.turns != composedTurns) {
+        // The net the user asked for, not just the pass's own turn: a press that
+        // landed behind a running pass is on screen immediately too, and the
+        // running pass is cancelled by the showImageWithoutResults below.
+        while (rotations.displayTurns != composedTurns) {
             val view = overlayView ?: break
             val base = baseImage ?: break
             val width = surfaceWidth
             val height = surfaceHeight
             if (width <= 0 || height <= 0) break
 
-            val turns = rotations.turns
+            val turns = rotations.displayTurns
             val recomposed = withContext(Dispatchers.IO) {
                 composeForScreen(base, width, height, turns)
             }
@@ -907,6 +913,13 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             image = recomposed
             composedTurns = turns
             view.showImageWithoutResults()
+            // The results belonged to the image just replaced. Park the "last pass"
+            // marker at -1 so runRotations always runs one for what is now on
+            // screen — even when the net orientation lands back on an orientation a
+            // previous pass read (a quick one-way-then-back press), where comparing
+            // orientations alone would wrongly decide the screen was already done
+            // and leave it blank.
+            lastOcrTurns = -1
         }
         rotateDisplayJob = null
     }
@@ -935,13 +948,23 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             // actually on screen, not one that is about to be replaced.
             rotateDisplayJob?.join()
             rotations = RotationQueue.passFinished(rotations)
-            // Work exists when the orientation the queue asks for is not the one the last
-            // pass read — see [lastOcrTurns]. `turns` wraps, so four turns need no pass.
-            if (rotations.turns == lastOcrTurns) break
+            // #86/A2: work exists when the orientation ON SCREEN is not the one the
+            // last pass read. Comparing `rotations.turns` alone missed two cases:
+            // a press whose display turn already dropped the old run (so nothing
+            // was on screen to compare against), and a net that landed back on the
+            // orientation a previous pass read. The display pump shows every press
+            // at once and parks [lastOcrTurns] at -1 when it replaces the image, so
+            // comparing the SCREEN's orientation catches both.
+            if (composedTurns == lastOcrTurns) break
 
             val view = overlayView ?: break
             if (surfaceWidth <= 0 || surfaceHeight <= 0) break
-            lastOcrTurns = rotations.turns
+            lastOcrTurns = composedTurns
+            // Mark the pass in flight BEFORE it starts, so a press that lands
+            // while it runs queues behind it (the #57 coalescing) instead of
+            // being taken for an idle press and starting a second, overlapping
+            // pass. The initial pass does the same via passStarted().
+            rotations = RotationQueue.passStarted(rotations)
             currentPass = view.startOcr()
         }
         rotatePump = null

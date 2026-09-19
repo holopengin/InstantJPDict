@@ -30,13 +30,20 @@ object RotationQueue {
      * whole state machine and a test can walk it a press at a time.
      */
     data class State(
-        /** Quarter turns (0..3) the pass in flight is for — what is on screen. */
+        /** Quarter turns (0..3) the pass in flight is for. */
         val turns: Int = 0,
-        /** Net quarter turns (0..3) requested while it ran, not applied yet. */
+        /** Net quarter turns (0..3) requested while it ran, not sent to a pass yet. */
         val queued: Int = 0,
         /** True while a pass is in flight: a press then queues instead of starting one. */
         val running: Boolean = false,
     ) {
+        /**
+         * The net orientation the user has asked for, wrapped — what the display
+         * must be showing. The display follows this, NOT [turns]: a press is put
+         * on screen at once, even while a pass runs (the running pass is dropped
+         * with it), and only the next *pass* is coalesced behind [queued].
+         */
+        val displayTurns: Int get() = (turns + queued) % 4
         companion object {
             /** Nothing on screen and no pass in flight. */
             val IDLE = State()

@@ -37,8 +37,9 @@ class RotationQueueTest {
         var state = RotationQueue.press(RotationQueue.State.IDLE, clockwise = true)
         state = RotationQueue.press(state, clockwise = true)
         assertTrue(state.running)
-        assertEquals(1, state.turns)   // what is on screen has not moved…
-        assertEquals(1, state.queued)  // …the second press is queued behind the pass
+        assertEquals(1, state.turns)   // the pass stays on its own orientation…
+        assertEquals(1, state.queued)  // …the second press is queued behind it
+        assertEquals(2, state.displayTurns)  // …and shown at once regardless
     }
 
     @Test
@@ -119,6 +120,60 @@ class RotationQueueTest {
         state = RotationQueue.press(state, clockwise = true)
         assertEquals(0, state.turns)
         assertEquals(1, state.queued)
+    }
+
+    /**
+     * The screen follows [RotationQueue.State.displayTurns] — the net asked for,
+     * wrapped — not [RotationQueue.State.turns]. This is what makes a press land
+     * on screen at once while a pass is still running, and it is the half the
+     * pump got wrong: comparing `turns` alone let a press that had already been
+     * shown go forgotten, and a run whose results the display had dropped was
+     * never replaced.
+     */
+    @Test
+    fun pressesWhileAPassRunsAreShownAtOnce() {
+        var state = RotationQueue.press(RotationQueue.State.IDLE, clockwise = true)
+        assertEquals(1, state.displayTurns)
+        state = RotationQueue.press(state, clockwise = true)
+        assertEquals(2, state.displayTurns)   // on screen now…
+        assertEquals(1, state.turns)          // …while the running pass keeps its turn
+        assertEquals(1, state.queued)
+    }
+
+    @Test
+    fun oppositePressesWhileAPassRunsBringTheDisplayBackAtOnce() {
+        var state = RotationQueue.press(RotationQueue.State.IDLE, clockwise = true)
+        state = RotationQueue.press(state, clockwise = false)
+        assertEquals(0, state.displayTurns)   // one then the other shows the start again
+        assertEquals(3, state.queued)         // …queued behind the pass, working back to 0
+        state = RotationQueue.passFinished(state)
+        assertEquals(0, state.displayTurns)   // the fold lands on the same net
+        assertEquals(0, state.turns)
+        assertEquals(0, state.queued)
+    }
+
+    @Test
+    fun displayTurnsMatchesWhatPressesOneAtATimeWouldHaveShown() {
+        val presses = listOf(true, true, false, true, false, false, true)
+        var oneAtATime = 0
+        presses.forEach { oneAtATime = ImageRotation.turn(oneAtATime, it) }
+        var coalesced = RotationQueue.passStarted(RotationQueue.State.IDLE)
+        presses.forEach { coalesced = RotationQueue.press(coalesced, it) }
+        assertEquals(oneAtATime, coalesced.displayTurns)
+    }
+
+    @Test
+    fun displayTurnsIgnoresThePassesOwnTurnUntilItFolds() {
+        // Two presses from rest: the first IS the pass (turns=1, queued=0), the
+        // second queues. displayTurns is where the user has got to either way.
+        var state = RotationQueue.press(RotationQueue.State.IDLE, clockwise = true)
+        state = RotationQueue.press(state, clockwise = true)
+        state = RotationQueue.passStarted(state)
+        assertEquals(2, state.displayTurns)
+        state = RotationQueue.passFinished(state)   // the pass ends; queued folds in
+        assertEquals(2, state.displayTurns)         // the net never jumps
+        assertEquals(2, state.turns)
+        assertEquals(0, state.queued)
     }
 
     @Test

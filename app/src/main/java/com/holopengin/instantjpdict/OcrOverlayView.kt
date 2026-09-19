@@ -713,6 +713,14 @@ class OcrOverlayView(
                     
                     postStatus(gen, "Recognizing...")
 
+                    // #86/A2: a pass always starts from a clean slate. The host's
+                    // display pump clears before starting one, but a container
+                    // re-fit can commit its kept-result layers between that clear
+                    // and this point — and buildBoxLayers only ADDS layers. Without
+                    // this the pass stacked its set on the refit's and both were
+                    // visible (two sets of characters, one per orientation).
+                    removeRunLayers()
+
                     // Both box layers, and the per-line click containers inside them,
                     // are built from either the fresh detect boxes (here) or the KEPT
                     // ones after a container re-fit (refitContent) — see buildBoxLayers.
@@ -852,6 +860,12 @@ class OcrOverlayView(
         cursorView = null
         textViews.clear()
         lineViews.clear()
+        // #86/A2: remove EVERY view with each tag, not just the first. A refit
+        // that ran while a pass was rendering (or two turns landing close
+        // together) could leave more than one layer set, and leaving the
+        // stragglers behind is what stacked a second and third set of rendered
+        // characters on screen. findViewWithTag returns one match, so the old
+        // form silently ratcheted.
         listOf(
             "clicks_layer",
             "lines_border_layer",
@@ -859,7 +873,10 @@ class OcrOverlayView(
             "correction_ui_root",
             "manual_input_blocker",
         ).forEach { tag ->
-            findViewWithTag<View>(tag)?.let { v -> (v.parent as? ViewGroup)?.removeView(v) }
+            while (true) {
+                val v = findViewWithTag<View>(tag) ?: break
+                (v.parent as? ViewGroup)?.removeView(v) ?: break
+            }
         }
     }
 
