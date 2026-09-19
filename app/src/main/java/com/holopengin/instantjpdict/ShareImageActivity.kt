@@ -985,7 +985,6 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * whatever the orientation.
      */
     private fun composeForScreen(base: Bitmap, targetW: Int, targetH: Int, turns: Int): Bitmap? {
-        val rotated = rotateBitmap(base, turns)
         val out = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
@@ -998,18 +997,25 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             fit.left.toFloat(), fit.top.toFloat(),
             (fit.left + fit.width).toFloat(), (fit.top + fit.height).toFloat()
         )
-        canvas.drawBitmap(rotated, null, dst, paint)
-        if (rotated !== base) rotated.recycle()
+        // #86: one draw, base -> output, with the turn folded into the matrix. The
+        // old shape rotated the whole base into a second full-size bitmap and drew
+        // that into `out`, so every quarter turn paid a filtered rotation of the
+        // full base plus that bitmap's allocation: measured ~150 ms of
+        // press-to-turn at the 90/270 orientations, against ~17 ms at 0/180. The
+        // matrix folds rotate -> normalise to the rotated bounds' origin -> scale
+        // to the fitted rect -> place at its offset, which is exactly what drawing
+        // the pre-rotated bitmap into `dst` produced, with neither the extra
+        // bitmap nor the extra pass.
+        val matrix = Matrix().apply {
+            postRotate(ImageRotation.degrees(turns))
+            val rotatedBounds = RectF(0f, 0f, base.width.toFloat(), base.height.toFloat())
+            mapRect(rotatedBounds)
+            postTranslate(-rotatedBounds.left, -rotatedBounds.top)
+            postScale(dst.width() / rotatedBounds.width(), dst.height() / rotatedBounds.height())
+            postTranslate(dst.left, dst.top)
+        }
+        canvas.drawBitmap(base, matrix, paint)
         return out
-    }
-
-    /** Clockwise quarter turns of [base]; [base] itself when there is nothing to
-     *  do, so the caller can tell whether it owns a second bitmap. */
-    private fun rotateBitmap(base: Bitmap, turns: Int): Bitmap {
-        val degrees = ImageRotation.degrees(turns)
-        if (degrees == 0f) return base
-        val matrix = Matrix().apply { postRotate(degrees) }
-        return Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrix, true)
     }
 
     /** Stream-decode via [android.content.ContentResolver]; the shared URI is a
