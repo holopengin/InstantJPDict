@@ -41,11 +41,21 @@
 -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The camera shortcut. No android:icon: the platform falls back to the app
-         icon (badged as a shortcut), so this adds no bundled asset and therefore
-         no licence-index entry — the same reasoning the viewfinder's own chrome
-         uses for its repo-authored vectors. If it ever gets its own icon, that
-         asset enters app/licenses/components.tsv and this note is the reminder.
+    <!-- The camera shortcut carries its own mark (#87): `ic_shortcut_camera`, the
+         camera iris with the 辞典 dictionary mark, converted from the
+         repo-authored source `cam_logo.svg` at the repository root (beside
+         `logo.svg`).
+
+         Repo-authored like the viewfinder's `proto_ic_*` chrome, so it adds NO
+         row to `app/licenses/components.tsv` — that index is the bundled
+         THIRD-PARTY notice index, and the app's own AGPL row covers first-party
+         assets. (An earlier note here said a new icon would enter that index;
+         that was the wrong index for a repo-authored mark.)
+
+         A static shortcut can only carry a plain drawable, so there is no
+         adaptive/monochrome variant here: themed icons are an adaptive app-icon
+         feature, and the launcher icon keeps its own `ic_launcher_monochrome`,
+         untouched by this issue.
 
          The short label is the one a launcher must have and must be a string
          resource (the platform rejects a literal); "Camera" matches the control
@@ -53,6 +63,7 @@
     <shortcut
         android:shortcutId="camera"
         android:enabled="true"
+        android:icon="@drawable/ic_shortcut_camera"
         android:shortcutShortLabel="@string/shortcut_camera_short_label"
         android:shortcutLongLabel="@string/shortcut_camera_long_label">
         <intent

@@ -29,7 +29,9 @@ import javax.xml.parsers.DocumentBuilderFactory
  *    shortcut never appears, which is a failure no device-free test would
  *    otherwise catch;
  *  - the labels are STRING RESOURCES, as the platform requires (`android:shortcutShortLabel`
- *    may not be a literal), and the id is a literal, as the platform requires.
+ *    may not be a literal), and the id is a literal, as the platform requires;
+ *  - the shortcut names its own repo-authored mark (#87) rather than falling back
+ *    to the badged app icon, and the drawable it names exists.
  *
  * What this test cannot prove: that a launcher shows the shortcut, that Quick Tap
  * offers it, or that Back really pops the viewfinder to the dictionary screen.
@@ -162,6 +164,24 @@ class CameraShortcutResourceTest {
                 "camera through MainActivity",
             "false",
             activity(manifest, ".ProtoCameraActivity").attr("exported")
+        )
+    }
+
+    @Test
+    fun theShortcutCarriesItsOwnCameraMark() {
+        // #87: without android:icon the launcher badges the app icon, so the
+        // shortcut reads as "the app, again" beside the ordinary entry point.
+        val shortcut = shortcut(parse("src/main/res/xml/shortcuts.xml"))
+        assertEquals(
+            "the camera shortcut must name its own mark",
+            "@drawable/ic_shortcut_camera",
+            shortcut.attr("icon")
+        )
+        // A missing resource fails the build, but a renamed one would leave this
+        // reference stale — the file check keeps the two in step.
+        assertTrue(
+            "the drawable the shortcut names does not exist",
+            sourceFile("src/main/res/drawable/ic_shortcut_camera.xml").isFile
         )
     }
 
