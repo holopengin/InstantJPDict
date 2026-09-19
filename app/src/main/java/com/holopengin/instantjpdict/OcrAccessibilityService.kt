@@ -597,7 +597,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // Handle global shortcut when overlay is NOT showing
         if (overlayView == null) {
             val prefs = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
-            val globalShortcutEnabled = prefs.getBoolean("global_shortcut_enabled", true)
+            val globalShortcutEnabled = prefs.getBoolean("global_shortcut_enabled", false)
             
             if (!globalShortcutEnabled) {
                 pressedKeys.clear()

@@ -98,7 +98,7 @@ object GamepadSettingsDialog {
             R.drawable.ic_gamepad,
             "Global shortcut (L1 + R1)",
             "Opens the overlay from any app",
-            prefs.getBoolean("global_shortcut_enabled", true),
+            prefs.getBoolean("global_shortcut_enabled", false),
         ) { checked ->
             prefs.edit().putBoolean("global_shortcut_enabled", checked).apply()
         }
