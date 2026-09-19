@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.hardware.display.DisplayManager
 import android.view.animation.DecelerateInterpolator
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -73,6 +74,34 @@ class OcrAccessibilityService : AccessibilityService() {
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private var floatingParams: WindowManager.LayoutParams? = null
+    /**
+     * #93: the trigger's centre in natural (rotation-0) device coordinates — the
+     * canonical position. Rotation re-derives the logical pixels from this, so
+     * the button stays taped to the same physical spot (beside the front-camera
+     * cutout here) and rotating back lands on the exact same pixel even when the
+     * intermediate orientation had to clamp the button at an edge. Kept in step
+     * by every user placement: the drag below, and the overlay close button's
+     * drag through [OcrOverlayView.Host.onCloseButtonMoved].
+     */
+    private var floatingNatCX = 0f
+    private var floatingNatCY = 0f
+    /**
+     * #93: rotating landscape→landscape (ROTATION_90 ↔ ROTATION_270) changes no
+     * Configuration, so [onConfigurationChanged] never fires for it; this
+     * listener is what catches that half of the rotation space. Both paths feed
+     * the same [repositionFloatingButtonForDisplay], so a callback arriving
+     * twice is a no-op.
+     */
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY && !isDestroyed) {
+                repositionFloatingButtonForDisplay()
+            }
+        }
+    }
+    private var displayListenerRegistered = false
     private var ocrButton: Button? = null
     /** Set in onDestroy so restore paths never re-add windows during teardown. (#60) */
     private var isDestroyed = false
@@ -178,6 +207,10 @@ class OcrAccessibilityService : AccessibilityService() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // #93: the window params live in the current display's space, so a
+        // rotation must re-derive them before anything reads them (the
+        // overlay's close-button origin below).
+        repositionFloatingButtonForDisplay()
         if (overlayView != null) {
             hideScreenshotOverlay()
         }
@@ -192,6 +225,15 @@ class OcrAccessibilityService : AccessibilityService() {
         serviceInfo = info
         // Reconnects must not duplicate the button; creation happens once. (#60)
         if (floatingView == null) addFloatingButton() else ensureFloatingButton()
+        registerDisplayListener()
+    }
+
+    /** #93: the display listener is idempotent across service reconnects. */
+    private fun registerDisplayListener() {
+        val dm = getSystemService(DISPLAY_SERVICE) as? DisplayManager ?: return
+        if (displayListenerRegistered) dm.unregisterDisplayListener(displayListener)
+        dm.registerDisplayListener(displayListener, null)
+        displayListenerRegistered = true
     }
 
     private fun addFloatingButton() {
@@ -212,9 +254,9 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
         val frameLayout = FrameLayout(this)
+        val size = (44 * resources.displayMetrics.density).toInt()
         ocrButton = CenteredButton(this).apply {
             background = logoButtonBackground(this@OcrAccessibilityService)
-            val size = (44 * resources.displayMetrics.density).toInt()
             layoutParams = FrameLayout.LayoutParams(size, size)
             setPadding(0, 0, 0, 0)
             minWidth = 0
@@ -224,6 +266,9 @@ class OcrAccessibilityService : AccessibilityService() {
             alpha = 0.3f
         }
         frameLayout.addView(ocrButton)
+        // #93: the default (100,100) is the first canonical placement; every
+        // later rotation maps from whatever the user last set.
+        rememberFloatingPosition(100, 100)
         
         ocrButton?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
@@ -250,6 +295,7 @@ class OcrAccessibilityService : AccessibilityService() {
                         val newY = (initialY + (event.rawY - initialTouchY).roundToInt()).coerceIn(0, maxY)
                         params.x = newX
                         params.y = newY
+                        rememberFloatingPosition(newX, newY)
                         
                         val fv = floatingView ?: return false
                         if (fv.parent == overlayView) {
@@ -313,6 +359,56 @@ class OcrAccessibilityService : AccessibilityService() {
             wm.addView(fv, floatingParams)
         } catch (e: Exception) {
             Log.e("OcrAccessibilityService", "Error restoring floating button", e)
+        }
+    }
+
+    // ---- #93: physical position across rotation ----
+
+    /** The trigger's current pixel size (44dp before the first layout). */
+    private fun floatingButtonSize(): Pair<Int, Int> {
+        val v = ocrButton
+        if (v != null && v.width > 0 && v.height > 0) return v.width to v.height
+        val s = (44 * resources.displayMetrics.density).toInt()
+        return s to s
+    }
+
+    /** The display rotation the floating window is laid out under. */
+    private fun displayRotation(): Int =
+        (getSystemService(DISPLAY_SERVICE) as? DisplayManager)
+            ?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: ROTATION_NATURAL
+
+    /** Keep the canonical natural centre in step with a user placement. */
+    private fun rememberFloatingPosition(x: Int, y: Int) {
+        val (w, h) = floatingButtonSize()
+        val dm = resources.displayMetrics
+        val (cx, cy) = naturalCentre(x, y, w, h, dm.widthPixels, dm.heightPixels, displayRotation())
+        floatingNatCX = cx
+        floatingNatCY = cy
+    }
+
+    /** Re-derive the window position after a display size/rotation change. */
+    private fun repositionFloatingButtonForDisplay() {
+        val params = floatingParams ?: return
+        val (w, h) = floatingButtonSize()
+        val dm = resources.displayMetrics
+        val rotation = displayRotation()
+        val (x, y) = logicalTopLeft(
+            floatingNatCX, floatingNatCY, w, h, dm.widthPixels, dm.heightPixels, rotation,
+        )
+        if (params.x == x && params.y == y) return
+        params.x = x
+        params.y = y
+        Log.d(
+            "OcrAccessibilityService",
+            "floating button -> ($x,$y) on ${dm.widthPixels}x${dm.heightPixels} rotation=$rotation",
+        )
+        val fv = floatingView
+        if (fv?.isAttachedToWindow == true) {
+            try {
+                windowManager?.updateViewLayout(fv, params)
+            } catch (e: Exception) {
+                Log.e("OcrAccessibilityService", "Error repositioning floating button", e)
+            }
         }
     }
 
@@ -484,6 +580,7 @@ class OcrAccessibilityService : AccessibilityService() {
             override fun onCloseButtonMoved(x: Int, y: Int) {
                 floatingParams?.x = x
                 floatingParams?.y = y
+                rememberFloatingPosition(x, y)
             }
         }
 
@@ -579,6 +676,10 @@ class OcrAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         isDestroyed = true
         super.onDestroy()
+        if (displayListenerRegistered) {
+            (getSystemService(DISPLAY_SERVICE) as? DisplayManager)?.unregisterDisplayListener(displayListener)
+            displayListenerRegistered = false
+        }
         try { unregisterReceiver(overlayControllerReceiver) } catch (e: Exception) {}
         // #78: release the lifecycle watch with the service. The state itself
         // ([ownViewsStarted]) is deliberately NOT cleared: it describes the app's
