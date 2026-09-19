@@ -5,7 +5,16 @@ InstantJPDict is an Android application which provides instant Japanese-to-Engli
 It imports dictionaries in the Yomitan format such as [Jitendex, ](https://jitendex.org/pages/downloads.html)[JMDict, and KANJIDIC](https://github.com/yomidevs/jmdict-yomitan). Currently untested with other dictionaries.
 
 ## Demo
-<div><video controls src="https://github.com/user-attachments/assets/06a01786-9082-4fea-a1fb-0a463180bd99"></video></div>
+<div><video controls src="https://github.com/user-attachments/assets/44073eb7-8ecc-45e8-8f89-f661ef5bba38"></video></div>
+
+
+
+
+
+
+
+
+
 
 ## Features
 - **On-device OCR**: High-speed Japanese text recognition without an internet connection.
