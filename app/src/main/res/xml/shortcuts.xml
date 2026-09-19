@@ -58,8 +58,8 @@
          untouched by this issue.
 
          The short label is the one a launcher must have and must be a string
-         resource (the platform rejects a literal); "Camera" matches the control
-         on the main screen so the two read as one thing. -->
+         resource (the platform rejects a literal); it carries the product's
+         camera name, "InstantJPCam" (#87), and the long label states the action. -->
     <shortcut
         android:shortcutId="camera"
         android:enabled="true"

@@ -196,9 +196,9 @@ class CameraShortcutResourceTest {
         val long = shortcut.attr("shortcutLongLabel")
         assertNotNull("the shortcut has no short label: $shortcut", short)
         assertNotNull("the shortcut has no long label: $shortcut", long)
-        // The short label is what the launcher's list shows, and it must read as
-        // the same control the main screen's pinned button offers ("Camera").
-        assertEquals("Camera", stringResource(short!!))
+        // The short label is what the launcher's list shows; it carries the
+        // product's camera name (#87), not the bare word "Camera".
+        assertEquals("InstantJPCam", stringResource(short!!))
         val longText = stringResource(long!!)
         assertTrue("the long label must say what the shortcut does: $longText",
             longText.contains("camera", ignoreCase = true))
