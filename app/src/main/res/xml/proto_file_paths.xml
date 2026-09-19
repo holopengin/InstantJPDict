@@ -12,4 +12,9 @@
     <cache-path
         name="bookmarks"
         path="bookmarks/" />
+    <!-- Crash reports: the FileProvider URI behind the optional attachment on
+         the crash-report email. Cache-only, like the rest. -->
+    <cache-path
+        name="crashes"
+        path="crashes/" />
 </paths>

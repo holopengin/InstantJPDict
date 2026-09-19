@@ -20,5 +20,8 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         DynamicColors.applyToActivitiesIfAvailable(this)
+        // Before any other app code runs, so an early-startup crash is captured
+        // too. See CrashReporter for the report/hand-off flow.
+        CrashReporter.install(this)
     }
 }

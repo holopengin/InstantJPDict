@@ -1,5 +1,6 @@
 package com.holopengin.instantjpdict
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -17,6 +18,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -481,6 +483,18 @@ class MainActivity : AppCompatActivity() {
             trailing = chevron()
         ) { startActivity(Intent(this, DebugSettingsActivity::class.java)) })
 
+        // ————————— feedback —————————
+        // The very bottom of the column: the way to reach the maintainer when
+        // something is wrong. The bottom margin keeps it clear of the pinned
+        // camera FAB at the end of the scroll.
+        val feedbackButton = outlinedButton(content, "Have Feedback?", R.drawable.ic_email) {
+            sendFeedback()
+        }
+        feedbackButton.layoutParams =
+            (feedbackButton.layoutParams as LinearLayout.LayoutParams).apply {
+                bottomMargin = dp(60)
+            }
+
         // ————————— the pinned camera affordance —————————
         // The camera is the app's purpose, so it is not a row in a list: it is an
         // extended FAB, a sibling of the ScrollView in the CoordinatorLayout, so it
@@ -622,6 +636,26 @@ class MainActivity : AppCompatActivity() {
             Intent(this, ProtoCameraActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         )
+    }
+
+    /**
+     * The feedback path: the user's own mail app, addressed to
+     * [Feedback.ADDRESS], pre-filled with the version/device block so a report
+     * does not start with a round of "which build?".
+     */
+    private fun sendFeedback() {
+        val body = buildString {
+            appendLine("(Describe your feedback or the problem here)")
+            appendLine()
+            appendLine("—")
+            appendLine(Feedback.appVersion(this@MainActivity))
+            appendLine(Feedback.deviceInfo())
+        }
+        try {
+            startActivity(Feedback.emailIntent(this, "InstantJPDict feedback", body))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "No email app found", Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
