@@ -2,7 +2,6 @@ package com.holopengin.instantjpdict
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
 import java.io.File
@@ -41,33 +40,29 @@ object Feedback {
             "(API ${Build.VERSION.SDK_INT})"
 
     /**
-     * With a readable [attachment]: `ACTION_SEND` as `message/rfc822`, the only
-     * shape that can carry a stream, with a read grant for the FileProvider URI.
-     * Without one: `ACTION_SENDTO` to the `mailto:` URI, which is guaranteed to
-     * be an email app and cannot leak the report into a chat app.
+     * Always `ACTION_SEND` as `message/rfc822`: the one shape that both
+     * prefills subject/body (Gmail ignores the extras on `ACTION_SENDTO`) and
+     * can carry the optional crash-log stream, with a read grant for the
+     * FileProvider URI. `message/rfc822` keeps the chooser to mail apps, where
+     * `text/plain` would offer chat apps too.
      */
     fun emailIntent(
         context: Context,
         subject: String,
         body: String,
         attachment: File? = null,
-    ): Intent {
-        val file = attachment?.takeIf { it.isFile }
-        if (file == null) {
-            return Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$ADDRESS")).apply {
-                putExtra(Intent.EXTRA_SUBJECT, subject)
-                putExtra(Intent.EXTRA_TEXT, body)
-            }
-        }
-        val uri: Uri = FileProvider.getUriForFile(
-            context, "${context.packageName}$FILE_PROVIDER_SUFFIX", file
-        )
-        return Intent(Intent.ACTION_SEND).apply {
-            type = "message/rfc822"
-            putExtra(Intent.EXTRA_EMAIL, arrayOf(ADDRESS))
-            putExtra(Intent.EXTRA_SUBJECT, subject)
-            putExtra(Intent.EXTRA_TEXT, body)
-            putExtra(Intent.EXTRA_STREAM, uri)
+    ): Intent = Intent(Intent.ACTION_SEND).apply {
+        type = "message/rfc822"
+        putExtra(Intent.EXTRA_EMAIL, arrayOf(ADDRESS))
+        putExtra(Intent.EXTRA_SUBJECT, subject)
+        putExtra(Intent.EXTRA_TEXT, body)
+        attachment?.takeIf { it.isFile }?.let { file ->
+            putExtra(
+                Intent.EXTRA_STREAM,
+                FileProvider.getUriForFile(
+                    context, "${context.packageName}$FILE_PROVIDER_SUFFIX", file
+                ),
+            )
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
