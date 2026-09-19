@@ -134,8 +134,9 @@ class DebugSettingsActivity : AppCompatActivity() {
             BlankGaps.setEnabled(this, checked)
             Log.d(TAG, "blank_gaps_enabled=$checked")
         })
-        // #53: rotated-rect detection is opt-in — axis-aligned lines stay the
-        // default; the richer geometry is an experiment.
+        // #53: rotated-rect detection is ON by default now; this switch turns it
+        // off back to the axis-aligned path. The richer geometry still has the
+        // narrower edge-case coverage, hence "experimental".
         behaviourBody.addView(ui.switchRow(
             null,
             "Detect rotated lines (experimental)",

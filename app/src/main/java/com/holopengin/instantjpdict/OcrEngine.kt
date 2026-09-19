@@ -60,10 +60,11 @@ class OcrEngine(private val context: Context) {
         const val PREF_DET_UNCLIP = "ppocr_det_unclip_ratio"
         const val PREF_X_OVERLAP = "x_overlap_thresh"
         const val PREF_REC_SQUISH = "rec_squish_factor"
-        /** #53: opt-in rotated-rect detection (minAreaRect fit + unrotate before
-         *  rec). Off = the axis-aligned path, bit-for-bit the pre-#53 pipeline. */
+        /** #53: rotated-rect detection (minAreaRect fit + unrotate before rec).
+         *  ON by default; off = the axis-aligned path, bit-for-bit the pre-#53
+         *  pipeline. Reachable as the debug screen's "Detect rotated lines". */
         const val PREF_DET_ROTATED = "ppocr_det_rotated"
-        const val DEF_DET_ROTATED = false
+        const val DEF_DET_ROTATED = true
 
         // Defaults (previous hard constants)
         const val DEF_DET_LONG_SIDE = 960
@@ -127,7 +128,8 @@ class OcrEngine(private val context: Context) {
         fun getDetThresh(ctx: Context): Float =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getFloat(PREF_DET_THRESH, DEF_DET_THRESH)
         fun getDetLongSide(ctx: Context): Int = DEF_DET_LONG_SIDE
-        /** #53: the rotated-rect opt-in. Read per detection run, like the tunables. */
+        /** #53: rotated-rect detection, on by default. Read per detection run, like
+         *  the tunables. */
         fun isDetRotated(ctx: Context): Boolean =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_DET_ROTATED, DEF_DET_ROTATED)
@@ -651,18 +653,18 @@ class OcrEngine(private val context: Context) {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    //  Rotated detect (opt-in, #53) — same mask, minAreaRect per component
+    //  Rotated detect (#53, on by default) — same mask, minAreaRect per component
     // ═════════════════════════════════════════════════════════════════════════
 
-    /** #53: the detection geometry for the caller, honouring the opt-in pref.
-     *  With the opt-in off this is exactly [detect], one [LineBox.of] per rect,
-     *  so nothing on the default path changes. */
+    /** #53: the detection geometry for the caller, honouring the pref. It is ON
+     *  by default; turned off it is exactly [detect], one [LineBox.of] per rect,
+     *  the pre-#53 pipeline. */
     fun detectLines(bitmap: Bitmap): List<LineBox> =
         if (isDetRotated(context)) detectRotated(bitmap)
         else detect(bitmap).map { LineBox.of(it) }
 
     /**
-     * #53: the opt-in rotated path. Same DB mask and flood-fill as [detect], but
+     * #53: the rotated path. Same DB mask and flood-fill as [detect], but
      * each component's boundary pixels are fitted with a minimum-area rectangle
      * ([RotatedGeometry.fitQuad]) instead of being reduced to min/max X/Y — the
      * same pixels PaddleOCR's default `quad` postprocess fits. The fit is done on
@@ -671,13 +673,14 @@ class OcrEngine(private val context: Context) {
      *
      * A fit within [RotatedGeometry.AXIS_ALIGNED_TOL_DEG] of the upright axes is
      * returned as a plain [LineBox.rect] with no quad: upright content keeps the
-     * exact recognition path it had, even with the opt-in on. Only genuinely
-     * rotated Lines carry a quad and get unrotated before recognition.
+     * exact recognition path it had. Only genuinely rotated Lines carry a quad
+     * and get unrotated before recognition.
      *
-     * Deliberately narrower than the default pipeline for now: furigana filtering
-     * runs on AABB geometry, but box merging/splitting, the ruby-gutter trim and
-     * the axis-aligned furigana geometry rules do not apply to rotated Lines.
-     * The default path is untouched; this is the opt-in.
+     * Deliberately narrower than the axis-aligned pipeline for now: furigana
+     * filtering runs on AABB geometry, but box merging/splitting, the ruby-gutter
+     * trim and the axis-aligned furigana geometry rules do not apply to rotated
+     * Lines. The axis-aligned path is untouched and still reachable with the pref
+     * off; this is the default.
      */
     fun detectRotated(bitmap: Bitmap): List<LineBox> {
         val mask = runDetMask(bitmap) ?: return emptyList()
