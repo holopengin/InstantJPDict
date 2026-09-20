@@ -65,6 +65,12 @@ class OcrEngine(private val context: Context) {
          *  pipeline. Reachable as the debug screen's "Detect rotated lines". */
         const val PREF_DET_ROTATED = "ppocr_det_rotated"
         const val DEF_DET_ROTATED = true
+        /** #28: the furigana (ruby) filter. ON by default; off skips the small-
+         *  text rule entirely, so ruby survives as its own lines (and so do any
+         *  small annotations the rule was eating). Reachable as the debug
+         *  screen's "Filter furigana (ruby)". */
+        const val PREF_DET_FURIGANA = "ppocr_det_furigana"
+        const val DEF_DET_FURIGANA = true
 
         // Defaults (previous hard constants)
         const val DEF_DET_LONG_SIDE = 960
@@ -136,6 +142,14 @@ class OcrEngine(private val context: Context) {
         fun setDetRotated(ctx: Context, enabled: Boolean) {
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putBoolean(PREF_DET_ROTATED, enabled).apply()
+        }
+        /** #28: the furigana filter, on by default. Read per detection run. */
+        fun isDetFurigana(ctx: Context): Boolean =
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_DET_FURIGANA, DEF_DET_FURIGANA)
+        fun setDetFurigana(ctx: Context, enabled: Boolean) {
+            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(PREF_DET_FURIGANA, enabled).apply()
         }
 
         /** Furigana (ruby) filter thresholds (#28) — conservative: better to
@@ -259,6 +273,9 @@ class OcrEngine(private val context: Context) {
         get() = prefs.getFloat(PREF_DET_THRESH, DEF_DET_THRESH)
     private val detUnclip: Float
         get() = prefs.getFloat(PREF_DET_UNCLIP, DEF_DET_UNCLIP)
+    /** #28: furigana filter switch; off means every small contour is kept. */
+    private val detFurigana: Boolean
+        get() = prefs.getBoolean(PREF_DET_FURIGANA, DEF_DET_FURIGANA)
     private val xOverlapThresh: Float
         get() = prefs.getFloat(PREF_X_OVERLAP, DEF_X_OVERLAP)
     /** Live squish factor from debug slider (0.2–1.0, default 0.5). #24 */
@@ -353,7 +370,7 @@ class OcrEngine(private val context: Context) {
         // modelSize×modelSize letterbox (#51: net runs at DET_MODEL_SIZE).
         val modelSize = DET_MODEL_SIZE.coerceIn(320, 960)
         val targetLong = minOf(detLongSide, modelSize)
-        Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize")
+        Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize furigana=$detFurigana")
         val scale = targetLong.toFloat() / maxOf(origW, origH)
         val resizeW = maxOf((origW * scale).roundToInt(), 32)
         val resizeH = maxOf((origH * scale).roundToInt(), 32)
@@ -584,7 +601,12 @@ class OcrEngine(private val context: Context) {
         // 6b. Furigana filter (#28) on RAW contour geometry (pre-unclip, pre-merge):
         // unclip padding inflates overlap and fabricates ruby matches out of stacked
         // column fragments (only their padding overlaps). Kept indices gate rawBoxes.
-        val keepNonRuby = filterFurigana(rawPreBoxes, rawBoxes, bitmap.width, bitmap.height)
+        // The switch can turn the whole rule off; then every contour is kept.
+        val keepNonRuby = if (detFurigana) {
+            filterFurigana(rawPreBoxes, rawBoxes, bitmap.width, bitmap.height)
+        } else {
+            BooleanArray(rawBoxes.size) { true }
+        }
         val keptUnclipped = rawBoxes.filterIndexed { i, _ -> keepNonRuby.getOrElse(i) { true } }
         if (keptUnclipped.size != rawBoxes.size) {
             val dropped = rawPreBoxes.filterIndexed { i, _ -> !keepNonRuby.getOrElse(i) { true } }
@@ -759,13 +781,17 @@ class OcrEngine(private val context: Context) {
 
         // 6b. Furigana filter (#28) on AABB geometry: the same rule and the same
         // raw-vs-unclipped pair as the default path, so ruby is not promoted to a
-        // Line just because the fit rotated it.
-        val keep = filterFurigana(
-            preQuads.map { it.toRect() },
-            quads.map { it.toRect() },
-            bitmap.width,
-            bitmap.height,
-        )
+        // Line just because the fit rotated it. Skipped when the switch is off.
+        val keep = if (detFurigana) {
+            filterFurigana(
+                preQuads.map { it.toRect() },
+                quads.map { it.toRect() },
+                bitmap.width,
+                bitmap.height,
+            )
+        } else {
+            BooleanArray(quads.size) { true }
+        }
 
         // 7-9. Min-size filter, blob filter and the centred vertical-width
         // shrink; merging, splitting and the ruby-gutter trim are default-path

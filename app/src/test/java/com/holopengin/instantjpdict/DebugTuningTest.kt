@@ -46,6 +46,7 @@ class DebugTuningTest {
                 DoubleTapZoom.PREF_ENABLED,
                 BlankGaps.PREF_ENABLED,
                 OcrEngine.PREF_DET_ROTATED,
+                OcrEngine.PREF_DET_FURIGANA,
             ),
             DebugTuning.features.map { it.key },
         )

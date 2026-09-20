@@ -146,6 +146,18 @@ class DebugSettingsActivity : AppCompatActivity() {
             OcrEngine.setDetRotated(this, checked)
             Log.d(TAG, "det_rotated_enabled=$checked")
         })
+        // #28: the furigana (ruby) filter, on by default. Off lets the small
+        // ruby contours through as their own lines, which is occasionally what
+        // you want (annotations, tiny UI text) and is useful for A/B-ing it.
+        behaviourBody.addView(ui.switchRow(
+            null,
+            "Filter furigana (ruby)",
+            "Drops small ruby text beside kanji so it does not become its own result",
+            OcrEngine.isDetFurigana(this)
+        ) { checked ->
+            OcrEngine.setDetFurigana(this, checked)
+            Log.d(TAG, "det_furigana_enabled=$checked")
+        })
         behaviourCard.addView(behaviourBody)
         content.addView(behaviourCard)
 
