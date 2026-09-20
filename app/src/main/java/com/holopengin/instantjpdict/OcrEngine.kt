@@ -152,33 +152,9 @@ class OcrEngine(private val context: Context) {
                 .putBoolean(PREF_DET_FURIGANA, enabled).apply()
         }
 
-        /** Furigana (ruby) filter thresholds (#28) — conservative: better to
-         * recognize ruby than to drop real small text. Matching runs on RAW
-         * contour geometry (pre-unclip: unclip padding fabricates overlap for
-         * stacked fragments); only the gap test uses UNCLIPPED boxes (raw gutters
-         * are real pixels, unclip closes them to ruby distance). Vertical ruby
-         * additionally requires the small-box center to lie OUTSIDE the big box
-         * x-range, so stacked column tails are never dropped. */
-        private const val FURIGANA_SIZE_RATIO = 0.3f    // small long-side < 30% of large long-side
-        private const val FURIGANA_THIN_RATIO = 0.75f   // horizontal ruby runs long but thin;
-                                                       // measured ~0.65-0.70 of main height here
-                                                       // (vertical ruby stays short-only)
-        private const val FURIGANA_HSHORT_RATIO = 0.85f // horizontal short-side ceiling: thin ruby here
-                                                       // runs ~0.7 of main height; full-height short
-                                                       // lines (≈1.0) must survive
-        private const val FURIGANA_WIDTH_RATIO = 0.65f  // small short-side < 65% of large short-side:
-                                                       // ruby glyphs run smaller; full-width short
-                                                       // lines (か？」) and short columns survive this
-        private const val FURIGANA_GAP_RATIO = 0.5f     // gap <= 50% of large short-side
-        private const val FURIGANA_OVERLAP_RATIO = 0.5f // overlap >= 50% of small long-side
-        /** #28 orientation rule, shared with the rotated fit so both paths agree. */
+        /** #28 orientation rule, shared with the rotated fit so both paths agree.
+         *  The furigana geometry rules themselves live in [FuriganaRule]. */
         private const val VERTICAL_MIN_ASPECT = RotatedGeometry.VERTICAL_MIN_ASPECT
-        // Absolute ceiling: real short columns (e.g. 458px) dwarf ruby runs even when the
-        // ratio matches — ruby longer than 12% of the image side is not ruby. #28
-        private const val FURIGANA_MAX_FRAC = 0.12f
-        // Absolute floor on the ANNOTATED box: ruby hugs full-size body text, not compact
-        // blocks (logo boxes, badges). Catches caption strips above logo blocks. #28
-        private const val FURIGANA_BIG_MIN_FRAC = 0.2f
 
         // Recognition constants (not tunable)
         private const val REC_TARGET_H = 48
@@ -887,50 +863,6 @@ class OcrEngine(private val context: Context) {
         return minOf(w, h).toFloat() >= maxOf(w, h) / VERTICAL_MIN_ASPECT
     }
 
-    private fun overlapLen(a1: Int, a2: Int, b1: Int, b2: Int): Int =
-        (minOf(a2, b2) - maxOf(a1, b1)).coerceAtLeast(0)
-
-    private fun gapLen(a1: Int, a2: Int, b1: Int, b2: Int): Int =
-        maxOf(0, maxOf(a1, b1) - minOf(a2, b2))
-
-    /** Tiny vertical box hugging a much larger vertical box (either side). #28
-     * Center must lie OUTSIDE the big box: stacked column fragments (tail of the
-     * column above/below, overlapping only via unclip padding) share its x-range.
-     * Size/center/overlap use RAW contour geometry; gap uses UNCLIPPED (raw gutters
-     * are real pixels, unclipped closes them to ruby distance). */
-    private fun isRubyVertical(
-        sRaw: JpDictRect, bRaw: JpDictRect, sUn: JpDictRect, bUn: JpDictRect, imgH: Int,
-    ): Boolean {
-        if (bRaw.height() < imgH * FURIGANA_BIG_MIN_FRAC) return false
-        if (sRaw.height() >= bRaw.height() * FURIGANA_SIZE_RATIO) return false
-        if (sRaw.height() >= imgH * FURIGANA_MAX_FRAC) return false
-        if (sUn.width() >= bUn.width() * FURIGANA_WIDTH_RATIO) return false
-        val cx = (sRaw.left + sRaw.right) / 2
-        if (cx >= bRaw.left && cx <= bRaw.right) return false
-        if (gapLen(sUn.left, sUn.right, bUn.left, bUn.right) > bUn.width() * FURIGANA_GAP_RATIO) return false
-        if (overlapLen(sRaw.top, sRaw.bottom, bRaw.top, bRaw.bottom) < sRaw.height() * FURIGANA_OVERLAP_RATIO) return false
-        return true
-    }
-
-    /** Tiny horizontal box right above a much larger horizontal box. #28 (same split).
-     * Judged by THINNESS alone, not length: horizontal ruby runs long or short, but its
-     * glyphs are always smaller. (Vertical keeps an additional shortness gate — narrow
-     * full-height columns exist; horizontal has no such case.) */
-    private fun isRubyHorizontal(
-        sRaw: JpDictRect, bRaw: JpDictRect, sUn: JpDictRect, bUn: JpDictRect, imgW: Int, imgH: Int,
-    ): Boolean {
-        if (bRaw.width() < imgW * FURIGANA_BIG_MIN_FRAC) return false
-        if (sRaw.height() >= bRaw.height() * FURIGANA_THIN_RATIO) return false
-        if (sRaw.height() >= imgH * FURIGANA_MAX_FRAC) return false
-        if (sUn.height() >= bUn.height() * FURIGANA_HSHORT_RATIO) return false
-        // Above-ness on RAW geometry: unclip grows both boxes toward each other (~18px
-        // mutual encroachment here), flipping genuinely-above ruby to overlapping. #28
-        if (sRaw.bottom > bRaw.top + 2) return false
-        if (bUn.top - sUn.bottom > bUn.height() * FURIGANA_GAP_RATIO) return false
-        if (overlapLen(sRaw.left, sRaw.right, bRaw.left, bRaw.right) < sRaw.width() * FURIGANA_OVERLAP_RATIO) return false
-        return true
-    }
-
     /** Keep-flags for likely-furigana boxes. raw/uncl are index-aligned (raw contours
      * vs unclipped detect boxes). #28 */
     private fun filterFurigana(raw: List<JpDictRect>, uncl: List<JpDictRect>, imgW: Int, imgH: Int): BooleanArray {
@@ -941,8 +873,10 @@ class OcrEngine(private val context: Context) {
             val checkHoriz = !isVerticalBox(small) || isSquareBox(small)
             !(raw.indices.any { j ->
                 j != i && (
-                    (checkVert && isVerticalBox(raw[j]) && isRubyVertical(raw[i], raw[j], uncl[i], uncl[j], imgH)) ||
-                    (checkHoriz && !isVerticalBox(raw[j]) && isRubyHorizontal(raw[i], raw[j], uncl[i], uncl[j], imgW, imgH))
+                    (checkVert && isVerticalBox(raw[j]) &&
+                        FuriganaRule.isRubyVertical(raw[i], raw[j], uncl[i], uncl[j], imgH)) ||
+                    (checkHoriz && !isVerticalBox(raw[j]) &&
+                        FuriganaRule.isRubyHorizontal(raw[i], raw[j], uncl[i], uncl[j], imgW, imgH))
                 )
             })
         }
