@@ -137,8 +137,8 @@ class OcrEngine(
             norm.sort()
             return norm[norm.size / 2]
         }
-        const val DEF_DET_THRESH = 0.65f
-        const val DEF_DET_UNCLIP = 1.20f
+        const val DEF_DET_THRESH = 0.25f
+        const val DEF_DET_UNCLIP = 0.70f
         const val DEF_X_OVERLAP = 0.40f
         const val DEF_REC_SQUISH = 0.5f
 
