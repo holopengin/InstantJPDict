@@ -146,17 +146,27 @@ class DebugSettingsActivity : AppCompatActivity() {
             OcrEngine.setDetRotated(this, checked)
             Log.d(TAG, "det_rotated_enabled=$checked")
         })
-        // #28: the furigana (ruby) filter, on by default. Off lets the small
-        // ruby contours through as their own lines, which is occasionally what
-        // you want (annotations, tiny UI text) and is useful for A/B-ing it.
+        // #28/#100: the furigana rule is OFF by default — it is flaky on camera
+        // photos and a wrong drop costs a whole line. Two switches, because the
+        // entry points differ in image quality: screenshots are crisp, camera
+        // photos are not.
         behaviourBody.addView(ui.switchRow(
             null,
-            "Filter furigana (ruby)",
-            "Drops small ruby text beside kanji so it does not become its own result",
-            OcrEngine.isDetFurigana(this)
+            "Filter furigana in screenshots",
+            "Overlay captures and shared images",
+            OcrEngine.isDetFurigana(this, OcrEngine.PREF_DET_FURIGANA_SCREEN)
         ) { checked ->
-            OcrEngine.setDetFurigana(this, checked)
-            Log.d(TAG, "det_furigana_enabled=$checked")
+            OcrEngine.setDetFurigana(this, checked, OcrEngine.PREF_DET_FURIGANA_SCREEN)
+            Log.d(TAG, "det_furigana_screen_enabled=$checked")
+        })
+        behaviourBody.addView(ui.switchRow(
+            null,
+            "Filter furigana in camera mode",
+            "Photos taken with the viewfinder",
+            OcrEngine.isDetFurigana(this, OcrEngine.PREF_DET_FURIGANA_CAMERA)
+        ) { checked ->
+            OcrEngine.setDetFurigana(this, checked, OcrEngine.PREF_DET_FURIGANA_CAMERA)
+            Log.d(TAG, "det_furigana_camera_enabled=$checked")
         })
         behaviourCard.addView(behaviourBody)
         content.addView(behaviourCard)

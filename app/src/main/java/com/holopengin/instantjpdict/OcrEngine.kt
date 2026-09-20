@@ -39,7 +39,16 @@ import kotlin.math.sqrt
  * full-res; only the single-pass batch path applies [recSquish] (#24).
  */
 
-class OcrEngine(private val context: Context) {
+class OcrEngine(
+    private val context: Context,
+    /**
+     * #100: which furigana switch this engine obeys. Every instance serves one
+     * entry point — the accessibility service's engine only runs overlay
+     * captures (screen), and [ShareImageActivity] builds its own, passing the
+     * camera key only for the viewfinder handoff.
+     */
+    private val furiganaPref: String = PREF_DET_FURIGANA_SCREEN,
+) {
     // Detection model (DB, #51) + vocabulary + single dynamic-width rec model (#23).
     private var detNcnn: DetNcnn? = null
     private var ppocrVocab: List<String> = emptyList()
@@ -65,12 +74,15 @@ class OcrEngine(private val context: Context) {
          *  pipeline. Reachable as the debug screen's "Detect rotated lines". */
         const val PREF_DET_ROTATED = "ppocr_det_rotated"
         const val DEF_DET_ROTATED = true
-        /** #28: the furigana (ruby) filter. ON by default; off skips the small-
-         *  text rule entirely, so ruby survives as its own lines (and so do any
-         *  small annotations the rule was eating). Reachable as the debug
-         *  screen's "Filter furigana (ruby)". */
-        const val PREF_DET_FURIGANA = "ppocr_det_furigana"
-        const val DEF_DET_FURIGANA = true
+        /** #28/#100: the furigana (ruby) rule, OFF by default — it is flaky on
+         *  camera photos, and a wrong drop costs a whole line. Two switches: the
+         *  screen-capture / image-share entry points read
+         *  [PREF_DET_FURIGANA_SCREEN], the viewfinder handoff reads
+         *  [PREF_DET_FURIGANA_CAMERA]. Reachable in the debug screen's Overlay
+         *  behaviour card. */
+        const val PREF_DET_FURIGANA_SCREEN = "ppocr_det_furigana"
+        const val PREF_DET_FURIGANA_CAMERA = "ppocr_det_furigana_camera"
+        const val DEF_DET_FURIGANA = false
 
         // Defaults (previous hard constants)
         const val DEF_DET_LONG_SIDE = 960
@@ -143,13 +155,14 @@ class OcrEngine(private val context: Context) {
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                 .putBoolean(PREF_DET_ROTATED, enabled).apply()
         }
-        /** #28: the furigana filter, on by default. Read per detection run. */
-        fun isDetFurigana(ctx: Context): Boolean =
+        /** #28/#100: the furigana rule, off by default. Read per detection run;
+         *  [key] selects the entry point's switch. */
+        fun isDetFurigana(ctx: Context, key: String = PREF_DET_FURIGANA_SCREEN): Boolean =
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(PREF_DET_FURIGANA, DEF_DET_FURIGANA)
-        fun setDetFurigana(ctx: Context, enabled: Boolean) {
+                .getBoolean(key, DEF_DET_FURIGANA)
+        fun setDetFurigana(ctx: Context, enabled: Boolean, key: String = PREF_DET_FURIGANA_SCREEN) {
             ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-                .putBoolean(PREF_DET_FURIGANA, enabled).apply()
+                .putBoolean(key, enabled).apply()
         }
 
         /** #28 orientation rule, shared with the rotated fit so both paths agree.
@@ -249,9 +262,9 @@ class OcrEngine(private val context: Context) {
         get() = prefs.getFloat(PREF_DET_THRESH, DEF_DET_THRESH)
     private val detUnclip: Float
         get() = prefs.getFloat(PREF_DET_UNCLIP, DEF_DET_UNCLIP)
-    /** #28: furigana filter switch; off means every small contour is kept. */
+    /** #28/#100: this entry point's furigana switch; off keeps every contour. */
     private val detFurigana: Boolean
-        get() = prefs.getBoolean(PREF_DET_FURIGANA, DEF_DET_FURIGANA)
+        get() = prefs.getBoolean(furiganaPref, DEF_DET_FURIGANA)
     private val xOverlapThresh: Float
         get() = prefs.getFloat(PREF_X_OVERLAP, DEF_X_OVERLAP)
     /** Live squish factor from debug slider (0.2–1.0, default 0.5). #24 */

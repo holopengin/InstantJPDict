@@ -393,7 +393,19 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
                 // coroutine starts, so it cannot be observed half-built. [onDestroy]
                 // waits for this construction before closing, so a build that outlives
                 // the activity is not leaked.
-                engineConstruction = launch(Dispatchers.IO) { engine = OcrEngine(this@ShareImageActivity) }
+                engineConstruction = launch(Dispatchers.IO) {
+                    // #100: the viewfinder handoff and a shared image get their
+                    // own furigana switches; the extra is the marker that tells
+                    // them apart (see logCameraHold).
+                    val fromCamera = intent?.getIntExtra(
+                        InheritedOrientation.EXTRA_CAMERA_HOLD, InheritedOrientation.NO_HOLD
+                    ) != InheritedOrientation.NO_HOLD
+                    engine = OcrEngine(
+                        this@ShareImageActivity,
+                        if (fromCamera) OcrEngine.PREF_DET_FURIGANA_CAMERA
+                        else OcrEngine.PREF_DET_FURIGANA_SCREEN,
+                    )
+                }
                 engineConstruction?.join()
                 val base = withContext(Dispatchers.IO) { decodeOriented(uri, surfaceWidth, surfaceHeight) }
                 if (isFinishing || isDestroyed) {
