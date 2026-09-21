@@ -1,5 +1,6 @@
 import java.io.File
 import java.util.Properties
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.android.application)
@@ -176,6 +177,12 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.recyclerview)
     implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // Pipeline-sharing/04: the JVM nav-graph mirror (NavGraphCoreTest) calls the
+    // real Rust core through the UniFFI/JNA bindings on the host. The @aar above
+    // carries no linux-x86-64 dispatch native, so unit tests need the plain JAR
+    // (same version — identical classes, only the test classpath gains the
+    // `com/sun/jna/linux-x86-64/libjnidispatch.so` resource JNA extracts).
+    testImplementation("net.java.dev.jna:jna:5.14.0")
     // #57: the androidx ExifInterface, not the platform one — the platform class cannot read
     // HEIF/WebP, which is what a photo shared from a modern phone camera often is.
     implementation("androidx.exifinterface:exifinterface:1.4.2")
@@ -222,6 +229,36 @@ tasks.named("preBuild") {
 tasks.register<Exec>("buildNavGraphCore") {
     workingDir = file("${project.rootDir}/nav_graph_core")
     commandLine("bash", "./build_nav_graph.sh")
+}
+
+// Host build of the same crate for the JVM nav-graph mirror (NavGraphCoreTest,
+// pipeline-sharing/04): unit tests run on x86-64 and cannot load the arm64
+// `.so` from jniLibs, so they load this host artifact instead (see the `Test`
+// wiring below). Inputs/outputs are declared so the 2-minute Rust link is
+// up-to-date-checked rather than rebuilt on every test run.
+tasks.register<Exec>("buildNavGraphCoreHost") {
+    group = "build"
+    description = "Build nav_graph_core for the host so JVM unit tests can call the real Rust core"
+    workingDir = file("${project.rootDir}/nav_graph_core")
+    commandLine("cargo", "build")
+    inputs.files(
+        file("${project.rootDir}/nav_graph_core/Cargo.toml"),
+        file("${project.rootDir}/nav_graph_core/Cargo.lock"),
+    )
+    inputs.dir(file("${project.rootDir}/nav_graph_core/src"))
+    outputs.file(file("${project.rootDir}/nav_graph_core/target/debug/libnav_graph_core.so"))
+}
+
+// JVM nav-graph mirror wiring: build the host `.so` first, then point JNA at
+// it. `jna.library.path` is where JNA's `Native.load("nav_graph_core")` looks
+// before `java.library.path`; the app itself is unaffected (it loads the arm64
+// `.so` from the APK on-device).
+tasks.withType<Test>().configureEach {
+    dependsOn("buildNavGraphCoreHost")
+    systemProperty(
+        "jna.library.path",
+        file("${project.rootDir}/nav_graph_core/target/debug").absolutePath,
+    )
 }
 
 // ————— F1 (#86): 16 KB page-size guard over the bundled jniLibs —————
