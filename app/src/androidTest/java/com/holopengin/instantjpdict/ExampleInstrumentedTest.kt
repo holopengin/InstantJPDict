@@ -17,8 +17,14 @@ import org.junit.Assert.*
 class ExampleInstrumentedTest {
     @Test
     fun useAppContext() {
-        // Context of the app under test.
-        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.holopengin.instantjpdict", appContext.packageName)
+        // Context of the app under test. The app id carries a build-type suffix
+        // now (.debug, and .dev for untagged releases), so the expected package
+        // comes from the instrumentation instead of a literal: the test APK is
+        // the target app's id plus ".test".
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assertEquals(
+            instrumentation.context.packageName.removeSuffix(".test"),
+            instrumentation.targetContext.packageName
+        )
     }
 }
