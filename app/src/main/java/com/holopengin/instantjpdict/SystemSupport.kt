@@ -73,13 +73,9 @@ data class JpDictQuad(
     fun mapLocalRect(local: JpDictRect): JpDictRect = RotatedGeometry.mapLocalRect(this, local)
 
     /** True when the frame is within [tolDeg] of the upright axes: such a Line
-     *  stays on the axis-aligned path and never needs an unrotate. Widened by
-     *  the fit's own quantization over the frame's long side
-     *  ([RotatedGeometry.axisAlignedBoundDeg], PC parity) — pinned by the
-     *  shared conformance corpus (`geometry-01` short-frame cases). */
+     *  stays on the axis-aligned path and never needs an unrotate. */
     fun isAxisAligned(tolDeg: Float = RotatedGeometry.AXIS_ALIGNED_TOL_DEG): Boolean =
-        kotlin.math.abs(tiltDeg) <=
-            RotatedGeometry.axisAlignedBoundDeg(maxOf(localWidth, localHeight), tolDeg)
+        kotlin.math.abs(tiltDeg) <= tolDeg
 
     companion object {
         /** The upright frame for [rect] with the corner order the fit builds on
