@@ -6,6 +6,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.holopengin.instantjpdict.util.CharLm
+import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.GapCandidates
 import com.holopengin.instantjpdict.util.KanaSizeEncoder
 import com.holopengin.instantjpdict.util.KanaSizeFix
@@ -89,6 +90,7 @@ class ConformanceCorpusTest {
     /** Kinds executed by a runner below. */
     private val EXECUTED_KINDS = setOf(
         "furigana", "geometry", "reading_order", "gap", "char_lm", "kana", "dictionary",
+        "deinflection", "ruby_style",
     )
 
     /**
@@ -509,6 +511,80 @@ class ConformanceCorpusTest {
                 exp.get(key)?.takeIf { !it.isJsonNull }?.asString?.let { want ->
                     assertTrue("${c.id}: $key $want missing from formatted senses:\n$blob", blob.contains(want))
                 }
+            }
+        }
+    }
+
+    // ── deinflection ────────────────────────────────────────────────
+
+    /**
+     * The shipped rules file both sides pin behavior against
+     * (`app/src/main/assets/deinflect.json`, verified byte-identical with the
+     * PC `accessibility_daemon/assets/deinflect.json` at copy time — see the
+     * corpus `README.md`). Filesystem lookup like [allCases]: the classloader
+     * cannot list directories, and main assets are not on the unit-test
+     * classpath.
+     */
+    private fun deinflectorAsset(): Deinflector {
+        val candidates = listOf(
+            File("app/src/main/assets/deinflect.json"),
+            File("src/main/assets/deinflect.json"),
+        )
+        val f = candidates.firstOrNull { it.isFile }
+            ?: error("deinflect.json not found; tried ${candidates.joinToString { it.path }}")
+        return Deinflector(f.reader())
+    }
+
+    @Test
+    fun deinflectionCases() {
+        val deinflector = deinflectorAsset()
+        for (c in kindCases("deinflection")) {
+            val body = c.root.getAsJsonObject("case")
+            val surface = body.stringField("surface")
+            val expectTerm = body.stringField("expect_term")
+            val expectReasons = body.getAsJsonArray("expect_reasons").map { it.asString }
+            // Terms are unique per surface (first derivation wins, both
+            // sides), so find-by-term plus an exact reason match is complete.
+            val hit = deinflector.deinflect(surface).firstOrNull { it.term == expectTerm }
+                ?: error("${c.id}: no derivation of $surface reaches $expectTerm")
+            assertEquals(
+                "${c.id}: reason labels drifted for $surface → $expectTerm",
+                expectReasons, hit.reasons,
+            )
+        }
+    }
+
+    // ── ruby_style ────────────────────────────────────────────────────
+
+    /**
+     * Color labels for the corpus (literals: `android.graphics.Color` is a
+     * stub on the JVM unit-test classpath). Anything unmapped fails loudly
+     * instead of drifting — extend the map, never widen a tolerance.
+     */
+    private fun rubyBaseLabel(color: Int): String = when (color) {
+        0xFFFFFFFF.toInt() -> "white"
+        0xFF00FFFF.toInt() -> "cyan"
+        else -> error("unmapped ruby base color ${color.toUInt().toString(16)}")
+    }
+
+    @Test
+    fun rubyStyleCases() {
+        for (c in kindCases("ruby_style")) {
+            for (m in c.root.getAsJsonObject("case").getAsJsonArray("modes")) {
+                val o = m.asJsonObject
+                val mode = o.stringField("mode")
+                // Same seam as the PC harness: body is the isMini renderer
+                // input every definition ruby takes, term the headword path.
+                val style = when (mode) {
+                    "body" -> RubyBaseStyle.forMini(true)
+                    "term" -> RubyBaseStyle.forMini(false)
+                    else -> error("${c.id}: bad mode $mode (body = isMini, term = full-size display)")
+                }
+                assertEquals(
+                    "${c.id} $mode: base treatment drifted",
+                    o.stringField("base"), rubyBaseLabel(style.baseColor),
+                )
+                assertEquals("${c.id} $mode: weight drifted", o.get("bold").asBoolean, style.bold)
             }
         }
     }
