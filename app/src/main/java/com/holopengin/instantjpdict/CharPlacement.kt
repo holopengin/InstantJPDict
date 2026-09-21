@@ -346,7 +346,13 @@ internal object CharPlacement {
         }
 
         val centers = anchors.copyOf()
-        val prof = if (pixels != null) readingProfile(pixels, cropW, cropH, isVertical) else null
+        // Ink pass needs a sane crop; anything degenerate keeps the template
+        // (the caller's legacy fallback would do worse than the fitted cells).
+        val prof = if (pixels != null && pixels.size >= cropW * cropH && cropW >= 8 && cropH >= 8) {
+            readingProfile(pixels, cropW, cropH, isVertical)
+        } else {
+            null
+        }
         if (prof != null) {
             val win = max(options.windowEm * tmpl.em, options.windowStride * pxPerT)
             val masses = FloatArray(n)

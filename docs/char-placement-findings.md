@@ -153,10 +153,10 @@ conf_i   = mean top-1 logit over the run
 margin_i = mean (top-1 - top-2) logit over the run
 ```
 
-The run centre is unbiased (measured -0.09 timesteps on real evidence); the
-`+0.5` is the app's cell convention and is correct.  `margin_i` is the
-confidence signal used later; raw logits have no absolute scale, their margin
-does.
+The run centre is unbiased against an ink proxy (measured +0.10 timesteps over
+2598 real characters); the `+0.5` is the app's cell convention and is correct.
+`margin_i` is the confidence signal used later; raw logits have no absolute
+scale, their margin does.
 
 If no top-K is available (legacy callers, cache re-decode), fall back to
 one-timestep runs at `charCols` — the algorithm then degenerates gracefully to
@@ -203,11 +203,13 @@ anchor_i = template_i   if |centre_i^ctc - template_i| ≤ max(0.4·em, 1.2·str
            centre_i^ctc otherwise
 ```
 
-The tolerance is just past the ±0.5-stride quantisation bound, so the CTC
-column wins only when the template is genuinely wrong.  This matters when the
-linear model breaks: halfwidth runs on an integer grid, or crops whose stride
-is comparable to the em (tall photo lines).  In those cases the run centre is
-the better anchor and ink measurement repairs the remaining ±stride/2.
+The tolerance is deliberately generous relative to the ±0.5-stride
+quantization bound: the template is preferred whenever quantization could
+explain the disagreement, and the CTC column only wins when the template is
+off by more than a full timestep.  This matters when the linear model breaks:
+halfwidth runs cut by an integer grid, or crops whose stride is comparable to
+the em (tall photo lines).  There the run centre is the better anchor and ink
+measurement repairs the remaining ±stride/2.
 
 ### Step 3 — ink refinement
 
@@ -311,21 +313,14 @@ widens on the tail (shipped `errors` preset 0.107em / 1.8% miss vs proposed
 0.063em / 1.0%), because the confidence margin halves the ink pull exactly
 where the recogniser is unsure.
 
-Parameter sensitivity (grid over anchor tolerance, window, pull) moves the
-clean mean between ~0.062em and ~0.072em; the defaults sit inside a flat
-basin, so no case rests on a knife edge.  Box widths are on average 0.085em
-narrower than the em cell (halfwidth latin advances differ from the 0.5em
-class and the neighbour cap trims the rest); tap and IoU metrics are the
-better measure and both are better than shipped.
-
 ### Real-inference spot check
 
 The vendored recognition fixtures (PC-hosted conformance corpus) were run
-through the shared ncnn core with a scratch Rust harness
-(`/tmp/opencode/rec_dump`, built against `/tmp/ncnn_build`'s prebuilt
-`libncnn.a`; not committed).  The dump carries, per recognized line, the
-pinned geometry (the shipped algorithm's PC output), the crop box and the
-raw per-timestep top-K.
+through the shared ncnn core with the scratch Rust harness committed under
+`tools/char_placement/real_dump/` (linked against the pinned ncnn fork's
+prebuilt `libncnn.a`; build notes in that directory).  The dump carries, per
+recognized line, the pinned geometry (the shipped algorithm's PC output), the
+crop box and the raw per-timestep top-K.
 
 290 axis-aligned lines / 3075 characters (25 rotated lines skipped — the
 quad warp is not implemented in the Python harness):
@@ -455,4 +450,5 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
 | `tools/char_placement/eval.py` | synthetic evaluation harness |
 | `tools/char_placement/real_eval.py` | real-dump evaluation / ink arbitration |
 | `tools/char_placement/export_kotlin_fixture.py` | fixture export for the JVM test |
+| `tools/char_placement/real_dump/` | scratch Rust harness that dumps real inference evidence |
 | `tools/char_placement/corpus/` | committed text sample + provenance |
