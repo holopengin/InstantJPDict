@@ -37,6 +37,14 @@ Expected size ~38 MB. Give the maintainer a bare, short URL named by the short
 commit hash (no markdown link), e.g.
 `http://100.112.14.102:8001/<short-sha>.apk`.
 
+**Release tags come from master.** Bump `versionName`/`versionCode` in a commit
+on master, tag that commit (`vX.Y.Z-rcN`), and push both. Every release tag must
+be an ancestor of master, so a master build installs over the latest release
+instead of being a version downgrade. `release/*` branches are optional; if one
+is cut, merge it back into master so the tagged commit lands in master's
+history. Version bumps happen only with tags — between tags master keeps the
+last released version.
+
 Build a debug or benchmark variant only when there is a real reason (native
 symbol triage, a benchmark run, or a bug that only reproduces outside R8), and
 say why when you deliver it. See #90 for the size history behind this choice.
