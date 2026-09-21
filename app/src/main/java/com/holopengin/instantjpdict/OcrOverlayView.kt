@@ -2112,12 +2112,20 @@ class OcrOverlayView(
         }
     }
 
+    /**
+     * DESIGN DEPARTURE 2026-09-21 (maintainer-ordered, mirrored on the PC
+     * app): body ruby (`isMini`, i.e. every definition/example run) renders
+     * WHITE and regular to match the surrounding body typeface, while
+     * full-size headword/term display keeps bold cyan. The furigana row
+     * stays light gray either way. Do NOT "fix" this back to bold cyan.
+     */
     private fun createBaseTextView(term: String, isMini: Boolean): TextView {
+        val style = RubyBaseStyle.forMini(isMini)
         return TextView(context).apply {
             text = term
-            setTextColor(Color.CYAN)
+            setTextColor(style.baseColor)
             textSize = if (isMini) 15f else 32f
-            OverlayFont.applySystem(context, this, bold = true)
+            OverlayFont.applySystem(context, this, bold = style.bold)
             includeFontPadding = false
             setPadding(0, 0, 0, 0)
         }
