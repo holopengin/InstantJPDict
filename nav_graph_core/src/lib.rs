@@ -1,3 +1,25 @@
+//! UniFFI shim over `jpdict_core::nav_graph` (pipeline-sharing ticket 04).
+//!
+//! This crate used to carry a frozen snapshot of the PC navigation algorithm
+//! (copied at commit `b7ddb39`, then lint-touched only). The snapshot drifted
+//! from upstream on every item of the ticket-04 inventory (Phase-2 `W2`,
+//! `DIR_MIN`, Phase-3 cone vs `WRAP` bonus, greedy resolution, missing
+//! `enforce_connectivity`, controller-level `<5` null-out). The fork is
+//! deleted here: both exported functions delegate to
+//! `jpdict_core::nav_graph`, so the algorithmic delta vs PC master is zero by
+//! construction. The UniFFI surface (`BoundingBox` / `NavGraph` records,
+//! `build_nav_graph` / `navigate`) is byte-for-byte the old shape, so the
+//! Kotlin call sites (`OcrOverlayStateController`, `OcrOverlayView`) compile
+//! unchanged.
+//!
+//! Mapping notes:
+//! * PC `BoundingBox` carries a `confidence` field the UniFFI record never
+//!   had; boxes cross the boundary with `confidence = 1.0` (geometry-only,
+//!   exactly what the old snapshot consumed).
+//! * PC `NavGraph.edges` is `Vec<[usize; 4]>` with `n` as the empty-slot
+//!   sentinel; it is flattened to the `Vec<i32>` the Kotlin side expects,
+//!   and `navigate` resolves `>= n` slots to `None` exactly as before.
+
 uniffi::setup_scaffolding!();
 
 /// Bounding box for a detected character.
@@ -17,271 +39,204 @@ pub struct NavGraph {
 }
 
 /// Build a nav graph from detected character bounding boxes.
+///
+/// Delegates to `jpdict_core::nav_graph::NavGraph::build` (PC upstream).
 #[uniffi::export]
 pub fn build_nav_graph(boxes: Vec<BoundingBox>) -> NavGraph {
-    let n = boxes.len();
-    if n < 5 {
-        return fallback(n);
+    let core_boxes: Vec<jpdict_core::models::BoundingBox> = boxes
+        .iter()
+        .map(|b| jpdict_core::models::BoundingBox::new(b.x, b.y, b.w, b.h, 1.0))
+        .collect();
+    let graph = jpdict_core::nav_graph::NavGraph::build(&core_boxes);
+    NavGraph {
+        edges: graph
+            .edges
+            .iter()
+            .flat_map(|e| e.iter())
+            .map(|&v| v as i32)
+            .collect(),
+        n: graph.n as i32,
     }
-
-    // Normalise positions to [0, 1)
-    let max_x = boxes.iter().map(|b| (b.x + b.w) as f32).fold(0.0f32, f32::max).max(1.0);
-    let max_y = boxes.iter().map(|b| (b.y + b.h) as f32).fold(0.0f32, f32::max).max(1.0);
-    let positions: Vec<(f32, f32)> = boxes.iter().map(|b| {
-        let cx = (b.x as f32 + b.w as f32 / 2.0) / max_x;
-        let cy = (b.y as f32 + b.h as f32 / 2.0) / max_y;
-        (cx, cy)
-    }).collect();
-
-    const W: f32 = 10.0; // off-axis penalty Phase 1
-    const W2: f32 = 3.0; // off-axis penalty Phase 2
-    const LOCAL_DIST: f32 = 0.05;
-    const DIR_MIN: f32 = 0.008;
-    const CONE45: f32 = 1.0;
-    const WRAP: f32 = 0.5;
-
-    // ── Phase 1: local candidates ──
-    let (n1, s1, e1, w1) = build_phase1(&positions, n, LOCAL_DIST, DIR_MIN, CONE45, W);
-
-    // Greedy assignment Phase 1
-    let mut edges: Vec<[usize; 4]> = (0..n).map(|i| {
-        greedy_assignment(n, &n1[i], &s1[i], &e1[i], &w1[i])
-    }).collect();
-
-    // ── Phase 2: global (unlimited distance, no wrap) ──
-    let (n2, s2, e2, w2) = build_phase2(&positions, n, DIR_MIN, CONE45, W2);
-    fill_empty(&mut edges, n, &n2, &s2, &e2, &w2);
-
-    // ── Phase 3: torus wrap for remaining ──
-    let (n3, s3, e3, w3) = build_phase3(&positions, n, DIR_MIN, CONE45, W2, WRAP);
-    fill_empty(&mut edges, n, &n3, &s3, &e3, &w3);
-
-    let flat: Vec<i32> = edges.iter().flat_map(|e| e.iter().map(|&v| v as i32)).collect();
-    NavGraph { edges: flat, n: n as i32 }
 }
 
-/// Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if slot is empty.
+/// Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if the slot
+/// is empty or the inputs are out of range.
 #[uniffi::export]
 pub fn navigate(graph: &NavGraph, idx: i32, dir: i32) -> Option<i32> {
-    if !(0..graph.n).contains(&idx) || !(0..4).contains(&dir) { return None; }
-    let flat_idx = (idx * 4 + dir) as usize;
-    let target = graph.edges[flat_idx];
+    if !(0..graph.n).contains(&idx) || !(0..4).contains(&dir) {
+        return None;
+    }
+    let target = graph.edges[(idx * 4 + dir) as usize];
     if target >= graph.n { None } else { Some(target) }
 }
 
-/// Get the raw flat edge array (4 entries per node: N,S,E,W).
-pub fn get_edges(graph: &NavGraph) -> Vec<i32> {
-    graph.edges.clone()
-}
+#[cfg(test)]
+mod tests {
+    //! Mirror of the PC `jpdict_core::nav_graph` regression tests, run against
+    //! the exact dependency this crate delegates to.
+    //!
+    //! The JVM suite (`NavGraphCoreTest`) pins the same neighbour tables
+    //! through the UniFFI boundary, but the `NavGraph` record exposes only
+    //! `edges`/`n` — so the PC `initial_edges` assertions live here, where
+    //! `jpdict_core::nav_graph::NavGraph` is reachable directly. Together the
+    //! two mirrors cover every PC assertion with no silent skips. If the path
+    //! dependency ever resolves to a diverged `jpdict_core`, these fail first.
 
-// ── helper functions ──
+    use crate::{build_nav_graph, navigate};
+    use jpdict_core::models::BoundingBox;
+    use jpdict_core::nav_graph::NavGraph;
 
-/// Per-node candidates for one direction: `(node index, cost)`, sorted by cost.
-/// Phase 1 builds the same shape for N/S/E/W.
-type Adjacency = Vec<Vec<(usize, f32)>>;
+    const N: usize = 0;
+    const S: usize = 1;
+    const E: usize = 2;
+    const W: usize = 3;
 
-fn torus_dx(x1: f32, x2: f32) -> f32 { let r = (x1 - x2).abs(); r.min(1.0 - r) }
-fn torus_dy(y1: f32, y2: f32) -> f32 { let r = (y1 - y2).abs(); r.min(1.0 - r) }
-
-fn direction_check(dir: usize, xi: f32, yi: f32, xj: f32, yj: f32) -> Option<(f32, f32)> {
-    match dir {
-        0 => if yj < yi { Some((yi - yj, (xi - xj).abs())) } else { None },
-        1 => if yj > yi { Some((yj - yi, (xi - xj).abs())) } else { None },
-        2 => if xj > xi { Some((xj - xi, (yi - yj).abs())) } else { None },
-        _ => if xj < xi { Some((xi - xj, (yi - yj).abs())) } else { None },
+    fn bb(x: i32, y: i32, w: i32, h: i32) -> BoundingBox {
+        BoundingBox::new(x, y, w, h, 1.0)
     }
-}
 
-fn build_phase1(
-    pos: &[(f32, f32)], n: usize, max_dist: f32, dir_min: f32, cone45: f32, w: f32,
-) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
-    let mut nl: Adjacency = Vec::with_capacity(n);
-    let mut sl = Vec::with_capacity(n);
-    let mut el = Vec::with_capacity(n);
-    let mut wl = Vec::with_capacity(n);
-
-    for i in 0..n {
-        let (xi, yi) = pos[i];
-        let mut nv = Vec::new();
-        let mut sv = Vec::new();
-        let mut ev = Vec::new();
-        let mut wv = Vec::new();
-        for (j, &(xj, yj)) in pos.iter().enumerate() {
-            if i == j { continue; }
-            let dx = (xi - xj).abs();
-            let dy = (yi - yj).abs();
-            let dist = (dx * dx + dy * dy).sqrt();
-            if dist > max_dist { continue; }
-
-            for (d, list) in [(0, &mut nv), (1, &mut sv), (2, &mut ev), (3, &mut wv)] {
-                if let Some((prim, off)) = direction_check(d, xi, yi, xj, yj) {
-                    if prim < dir_min { continue; }
-                    if off > cone45 * prim { continue; }
-                    list.push((j, prim + w * off));
-                }
+    fn h_lines_2x6() -> Vec<BoundingBox> {
+        let mut out = Vec::new();
+        for r in 0..2 {
+            for c in 0..6 {
+                out.push(bb(100 + c * 32, 100 + r * 80, 24, 24));
             }
         }
-        nv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        sv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        ev.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        wv.sort_by(|a: &(usize, f32), b: &(usize, f32)| a.1.partial_cmp(&b.1).unwrap());
-        nl.push(nv); sl.push(sv); el.push(ev); wl.push(wv);
+        out
     }
-    (nl, sl, el, wl)
-}
 
-fn build_phase2(
-    pos: &[(f32, f32)], n: usize, dir_min: f32, cone45: f32, w2: f32,
-) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
-    let mut nl = Vec::with_capacity(n); let mut sl = Vec::with_capacity(n);
-    let mut el = Vec::with_capacity(n); let mut wl = Vec::with_capacity(n);
-    for i in 0..n {
-        let (xi, yi) = pos[i];
-        let mut nv = Vec::new(); let mut sv = Vec::new(); let mut ev = Vec::new(); let mut wv = Vec::new();
-        for (j, &(xj, yj)) in pos.iter().enumerate() {
-            if i == j { continue; }
-            for (d, list) in [(0, &mut nv), (1, &mut sv), (2, &mut ev), (3, &mut wv)] {
-                if let Some((prim, off)) = direction_check(d, xi, yi, xj, yj) {
-                    if prim < dir_min { continue; }
-                    if off > cone45 * prim { continue; }
-                    list.push((j, prim + w2 * off));
-                }
+    fn v_cols_2x6() -> Vec<BoundingBox> {
+        let mut out = Vec::new();
+        for &x in &[380, 300] {
+            for r in 0..6 {
+                out.push(bb(x, 100 + r * 32, 24, 24));
             }
         }
-        nv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        sv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        ev.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        wv.sort_by(|a: &(usize, f32), b: &(usize, f32)| a.1.partial_cmp(&b.1).unwrap());
-        nl.push(nv); sl.push(sv); el.push(ev); wl.push(wv);
+        out
     }
-    (nl, sl, el, wl)
-}
 
-fn build_phase3(
-    pos: &[(f32, f32)], n: usize, _dir_min: f32, _cone45: f32, w2: f32, wrap: f32,
-) -> (Adjacency, Adjacency, Adjacency, Adjacency) {
-    let mut nl = Vec::with_capacity(n); let mut sl = Vec::with_capacity(n);
-    let mut el = Vec::with_capacity(n); let mut wl = Vec::with_capacity(n);
-    for i in 0..n {
-        let (xi, yi) = pos[i];
-        let mut nv = Vec::new(); let mut sv = Vec::new(); let mut ev = Vec::new(); let mut wv = Vec::new();
-        for (j, &(xj, yj)) in pos.iter().enumerate() {
-            if i == j { continue; }
-            let tx = torus_dx(xi, xj);
-            let ty = torus_dy(yi, yj);
-            // North wrapped: yj > yi (going up past y=0 wraps to y≈1)
-            if yj > yi {
-                let dy_n = (yi - yj + 1.0) % 1.0;
-                nv.push((j, w2 * tx + dy_n + wrap));
-            }
-            // South wrapped: yj < yi
-            if yj < yi {
-                let dy_s = (yj - yi + 1.0) % 1.0;
-                sv.push((j, w2 * tx + dy_s + wrap));
-            }
-            // East wrapped: xj < xi
-            if xj < xi {
-                let dx_e = (xj - xi + 1.0) % 1.0;
-                ev.push((j, dx_e + w2 * ty + wrap));
-            }
-            // West wrapped: xj > xi
-            if xj > xi {
-                let dx_w = (xi - xj + 1.0) % 1.0;
-                wv.push((j, dx_w + w2 * ty + wrap));
-            }
-        }
-        nv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        sv.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        ev.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        wv.sort_by(|a: &(usize, f32), b: &(usize, f32)| a.1.partial_cmp(&b.1).unwrap());
-        nl.push(nv); sl.push(sv); el.push(ev); wl.push(wv);
-    }
-    (nl, sl, el, wl)
-}
-
-fn fill_empty(
-    edges: &mut [[usize; 4]], n: usize,
-    north: &[Vec<(usize, f32)>], south: &[Vec<(usize, f32)>],
-    east: &[Vec<(usize, f32)>], west: &[Vec<(usize, f32)>],
-) {
-    let lists = [north, south, east, west];
-    for i in 0..n {
-        for d in 0..4 {
-            if edges[i][d] >= n {
-                if let Some(&(v, _)) = lists[d][i].iter().find(|&&(v, _)| v != i && {
-                    !(0..4).any(|od| edges[i][od] == v)
-                }) {
-                    edges[i][d] = v;
-                }
-            }
-        }
-    }
-}
-
-fn greedy_assignment(
-    n: usize,
-    north: &[(usize, f32)], south: &[(usize, f32)],
-    east: &[(usize, f32)], west: &[(usize, f32)],
-) -> [usize; 4] {
-    let lists = [north, south, east, west];
-    let mut result = [n; 4];
-    let mut used = std::collections::HashSet::new();
-
-    // Pick top choice per direction, distinct
-    for d in 0..4 {
-        for &(v, _) in lists[d] {
-            if used.insert(v) {
-                result[d] = v;
-                break;
-            }
+    #[test]
+    fn mirror_01_horizontal_lines() {
+        let boxes = h_lines_2x6();
+        let g = NavGraph::build(&boxes);
+        assert!(g.initial_edges.iter().all(|e| *e == [12, 12, 12, 12]));
+        let expect: [[usize; 4]; 12] = [
+            [7, 6, 1, 5], [6, 7, 2, 0], [9, 8, 3, 1], [8, 9, 4, 2],
+            [9, 10, 5, 3], [10, 11, 0, 4], [0, 1, 7, 11], [1, 0, 8, 6],
+            [2, 3, 9, 7], [3, 2, 10, 8], [4, 3, 11, 9], [5, 4, 6, 10],
+        ];
+        for (i, want) in expect.iter().enumerate() {
+            assert_eq!(g.edges[i], *want, "node {i}");
         }
     }
 
-    // Resolve conflicts via most-constrained-first retry
-    let mut has_conflict = true;
-    while has_conflict {
-        has_conflict = false;
-        let mut conflict_found = false;
+    #[test]
+    fn mirror_02_vertical_columns() {
+        let boxes = v_cols_2x6();
+        let g = NavGraph::build(&boxes);
+        assert!(g.initial_edges.iter().all(|e| *e == [12, 12, 12, 12]));
+        let expect: [[usize; 4]; 12] = [
+            [5, 1, 7, 6], [0, 2, 6, 7], [1, 3, 9, 8], [2, 4, 8, 9],
+            [3, 5, 9, 10], [4, 0, 10, 11], [11, 7, 0, 1], [6, 8, 1, 0],
+            [7, 9, 2, 3], [8, 10, 3, 2], [9, 11, 4, 3], [10, 6, 5, 4],
+        ];
+        for (i, want) in expect.iter().enumerate() {
+            assert_eq!(g.edges[i], *want, "node {i}");
+        }
+    }
 
-        // Check for directional conflicts (same node from two directions)
-        for d in 0..4 {
-            if result[d] >= n { continue; }
-            // Check if this node is used by another direction where it should be different
-            for d2 in (d+1)..4 {
-                if result[d2] >= n { continue; }
-                if result[d] == result[d2] {
-                    conflict_found = true;
-                    // Keep the one with the better (smaller) list, replace the other
-                    let (keep, replace) = if lists[d].len() <= lists[d2].len() { (d, d2) } else { (d2, d) };
-                    let kept = result[keep];
-                    for &(alt, _) in lists[replace] {
-                        if alt != kept && !used.contains(&alt) {
-                            used.remove(&result[replace]);
-                            result[replace] = alt;
-                            used.insert(alt);
-                            break;
-                        }
-                    }
-                    has_conflict = true;
-                    break;
-                }
-            }
-            if has_conflict { break; }
+    #[test]
+    fn mirror_03_single_line_and_03b_long_row() {
+        let boxes: Vec<_> = (0..6).map(|c| bb(100 + c * 32, 100, 24, 24)).collect();
+        let g = NavGraph::build(&boxes);
+        let expect: [[usize; 4]; 6] = [
+            [6, 6, 1, 5], [6, 6, 2, 0], [6, 6, 3, 1],
+            [6, 6, 4, 2], [6, 6, 5, 3], [6, 6, 0, 4],
+        ];
+        for (i, want) in expect.iter().enumerate() {
+            assert_eq!(g.edges[i], *want, "node {i}");
         }
 
-        if !conflict_found { break; }
+        let boxes: Vec<_> = (0..25).map(|c| bb(100 + c * 32, 100, 24, 24)).collect();
+        let g = NavGraph::build(&boxes);
+        assert_eq!(g.initial_edges[12], [25, 25, 13, 11]);
+        assert_eq!(g.initial_edges[1], [25, 25, 2, 0]);
+        for i in 0..25 {
+            assert_eq!(g.edges[i][E], (i + 1) % 25, "node {i} east");
+            assert_eq!(g.edges[i][W], (i + 24) % 25, "node {i} west");
+        }
     }
 
-    result
-}
-
-fn fallback(n: usize) -> NavGraph {
-    let mut flat = Vec::with_capacity(n * 4);
-    for i in 0..n {
-        flat.push(((i + 1) % n) as i32);
-        flat.push(((i + 2) % n) as i32);
-        flat.push(((i + 3) % n) as i32);
-        flat.push(((i + 4) % n) as i32);
+    #[test]
+    fn mirror_04_fallback_ring() {
+        let g = NavGraph::build(&[]);
+        assert_eq!(g.n, 0);
+        let one = [bb(100, 100, 24, 24)];
+        assert_eq!(NavGraph::build(&one).edges, vec![[0, 0, 0, 0]]);
+        let two: Vec<_> = (0..2).map(|c| bb(100 + c * 32, 100, 24, 24)).collect();
+        assert_eq!(NavGraph::build(&two).edges, vec![[1, 0, 1, 0], [0, 1, 0, 1]]);
+        let four: Vec<_> = (0..4).map(|c| bb(100 + c * 32, 100, 24, 24)).collect();
+        assert_eq!(
+            NavGraph::build(&four).edges,
+            vec![[1, 2, 3, 0], [2, 3, 0, 1], [3, 0, 1, 2], [0, 1, 2, 3]]
+        );
     }
-    NavGraph { edges: flat, n: n as i32 }
+
+    #[test]
+    fn mirror_05_mixed_06b_near_square_07_corpus() {
+        let mut boxes = Vec::new();
+        for c in 0..3 {
+            boxes.push(bb(100 + c * 32, 100, 24, 24));
+        }
+        for r in 0..3 {
+            boxes.push(bb(400, 100 + r * 32, 24, 24));
+        }
+        let expect: [[usize; 4]; 6] = [
+            [4, 6, 1, 3], [5, 6, 2, 0], [5, 6, 3, 1],
+            [5, 4, 0, 2], [3, 5, 0, 2], [4, 3, 1, 2],
+        ];
+        let g = NavGraph::build(&boxes);
+        for (i, want) in expect.iter().enumerate() {
+            assert_eq!(g.edges[i], *want, "node {i}");
+        }
+
+        let boxes: Vec<_> = (0..6)
+            .map(|c| {
+                if c == 2 { bb(100 + c * 32 - 8, 92, 40, 40) } else { bb(100 + c * 32, 100, 24, 24) }
+            })
+            .collect();
+        let g = NavGraph::build(&boxes);
+        for i in 0..6 {
+            assert_eq!(g.edges[i][E], (i + 1) % 6, "node {i} east");
+            assert_eq!(g.edges[i][W], (i + 5) % 6, "node {i} west");
+        }
+
+        let boxes = [
+            bb(10, 10, 200, 30), bb(10, 100, 200, 30), bb(10, 200, 40, 40),
+            bb(300, 10, 30, 200), bb(100, 10, 30, 200),
+        ];
+        let expect: [[usize; 4]; 5] = [
+            [4, 1, 3, 5], [4, 2, 3, 5], [1, 4, 3, 5], [1, 0, 5, 4], [0, 1, 3, 5],
+        ];
+        let g = NavGraph::build(&boxes);
+        for (i, want) in expect.iter().enumerate() {
+            assert_eq!(g.edges[i], *want, "node {i}");
+        }
+    }
+
+    #[test]
+    fn mirror_08_navigate_bounds_through_shim() {
+        // The shim's own boundary layer (sentinel/out-of-range → None).
+        let boxes: Vec<BoundingBox> =
+            (0..6).map(|c| bb(100 + c * 32, 100, 24, 24)).collect();
+        let g = build_nav_graph(
+            boxes.iter().map(|b| crate::BoundingBox { x: b.x, y: b.y, w: b.w, h: b.h }).collect(),
+        );
+        assert_eq!(navigate(&g, 0, N as i32), None);
+        assert_eq!(navigate(&g, 6, N as i32), None);
+        assert_eq!(navigate(&g, 0, 4), None);
+        assert_eq!(navigate(&g, 0, E as i32), Some(1));
+        let empty = build_nav_graph(vec![]);
+        assert_eq!(navigate(&empty, 0, N as i32), None);
+    }
 }

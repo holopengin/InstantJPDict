@@ -44,6 +44,10 @@ echo "NDK: $ANDROID_NDK_HOME"
 # 2. Set up cargo config for the NDK toolchain
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
 export CC_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+# Pipeline-sharing/04: jpdict_core's build script compiles C++ (the shared
+# PP-OCRv6 ncnn backend) via the `cc` crate, which needs the target C++
+# driver, not just CC. Harmless once ticket 05 gates the native stack out.
+export CXX_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang++"
 export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
 

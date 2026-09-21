@@ -13,6 +13,15 @@ path = "uniffi-bindgen.rs"
 
 [dependencies]
 uniffi = { version = "0.28", features = ["cli"] }
+# INTERIM (pipeline-sharing/04): PC upstream `jpdict_core` lives in the
+# InstantJPDictDecky repo, which is unpublished (no git remote), so a git
+# dependency cannot be pinned and copying nav_graph.rs back is forbidden
+# (that recreates the fork). This relative path assumes the two checkouts sit
+# side by side as `<...>/AndroidStudioProjects/InstantJPDict` and
+# `<...>/repos/InstantJPDictDecky`; it breaks on other layouts. Once the PC
+# repo is published, switch this to a git dependency pinned to a rev, and once
+# ticket 05 lands, consume its gated (nav-only, no ncnn) feature here.
+jpdict_core = { path = "../../../repos/InstantJPDictDecky/accessibility_daemon/core" }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

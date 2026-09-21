@@ -867,10 +867,10 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_nav_graph_core_checksum_func_build_nav_graph() != 14264.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_func_build_nav_graph() != 17870.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 30906.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1167,6 +1167,8 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
 }
         /**
          * Build a nav graph from detected character bounding boxes.
+         *
+         * Delegates to `jpdict_core::nav_graph::NavGraph::build` (PC upstream).
          */ fun `buildNavGraph`(`boxes`: List<BoundingBox>): NavGraph {
             return FfiConverterTypeNavGraph.lift(
     uniffiRustCall() { _status ->
@@ -1178,7 +1180,8 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
     
 
         /**
-         * Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if slot is empty.
+         * Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if the slot
+         * is empty or the inputs are out of range.
          */ fun `navigate`(`graph`: NavGraph, `idx`: kotlin.Int, `dir`: kotlin.Int): kotlin.Int? {
             return FfiConverterOptionalInt.lift(
     uniffiRustCall() { _status ->
