@@ -1,0 +1,13 @@
+# Python tooling for the char-placement research (HarfBuzz generator +
+# evaluation).  Create an isolated venv, e.g.
+#
+#   uv venv /tmp/opencode/charplace-venv --python 3.12
+#   uv pip install --python /tmp/opencode/charplace-venv/bin/python -r requirements.txt
+#
+# Deliberately separate from tools/pyproject.toml (the ONNX/model-tooling
+# project) so this research cannot perturb that lockfile.
+pillow==12.3.0
+uharfbuzz==0.56.2
+freetype-py==2.5.1
+fonttools==4.65.0
+numpy==2.5.3
