@@ -45,6 +45,17 @@ is cut, merge it back into master so the tagged commit lands in master's
 history. Version bumps happen only with tags — between tags master keeps the
 last released version.
 
+**Untagged commits build as a dev app.** `HEAD` without an exact tag assembles
+as `com.holopengin.instantjpdict.dev` with a `-dev` version suffix and an
+"InstantJPDict Dev" label, so a test build installs alongside a normal install
+instead of colliding with it (separate signature and data; the accessibility
+service has to be enabled for each). Only a tagged commit builds as
+`com.holopengin.instantjpdict`. `-Pdev` / `-Ptagged` pin the decision and skip
+the git check; the check runs again at execution time, so a stale configuration
+cache cannot ship the wrong id. Debug builds are always `.debug`. The static
+camera shortcut is generated per variant from `app/shortcuts.xml.template` — an
+`<intent>` takes only a literal package, so it cannot be shared across ids.
+
 Build a debug or benchmark variant only when there is a real reason (native
 symbol triage, a benchmark run, or a bug that only reproduces outside R8), and
 say why when you deliver it. See #90 for the size history behind this choice.

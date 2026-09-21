@@ -1,5 +1,14 @@
 import java.io.File
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 
 plugins {
@@ -70,6 +79,103 @@ tasks.matching { it.name == "assembleRelease" }.configureEach {
     }
 }
 
+// ————— Build namespace and the static shortcut —————
+// A test build must install ALONGSIDE a release install, not fight it for the
+// same application id: different signatures and separate data mean the two
+// cannot share one. Commits without an exact tag therefore build as a `.dev`
+// application (plus a `-dev` version suffix and a "… Dev" label), and their
+// static camera shortcut points at the dev id. A tagged commit — an RC or final
+// — builds with the normal id. Debug builds get their own `.debug` id, so a
+// native-triage APK can also sit beside the normal install.
+//
+// Git state is not a configuration-cache input, so a cached configuration could
+// keep a decision the working tree no longer matches; [verifyBuildNamespace]
+// re-reads the tag at execution time and fails instead of shipping the wrong id.
+// -Pdev / -Ptagged make the decision explicit and skip that check, which is how
+// a release build pins its id rather than trusting the checkout.
+val headTag: String = runCatching {
+    providers.exec {
+        commandLine("git", "describe", "--tags", "--exact-match", "HEAD")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrDefault("")
+
+val explicitDevNamespace = providers.gradleProperty("dev").isPresent
+val explicitTaggedNamespace = providers.gradleProperty("tagged").isPresent
+if (explicitDevNamespace && explicitTaggedNamespace) {
+    error("pass at most one of -Pdev / -Ptagged")
+}
+val taggedBuild = when {
+    explicitDevNamespace -> false
+    explicitTaggedNamespace -> true
+    else -> headTag.isNotEmpty()
+}
+logger.lifecycle(
+    "build namespace: " +
+        (if (taggedBuild) "tagged (normal id)" else "untagged (dev id)") +
+        (if (explicitDevNamespace || explicitTaggedNamespace) " [explicit]" else " [from git]")
+)
+
+/** Writes the static shortcuts XML with the variant's application id in place of
+ *  the template's `${applicationId}` token. An `<intent>` element takes only a
+ *  literal package (no string resource, and manifest placeholders never reach
+ *  resource XML), so each variant gets its own file while the template stays the
+ *  one source of truth. */
+abstract class GenerateShortcutsXml : DefaultTask() {
+    @get:Input
+    abstract val applicationId: Property<String>
+
+    @get:InputFile
+    abstract val template: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val outDir = outputDir.get().asFile.resolve("xml").apply { mkdirs() }
+        outDir.resolve("shortcuts.xml").writeText(
+            template.get().asFile.readText(Charsets.UTF_8)
+                .replace("\${applicationId}", applicationId.get()),
+            Charsets.UTF_8,
+        )
+    }
+}
+
+/** Guards the namespace decision above against a stale configuration cache. */
+abstract class VerifyBuildNamespace : DefaultTask() {
+    @get:Input
+    abstract val tagged: Property<Boolean>
+
+    @get:Input
+    abstract val explicit: Property<Boolean>
+
+    @get:Internal
+    abstract val workingDir: DirectoryProperty
+
+    @TaskAction
+    fun verify() {
+        if (explicit.get()) return
+        val git = ProcessBuilder("git", "describe", "--tags", "--exact-match", "HEAD")
+            .directory(workingDir.get().asFile)
+            .redirectErrorStream(true)
+            .start()
+        git.inputStream.readBytes()
+        val actuallyTagged = git.waitFor() == 0
+        check(actuallyTagged == tagged.get()) {
+            "build namespace is stale: the configuration decided tagged=${tagged.get()} " +
+                "but HEAD is ${if (actuallyTagged) "tagged" else "untagged"} now; re-run " +
+                "with --no-configuration-cache, or pass -Pdev / -Ptagged"
+        }
+    }
+}
+
+val verifyBuildNamespace = tasks.register<VerifyBuildNamespace>("verifyBuildNamespace") {
+    tagged.set(taggedBuild)
+    explicit.set(explicitDevNamespace || explicitTaggedNamespace)
+    workingDir.set(layout.projectDirectory)
+}
+
 android {
     namespace = "com.holopengin.instantjpdict"
     compileSdk = 35
@@ -80,6 +186,10 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.0.0-rc2"
+
+        // The label follows the namespace decision above: two installs sitting
+        // side by side must be told apart in the launcher, not just in Settings.
+        manifestPlaceholders["appLabel"] = "InstantJPDict"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -106,9 +216,22 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Debug installs never share the release id either: the debug key
+            // differs from the release key, so without a suffix installing a
+            // debug APK over the normal app needs an uninstall.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "InstantJPDict Debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (!taggedBuild) {
+                applicationIdSuffix = ".dev"
+                versionNameSuffix = "-dev"
+                manifestPlaceholders["appLabel"] = "InstantJPDict Dev"
+            }
             // The maintainer's release key when ~/.config/instantjpdict is
             // configured, the debug key otherwise (with a warning). Installs
             // signed with the old debug key cannot update over this switch.
@@ -166,6 +289,25 @@ android {
     }
 }
 
+// The static shortcut names a literal package, so it is generated per variant
+// rather than kept as a shared resource: an untagged (dev) build's shortcut must
+// open the dev app, a tagged build's the normal one. See [GenerateShortcutsXml]
+// and app/shortcuts.xml.template.
+androidComponents {
+    onVariants { variant ->
+        val generateShortcuts = tasks.register<GenerateShortcutsXml>(
+            "generate${variant.name.replaceFirstChar(Char::uppercaseChar)}Shortcuts"
+        ) {
+            applicationId.set(variant.applicationId)
+            template.set(layout.projectDirectory.file("shortcuts.xml.template"))
+            outputDir.set(layout.buildDirectory.dir("generated/shortcuts/${variant.name}"))
+        }
+        variant.sources.res?.addGeneratedSourceDirectory(
+            generateShortcuts, GenerateShortcutsXml::outputDir
+        )
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -213,9 +355,11 @@ tasks.register<Exec>("verifyNcnnBlob") {
     )
 }
 
-// Fail fast on a bad blob before any native build
+// Fail fast on a bad blob before any native build, and fail fast on a stale
+// configuration-cache namespace decision (see VerifyBuildNamespace above).
 tasks.named("preBuild") {
     dependsOn("verifyNcnnBlob")
+    dependsOn(verifyBuildNamespace)
 }
 
 // Build nav_graph_core Rust library for Android.

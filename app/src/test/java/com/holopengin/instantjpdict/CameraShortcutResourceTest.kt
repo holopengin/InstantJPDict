@@ -28,6 +28,10 @@ import javax.xml.parsers.DocumentBuilderFactory
  *    `android.app.shortcuts` meta-data — without it the resource is dead and the
  *    shortcut never appears, which is a failure no device-free test would
  *    otherwise catch;
+ *  - the declaration lives in `shortcuts.xml.template`, not a resource: an
+ *    `<intent>` takes only a literal package, so the build writes the file into
+ *    each variant's res with that variant's applicationId substituted — a
+ *    dev/test build's shortcut must open the dev/test app, not the release one;
  *  - the labels are STRING RESOURCES, as the platform requires (`android:shortcutShortLabel`
  *    may not be a literal), and the id is a literal, as the platform requires;
  *  - the shortcut names its own repo-authored mark (#87) rather than falling back
@@ -41,6 +45,9 @@ import javax.xml.parsers.DocumentBuilderFactory
 class CameraShortcutResourceTest {
 
     private val android = "http://schemas.android.com/apk/res/android"
+
+    /** The committed template the build substitutes `${applicationId}` into. */
+    private val shortcutsTemplate = "shortcuts.xml.template"
 
     private fun sourceFile(rel: String): File =
         listOf(File(rel), File("app/$rel")).firstOrNull { it.isFile }
@@ -65,7 +72,7 @@ class CameraShortcutResourceTest {
             .firstOrNull { it.attr("name") == name }
             ?: error("no <activity android:name=\"$name\"> in the manifest")
 
-    /** The one `<shortcut>` in `res/xml/shortcuts.xml`. */
+    /** The one `<shortcut>` in the shortcuts template. */
     private fun shortcut(document: Document): Element {
         val shortcuts = document.getElementsByTagName("shortcut")
         assertEquals("expected exactly one static shortcut", 1, shortcuts.length)
@@ -108,7 +115,7 @@ class CameraShortcutResourceTest {
 
     @Test
     fun theShortcutOpensTheCameraThroughTheExportedLauncherEntryPoint() {
-        val shortcut = shortcut(parse("src/main/res/xml/shortcuts.xml"))
+        val shortcut = shortcut(parse(shortcutsTemplate))
         val intent = intent(shortcut)
         // The action is the runtime rule's constant, so declaration and rule cannot
         // drift: rename one side and this fails.
@@ -119,7 +126,11 @@ class CameraShortcutResourceTest {
         )
         val targetPackage = intent.attr("targetPackage")
         val targetClass = intent.attr("targetClass")
-        assertEquals("com.holopengin.instantjpdict", targetPackage)
+        // The package is a build-time token, deliberately not the release id: the
+        // build substitutes the variant's applicationId so a dev/test build's
+        // shortcut opens its own app. The class stays the code namespace — a
+        // suffix on the id never moves the classes.
+        assertEquals("\${applicationId}", targetPackage)
         assertEquals("com.holopengin.instantjpdict.MainActivity", targetClass)
 
         // …and that target really is the exported MAIN/LAUNCHER entry the launcher
@@ -171,7 +182,7 @@ class CameraShortcutResourceTest {
     fun theShortcutCarriesItsOwnCameraMark() {
         // #87: without android:icon the launcher badges the app icon, so the
         // shortcut reads as "the app, again" beside the ordinary entry point.
-        val shortcut = shortcut(parse("src/main/res/xml/shortcuts.xml"))
+        val shortcut = shortcut(parse(shortcutsTemplate))
         assertEquals(
             "the camera shortcut must name its own mark",
             "@drawable/ic_shortcut_camera",
@@ -187,7 +198,7 @@ class CameraShortcutResourceTest {
 
     @Test
     fun theShortcutIsEnabledAndItsLabelsAreResourceStrings() {
-        val shortcut = shortcut(parse("src/main/res/xml/shortcuts.xml"))
+        val shortcut = shortcut(parse(shortcutsTemplate))
         // The id is a literal by platform rule, and it is the name a launcher
         // reports the shortcut under, so it must not follow a resource change.
         assertEquals("camera", shortcut.attr("shortcutId"))

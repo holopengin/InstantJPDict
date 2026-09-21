@@ -68,7 +68,7 @@
         android:shortcutLongLabel="@string/shortcut_camera_long_label">
         <intent
             android:action="com.holopengin.instantjpdict.action.OPEN_CAMERA"
-            android:targetPackage="com.holopengin.instantjpdict"
+            android:targetPackage="${applicationId}"
             android:targetClass="com.holopengin.instantjpdict.MainActivity" />
     </shortcut>
 

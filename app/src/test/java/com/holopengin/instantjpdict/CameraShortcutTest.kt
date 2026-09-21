@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * #82: which launcher intent opens the viewfinder.
  *
- * The static shortcut can carry an ACTION and no extras (`res/xml/shortcuts.xml`
+ * The static shortcut can carry an ACTION and no extras (`shortcuts.xml.template`
  * has no place to put them), so the declaration and `MainActivity` meet on one
  * string and nothing else. That string is the seam these tests pin: change the
  * rule without changing the declaration (or the other way round) and the shortcut

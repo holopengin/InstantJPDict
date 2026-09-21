@@ -47,7 +47,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
+        android:label="${appLabel}"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.InstantJPDict">
@@ -64,7 +64,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:launchMode="singleTop"
             android:theme="@style/Theme.InstantJPDict">
             <intent-filter>
@@ -92,7 +92,7 @@
         <activity
             android:name=".DebugSettingsActivity"
             android:exported="false"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:theme="@style/Theme.InstantJPDict" />
 
         <!-- The crash screen, started by CrashReporter after an uncaught
@@ -102,7 +102,7 @@
             android:name=".CrashReportActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:theme="@style/Theme.InstantJPDict" />
 
         <!-- #57 (Feat — image share intent): a single shared image goes through
@@ -141,7 +141,7 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:screenOrientation="fullSensor"
             android:theme="@style/Theme.InstantJPDict.Share">
             <intent-filter>
@@ -167,7 +167,7 @@
         <activity
             android:name=".ProtoCameraActivity"
             android:exported="false"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:screenOrientation="fullSensor"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.InstantJPDict" />
