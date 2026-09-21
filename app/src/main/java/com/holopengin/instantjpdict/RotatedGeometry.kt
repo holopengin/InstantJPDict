@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict
 
 import kotlin.math.abs
+import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -30,6 +31,23 @@ object RotatedGeometry {
      *  cannot buy anything visible at this angle, and the default path is both
      *  simpler and more stable. */
     const val AXIS_ALIGNED_TOL_DEG = 1.0f
+
+    /** PC parity (pipeline-sharing/01 conformance `geometry` kind; PC
+     *  `models.rs` `AXIS_ALIGNED_QUANT_TOL_PX`): extra straightness allowance
+     *  for the fit's own quantization. The boundary points are pixel outer
+     *  corners (±0.5px), so a visually level blob can fit a fraction of a
+     *  degree off before any real tilt exists; scaled by the frame's long
+     *  side this is the "indistinguishable from straight" band. The 1°
+     *  tolerance above is the floor; this only widens it for short noisy
+     *  frames such as UI text. */
+    const val AXIS_ALIGNED_QUANT_TOL_PX = 1.5f
+
+    /** Widened axis-aligned bound in degrees for a frame whose long side is
+     *  [longSide] px: `max(tolDeg, atan(1.5px / longSide))`. */
+    fun axisAlignedBoundDeg(longSide: Float, tolDeg: Float = AXIS_ALIGNED_TOL_DEG): Float {
+        val long = longSide.coerceAtLeast(1f)
+        return maxOf(tolDeg, atan(AXIS_ALIGNED_QUANT_TOL_PX / long) * RAD_TO_DEG)
+    }
 
     /** Same orientation rule the engine uses for axis-aligned boxes (#28):
      *  near-square counts as horizontal so a lone upright character is never
