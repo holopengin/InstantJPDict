@@ -169,6 +169,25 @@ class OcrEngine(
          *  The furigana geometry rules themselves live in [FuriganaRule]. */
         private const val VERTICAL_MIN_ASPECT = RotatedGeometry.VERTICAL_MIN_ASPECT
 
+        /** Shared orientation rule (#28): near-square boxes count as horizontal
+         *  so lone upright characters never enter the model sideways. Pure and
+         *  `internal` so the shared conformance corpus (pipeline-sharing/01)
+         *  runs the real sort from host tests; the former instance methods now
+         *  resolve here with identical bodies. */
+        internal fun isVerticalBox(box: JpDictRect): Boolean =
+            box.height().toFloat() >= box.width() * VERTICAL_MIN_ASPECT
+
+        /** Pure reading-order sort: horizontals top-to-bottom/left-to-right,
+         *  then verticals right-edge-to-left/top-to-bottom (pipeline-sharing/01
+         *  conformance entry point; `detect` resolves to this). */
+        internal fun sortDetectedBoxes(boxes: List<JpDictRect>): List<JpDictRect> {
+            val horizontal = boxes.filter { !isVerticalBox(it) }
+                .sortedWith(compareBy({ it.top }, { it.left }))
+            val vertical = boxes.filter { isVerticalBox(it) }
+                .sortedWith(compareByDescending<JpDictRect> { it.right }.thenBy { it.top })
+            return horizontal + vertical
+        }
+
         // Recognition constants (not tunable)
         private const val REC_TARGET_H = 48
         // Pruned CTC-head width (#39): gemm_8 emits one out per rec_remap entry,
@@ -865,11 +884,6 @@ class OcrEngine(
         return yDiff <= avgH
     }
 
-    /** Shared orientation rule (#28): near-square boxes count as horizontal so lone
-     * upright characters never enter the model sideways. */
-    private fun isVerticalBox(box: JpDictRect): Boolean =
-        box.height().toFloat() >= box.width() * VERTICAL_MIN_ASPECT
-
     /** Near-square (single-kanji-like) box: checked against both furigana rules. #28 */
     private fun isSquareBox(box: JpDictRect): Boolean {
         val w = box.width(); val h = box.height()
@@ -987,14 +1001,6 @@ class OcrEngine(
         for (k in lo until hi) minF = minOf(minF, frac[k])
         if (minF < 0.06f) return x0 + bw / 2
         return null
-    }
-
-    private fun sortDetectedBoxes(boxes: List<JpDictRect>): List<JpDictRect> {
-        val horizontal = boxes.filter { !isVerticalBox(it) }
-            .sortedWith(compareBy({ it.top }, { it.left }))
-        val vertical = boxes.filter { isVerticalBox(it) }
-            .sortedWith(compareByDescending<JpDictRect> { it.right }.thenBy { it.top })
-        return horizontal + vertical
     }
 
     /** #53: the same reading-order rule on [LineBox]es (a rotated Line sorts by
