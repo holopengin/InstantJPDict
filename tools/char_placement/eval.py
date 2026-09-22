@@ -25,7 +25,7 @@ from place import (
 )
 
 ALGOS = ("current", "current_nosnap", "legacy", "proposed", "proposed_nopass",
-         "proposed_notranslate")
+         "proposed_notranslate", "proposed_sweep")
 
 
 def run_algo(
@@ -59,6 +59,11 @@ def run_algo(
         return proposed_char_boxes(
             **common, steps=case["steps"],
             opts=ProposedOptions(translate_overlap=False),
+        )
+    if algo == "proposed_sweep":
+        return proposed_char_boxes(
+            **common, steps=case["steps"],
+            opts=ProposedOptions(translate_overlap=False, sweep_place=True),
         )
     raise ValueError(algo)
 

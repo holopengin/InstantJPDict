@@ -328,6 +328,26 @@ Allowing the split to go below the old cap (`splitFloorFrac < 1`) buys ink IoU
 (0.778 at 0.70) but loses tap quality (98.8% → 98.8%/97.8% jitter) and cell
 IoU, so the default keeps the monotone floor.
 
+**End-anchored sweep (measured, not the default).**  The alternative
+proposal: anchor ONE end of the line and walk to the other
+(`sweep_place`, `sweep_reverse`), pushing each glyph forward through the
+sweep into usable space, centring it in the gap when the whole box cannot
+fit, letting whitespace shrink to yield first (it has no ink and the
+renderer never draws it), with every split deferred to the boundary pass —
+plus a pull-back to the measured centres afterwards.  The tiling is the
+best of any variant: cell IoU **0.608** (the shipped chain's 0.605,
+translate's 0.571), width error **-0.013em**, tap **0.996**.  But
+one-sided anchoring costs alignment: the *full* deficit lands on the swept
+glyph (translate splits it between two, and its outward direction happens
+to debias the ink refinement's inward pull), pushes cascade until the boxes
+touch, and the pull-back recovers nothing at convergence because the space
+genuinely does not exist.  Clean set: centre error **2.37px** (start→end
+direction: 1.88) vs translate's 1.46, cover 0.959 vs 0.970, ink IoU 0.732
+vs 0.762.  Direction only trades one error for another, so `sweep_reverse`
+stays for a device comparison of the tiling look; the default remains
+translate.  Reproduce as `proposed_sweep` in eval.py; not ported to Kotlin
+while it is not the default.
+
 **Punctuation windows.**  The boundary pass only moves box edges; the one
 measured *centre* failure it cannot touch is a punctuation window that has
 picked up a neighbour's stroke: the mid-quartile spread then exceeds

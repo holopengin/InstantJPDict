@@ -80,15 +80,16 @@ $V eval.py --data /tmp/opencode/charplace_synth --only all
 ```
 
 Algorithms compared per case: `current` (ship: snap + uniform), `current_nosnap`,
-`legacy`, `proposed` (final pass + translate-before-split), `proposed_nopass`
-(midpoint cap, the original ablation), `proposed_notranslate` (final pass
-without translation),
-the ablation).  Metrics per character: reading-axis centre error (px and em),
-IoU vs the cross-extended ink box, axis-IoU vs the advance cell, width error,
-own-ink coverage (share of the glyph's ink interval the box covers), neighbour
-capture (share of a neighbour's ink the box swallows), tap-at-centre hit, and
-4-sample tap-jitter hit with the first-rect-wins order the overlay uses, plus
-per-optical-class and per-orientation breakdowns.
+`legacy`, `proposed` (final pass + translate-before-split, the default),
+`proposed_nopass` (midpoint cap, the original ablation),
+`proposed_notranslate` (final pass without translation), `proposed_sweep`
+(the end-anchored sweep experiment — see the findings doc).  Metrics per
+character: reading-axis centre error (px and em), IoU vs the cross-extended
+ink box, axis-IoU vs the advance cell, width error, own-ink coverage (share
+of the glyph's ink interval the box covers), neighbour capture (share of a
+neighbour's ink the box swallows), tap-at-centre hit, and 4-sample tap-jitter
+hit with the first-rect-wins order the overlay uses, plus per-optical-class
+and per-orientation breakdowns.
 
 Real inference:
 

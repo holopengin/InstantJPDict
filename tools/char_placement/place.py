@@ -577,6 +577,28 @@ class ProposedOptions:
     # glyphs' ink (ink half-extent > what the split's floor allows).  Keeps
     # the centre-error cost to the pairs that need the room.
     translate_gate_cut: bool = False
+    # Line-wide placement sweep: anchor ONE end of the line and walk toward the
+    # other, resolving every overlap as it appears.  A glyph that would collide
+    # with its already-placed successor is pushed FORWARD through the sweep
+    # (i.e. toward the start for a reverse sweep) into usable space; when the
+    # gap cannot hold its whole box, the glyph is centred in the gap.  Splits
+    # stay the boundary pass's last resort.  Whitespace is soft — it shrinks to
+    # yield room rather than displacing a real glyph (no ink to lose, and the
+    # renderer never draws it); a gap left by a missed character is ordinary
+    # slack the sweep consumes.
+    # Measured, NOT the default: the sweep's one-sided pushes land the full
+    # deficit on the swept glyph (the symmetric translate splits it between
+    # two), so tiling wins (cell IoU 0.608, width error -0.013em, tap 0.996)
+    # but centre error costs 1.46 -> 2.37px and cover 0.970 -> 0.959.  See
+    # the findings doc; eval.py reproduces it as `proposed_sweep`.
+    sweep_place: bool = False
+    sweep_reverse: bool = True  # True = end-to-start (the line's end anchors)
+    sweep_passes: int = 1
+    # After the sweep, slide every glyph back toward its measured centre as
+    # far as the placed neighbours allow: the sweep's contact-tight pushes
+    # accumulate drift toward the unanchored end, and the pull-back keeps the
+    # tiling while walking the boxes back onto their ink.
+    sweep_pull_back: bool = True
     # Final pass: boundaries, not midpoints.  Each pair of neighbours gets a
     # shared boundary chosen in the empty ink space between the glyphs (or, when
     # the measured inks cannot both fit, split at the emptiest point of the
@@ -835,6 +857,123 @@ def _translate_apart(
             break
 
 
+def _sweep_place(
+    centers: list[float],
+    need: list[float],
+    inkless: list[bool],
+    L: float,
+    opts,
+) -> None:
+    """One end-to-start (or start-to-end) placement sweep, in place.
+
+    Walk the line from the anchored end toward the other end, maintaining the
+    invariant "every processed glyph clears its placed successor":
+
+    - fits at the measured centre?  keep it;
+    - the current glyph is whitespace?  shrink its need to the room (spaces
+      yield first — they have no ink and are never drawn);
+    - the placed successor is whitespace?  take the room from ITS need and
+      retry;
+    - otherwise push the glyph forward through the sweep (toward the
+      unprocessed end) until its box clears the successor — unless the space
+      between the measured predecessor's box and the successor cannot hold
+      the whole box, in which case the glyph is CENTRED in that gap.  A
+      centred box may overhang both sides; the boundary pass clips it, and
+      the predecessor still to be processed re-clamps itself against it.
+    """
+    n = len(centers)
+    if n == 0 or not opts.sweep_place:
+        return
+    reverse = opts.sweep_reverse
+    order = range(n - 1, -1, -1) if reverse else range(n)
+
+    def limit_of(j: int) -> float:
+        return (centers[j] - need[j]) if reverse else (centers[j] + need[j])
+
+    def floor_of(i: int) -> float:
+        k = i - 1 if reverse else i + 1
+        if 0 <= k < n:
+            return (centers[k] + need[k]) if reverse else (centers[k] - need[k])
+        return 0.0 if reverse else L
+
+    for _ in range(max(1, opts.sweep_passes)):
+        for i in order:
+            j = i + 1 if reverse else i - 1
+            has_limit = 0 <= j < n
+            limit = limit_of(j) if has_limit else (float("inf") if reverse else float("-inf"))
+            c, nd = centers[i], need[i]
+
+            def fits() -> bool:
+                return (c + nd <= limit) if reverse else (c - nd >= limit)
+
+            if fits():
+                continue
+
+            if inkless[i]:
+                room = (limit - c) if reverse else (c - limit)
+                if room >= 1.0:
+                    # The space shrinks to exactly the room: no glyph moves.
+                    need[i] = room
+                    continue
+
+            if has_limit and inkless[j]:
+                # The placed neighbour is whitespace: take the room from it.
+                room_over = (c + nd) - limit if reverse else limit - (c - nd)
+                need[j] = max(1.0, need[j] - room_over)
+                limit = limit_of(j)
+                if fits():
+                    continue
+
+            # Push forward through the sweep; centre in the gap if the whole
+            # box cannot fit between the measured predecessor and the limit.
+            pushed = (limit - nd) if reverse else (limit + nd)
+            floor_edge = floor_of(i)
+            whole_fits = (
+                (pushed - nd >= floor_edge) if reverse else (pushed + nd <= floor_edge)
+            )
+            if has_limit and whole_fits:
+                centers[i] = pushed
+                continue
+            lo = max(0.0, floor_edge) if reverse else limit
+            hi = limit if reverse else min(L, floor_edge)
+            centers[i] = 0.5 * (lo + hi) if hi > lo else pushed
+
+
+def _sweep_pull_back(
+    centers: list[float],
+    need: list[float],
+    measured: list[float],
+    L: float,
+    opts,
+) -> None:
+    """Walk glyphs back toward their measured centres without creating overlap.
+
+    After the sweep every glyph sits in a gap bounded by its neighbours'
+    boxes; sliding it back toward `measured[i]` (clamped to that gap) undoes
+    the sweep's accumulated push drift while keeping the tiling.  A glyph
+    boxed into a gap narrower than its own need (the sweep's centred-in-space
+    case) has nowhere to slide; it is left for the boundary pass.
+    """
+    if not (opts.sweep_place and opts.sweep_pull_back):
+        return
+    n = len(centers)
+    for _ in range(max(2, n)):
+        changed = False
+        for i in range(n):
+            lo = (centers[i - 1] + need[i - 1]) if i > 0 else need[i]
+            hi = (centers[i + 1] - need[i + 1]) if i + 1 < n else L - need[i]
+            a = lo + need[i]
+            b = hi - need[i]
+            if a > b:
+                continue
+            target = min(max(measured[i], a), b)
+            if target != centers[i]:
+                centers[i] = target
+                changed = True
+        if not changed:
+            break
+
+
 def proposed_char_boxes(
     text: str,
     char_cols,
@@ -1033,6 +1172,10 @@ def proposed_char_boxes(
         # Translate first: an overlapping pair pushes apart into its
         # neighbours' positive slack, so the boundary pass below gives both
         # glyphs their full room; only the residue (if any) is split.
+        inkless = [text[i].isspace() for i in range(n)]
+        measured = list(centers)
+        _sweep_place(centers, need, inkless, L, opts)
+        _sweep_pull_back(centers, need, measured, L, opts)
         _translate_apart(centers, need, ink_half, desired, em, opts)
         # h_old: what the midpoint cap allowed.  Every boundary is constrained
         # so no box ends up narrower than before (the pass is monotone).
