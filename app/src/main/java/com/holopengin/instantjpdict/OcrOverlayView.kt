@@ -710,7 +710,7 @@ class OcrOverlayView(
                     val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detectLines(srcBitmap) }
                     val detMs = System.currentTimeMillis() - tDet
                     controller.activeLineBoxes = lineBoxes
-                    
+
                     postStatus(gen, "Recognizing...")
 
                     // #86/A2: a pass always starts from a clean slate. The host's
@@ -1042,14 +1042,14 @@ class OcrOverlayView(
         val neighborPanel = rootLayout.findViewWithTag<LinearLayout>("neighbor_scroll_panel") ?: return
         val neighborScrollView = rootLayout.findViewWithTag<View>("neighbor_scroll_view") ?: return
         val lineContainer = neighborPanel.findViewWithTag<LinearLayout>("line_neighbor_$lineIdx") ?: return
-        
+
         val isLandscape = rootLayout.width > rootLayout.height
-        
+
         val isAbove = lineIdx < controller.currentTappedLineIdx
         val oldDim = if (isAbove) (if (isLandscape) lineContainer.height else lineContainer.width) else 0
 
         fillLineNeighborContainer(lineContainer, lineIdx, isLandscape, rootLayout)
-        
+
         if (isAbove) {
             lineContainer.post {
                 val newDim = if (isLandscape) lineContainer.height else lineContainer.width
@@ -1085,12 +1085,12 @@ class OcrOverlayView(
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 setBackgroundColor(if (charState.isSelected) android.graphics.Color.YELLOW else android.graphics.Color.argb(255, 65, 65, 65))
-                
+
                 if (isLandscape) {
                     textLocale = java.util.Locale.JAPANESE
                     fontFeatureSettings = "'vert' 1"
                 }
-                
+
                 setOnClickListener {
                     if (controller.currentTappedLineIdx == charState.lineIdx && controller.currentTappedCharIdxInLine == charState.charIdx) {
                         toggleAlternativesPanel(rootLayout, charState.lineIdx, charState.charIdx, isLandscape)
@@ -1099,21 +1099,21 @@ class OcrOverlayView(
                         val oldCharIdx = controller.currentTappedCharIdxInLine
                         controller.currentTappedLineIdx = charState.lineIdx
                         controller.currentTappedCharIdxInLine = charState.charIdx
-                        
+
                         val oldPanel = rootLayout.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
-                        oldPanel?.findViewWithTag<View>("neighbor_char_$oldLineIdx-$oldCharIdx")?.let { 
+                        oldPanel?.findViewWithTag<View>("neighbor_char_$oldLineIdx-$oldCharIdx")?.let {
                             it.setBackgroundColor(android.graphics.Color.argb(255, 65, 65, 65))
-                            (it as TextView).setTextColor(android.graphics.Color.WHITE) 
+                            (it as TextView).setTextColor(android.graphics.Color.WHITE)
                         }
-                        
+
                         this.setBackgroundColor(android.graphics.Color.YELLOW)
                         this.setTextColor(android.graphics.Color.BLACK)
-                        
+
                         val altContainer = rootLayout.findViewWithTag<FrameLayout>("alternatives_container")
                         if (altContainer != null && altContainer.childCount > 0) {
                             updateAlternativesPanelContent(altContainer, charState.lineIdx, charState.charIdx, isLandscape, rootLayout)
                         }
-                        
+
                         performLookup(charState.lineIdx, charState.charIdx, rootLayout, skipCenter = true)
                     }
                 }
@@ -1264,7 +1264,7 @@ class OcrOverlayView(
         val isLandscape = rootWidth > rootHeight
 
         val existingRoot = rootLayout.findViewWithTag<LinearLayout>("correction_ui_root")
-        
+
         if (existingRoot != null) {
             val dictionaryContainer = existingRoot.findViewWithTag<LinearLayout>("dictionary_content_container")
             if (dictionaryContainer != null) {
@@ -1278,7 +1278,7 @@ class OcrOverlayView(
                 )
                 updateDictionaryPanel(dictionaryContainer, matches, cacheKey, inset)
             }
-            
+
             val neighborPanel = existingRoot.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
             if (neighborPanel != null) updateNeighborHighlights(neighborPanel)
 
@@ -1286,7 +1286,7 @@ class OcrOverlayView(
             if (altContainer != null && altContainer.childCount > 0) {
                 updateAlternativesPanelContent(altContainer, controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, isLandscape, rootLayout)
             }
-            
+
             if (!skipCenter) {
                 val neighborScrollView = existingRoot.findViewWithTag<View>("neighbor_scroll_view")
                 if (neighborScrollView != null) centerNeighborScrollView(neighborScrollView, controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine)
@@ -1316,7 +1316,7 @@ class OcrOverlayView(
             // screen's top edge so the entries can scroll up UNDER the status
             // bar. The clearance belongs to the scroll content instead — see
             // [applyDictionaryTopInset].
-            setPadding(dictEdgePx, 0, dictEdgePx, dictEdgePx)
+            setPadding(dictEdgePx, 0, dictEdgePx, 0)
             elevation = 20f
             setOnClickListener { }
         }
@@ -1379,7 +1379,7 @@ class OcrOverlayView(
     private fun applyDictionaryTopInset(content: View, dictTopInset: Int) {
         // 10/10/150 are the content's own l/r/b padding; the top carries the
         // panel's edge (which the panel no longer does) plus the bar.
-        content.setPadding(10, dictEdgePx + dictTopInset, 10, 150)
+        content.setPadding(0, dictTopInset, 0, 0)
     }
 
     private fun updateDictionaryPanel(
@@ -1415,7 +1415,7 @@ class OcrOverlayView(
                 // Not scrollable content, so it carries the clearance itself:
                 // its resting position is the panel's edge + 150, now counting
                 // the bar the panel no longer does.
-                setPadding(0, dictEdgePx + 150 + dictTopInset, 0, 0)
+                setPadding(0, 150 + dictTopInset, 0, 0)
             })
             return
         }
@@ -1432,7 +1432,7 @@ class OcrOverlayView(
         // costs popup space. The strings are unchanged; only the trigger moved.
 
         matches.forEach { entry ->
-            val termSection = LinearLayout(context).apply { 
+            val termSection = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 4, 0, 40)
             }
@@ -1505,7 +1505,7 @@ class OcrOverlayView(
                     textSize = 12f
                     OverlayFont.applySystem(context, this)
                     gravity = Gravity.END
-                    setPadding(0, 8, 0, 0)
+                    setPadding(0, 2, 0, 0)
                 })
             }
             scrollContent.addView(termSection)
@@ -1682,7 +1682,7 @@ class OcrOverlayView(
      * stacking.
      */
     private fun renderHeadwordSection(container: LinearLayout, groups: List<FormattedReadingGroup>) {
-        val headwordList = LinearLayout(context).apply { 
+        val headwordList = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, 2)
         }
@@ -1781,7 +1781,7 @@ class OcrOverlayView(
                 it.setTextColor(android.graphics.Color.WHITE)
             }
         }
-        
+
         // Set new highlight
         val lineContainer = panel.findViewWithTag<LinearLayout>("line_neighbor_${controller.currentTappedLineIdx}")
         val newView = lineContainer?.getChildAt(controller.currentTappedCharIdxInLine) as? TextView
@@ -1789,7 +1789,7 @@ class OcrOverlayView(
             it.setBackgroundColor(android.graphics.Color.YELLOW)
             it.setTextColor(android.graphics.Color.BLACK)
         }
-        
+
         controller.lastNeighborHighlightedLine = controller.currentTappedLineIdx
         controller.lastNeighborHighlightedChar = controller.currentTappedCharIdxInLine
     }
@@ -1804,7 +1804,7 @@ class OcrOverlayView(
             } else {
                 lineContainer.left + targetView.left - (scrollView.width / 2) + (targetView.width / 2)
             }
-            
+
             neighborAnimator?.cancel()
             neighborAnimator = ObjectAnimator.ofInt(scrollView, if (scrollView is ScrollView) "scrollY" else "scrollX", target).apply {
                 duration = 200
@@ -1873,11 +1873,11 @@ class OcrOverlayView(
 
     private fun toggleAlternativesPanel(rootLayout: FrameLayout, lIdx: Int, cIdx: Int, isLandscape: Boolean) {
         val container = rootLayout.findViewWithTag<FrameLayout>("alternatives_container") ?: return
-        if (container.childCount > 0) { 
+        if (container.childCount > 0) {
             recycleCropBitmaps(container)
             container.removeAllViews()
             controller.isAlternativesVisible = false
-            return 
+            return
         }
         controller.isAlternativesVisible = true
         // The indices it was handed, not the controller's fields: this call site is reached
@@ -1904,16 +1904,16 @@ class OcrOverlayView(
             scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
         }
 
-        val mainLayout = LinearLayout(context).apply { 
+        val mainLayout = LinearLayout(context).apply {
             orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             setBackgroundColor(android.graphics.Color.argb(255, 55, 55, 55))
             setPadding(6, 6, 6, 6)
             elevation = 30f
-            setOnClickListener { } 
+            setOnClickListener { }
         }
         mainLayout.addView(previewView)
-        
-        val scrollContent = LinearLayout(context).apply { 
+
+        val scrollContent = LinearLayout(context).apply {
             orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             isBaselineAligned = false
         }
@@ -1922,17 +1922,17 @@ class OcrOverlayView(
             isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
             layoutParams = if (isLandscape) LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 10f) else LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 10f)
         }
-        val candidateList = LinearLayout(context).apply { 
+        val candidateList = LinearLayout(context).apply {
             tag = "candidate_list_panel"
             orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             isBaselineAligned = false
         }
         refreshCandidateList(candidateList, lIdx, cIdx, isLandscape, rootLayout)
         scrollView.addView(candidateList); scrollContent.addView(scrollView)
-        
+
         // Add manual stub next to candidate list if possible
         if (altState.showManualInput) {
-            val stubView = TextView(context).apply { 
+            val stubView = TextView(context).apply {
                 tag = "manual_input_stub"
                 text = "⌨"
                 setTextColor(android.graphics.Color.GRAY)
@@ -1941,7 +1941,7 @@ class OcrOverlayView(
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 setBackgroundColor(android.graphics.Color.argb(255, 40, 40, 40))
-                setOnClickListener { showManualInput(lIdx, cIdx, rootLayout) } 
+                setOnClickListener { showManualInput(lIdx, cIdx, rootLayout) }
             }
             scrollContent.addView(stubView, LinearLayout.LayoutParams(itemSize, itemSize).apply { setMargins(2, 2, 2, 2) })
         }
@@ -1950,7 +1950,7 @@ class OcrOverlayView(
         } else {
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
         })
-        
+
         if (mainLayout.parent != null) {
             (mainLayout.parent as ViewGroup).removeView(mainLayout)
         }
@@ -1993,13 +1993,13 @@ class OcrOverlayView(
                         setTextColor(android.graphics.Color.argb(255, 150, 205, 255))
                     }
                 }
-                
+
                 if (isLandscape) {
                     textLocale = java.util.Locale.JAPANESE
                     fontFeatureSettings = "'vert' 1"
                 }
 
-                setOnClickListener { 
+                setOnClickListener {
                     if (cand.isSelected) {
                         toggleAlternativesPanel(rootLayout, lIdx, cIdx, isLandscape)
                     } else {
@@ -2014,7 +2014,7 @@ class OcrOverlayView(
     private fun updateAlternativesPanelContent(container: FrameLayout, lIdx: Int, cIdx: Int, isLandscape: Boolean, rootLayout: FrameLayout) {
         val candidateList = container.findViewWithTag<LinearLayout>("candidate_list_panel") ?: return
         refreshCandidateList(candidateList, lIdx, cIdx, isLandscape, rootLayout)
-        
+
         // Update Preview
         val previewView = container.findViewWithTag<android.widget.ImageView>("preview_image")
         val bitmap = srcBitmap
@@ -2026,7 +2026,7 @@ class OcrOverlayView(
             val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
             setCropBitmap(previewView, cropped)
         }
-        
+
         // Update manual input stub too
         val stub = container.findViewWithTag<TextView>("manual_input_stub")
         stub?.setOnClickListener { showManualInput(lIdx, cIdx, rootLayout) }
@@ -2055,14 +2055,14 @@ class OcrOverlayView(
 
     private fun replaceCharacter(lIdx: Int, cIdx: Int, newChar: Char, rootLayout: FrameLayout) {
         controller.updateCharacter(lIdx, cIdx, newChar)
-        
+
         // Update LineOverlayView if present
         val line = controller.activeLineResults[lIdx]
         if (line != null) {
             lineViews[lIdx]?.updateLine(line, line.charBoxes.map { it.height() }.maxOrNull() ?: 0)
         }
         (textViews[Pair(lIdx, cIdx)] as? android.widget.TextView)?.text = newChar.toString()
-        
+
         val browserPanel = rootLayout.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
         browserPanel?.findViewWithTag<TextView>("neighbor_char_$lIdx-$cIdx")?.text = newChar.toString()
 
@@ -2137,24 +2137,24 @@ class OcrOverlayView(
     }
 
     private fun createTagView(tag: String, category: String = "general"): View {
-        val color = when { 
+        val color = when {
             category == "pos" || tag.startsWith("v") || tag == "adj-i" || tag == "adj-na" -> Color.parseColor("#3a5a7a")
             tag == "n" || tag == "adv" || tag == "pn" -> Color.parseColor("#3a7a5a")
             category == "meta" || tag.startsWith("jlpt") || tag.startsWith("grade") || tag == "★" -> Color.parseColor("#7a3a3a")
-            else -> Color.parseColor("#444444") 
+            else -> Color.parseColor("#444444")
         }
-        return TextView(context).apply { 
+        return TextView(context).apply {
             text = tag
             setTextColor(Color.WHITE)
             textSize = 10f
             OverlayFont.applySystem(context, this, bold = true)
             setPadding(12, 2, 12, 2)
-            background = GradientDrawable().apply { 
+            background = GradientDrawable().apply {
                 setColor(color)
-                cornerRadius = 6f 
+                cornerRadius = 6f
             }
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { 
-                setMargins(0, 0, 12, 0) 
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 12, 0)
             }
             includeFontPadding = false
         }
@@ -2323,7 +2323,7 @@ class OcrOverlayView(
 
     private fun renderSenseGroup(container: LinearLayout, senseGroup: FormattedSenseGroup) {
         if (senseGroup.senses.isEmpty()) return
-        
+
         if (senseGroup.tags.isNotEmpty()) {
             val header = FlowLayout(context).apply { setPadding(20, 15, 0, 5) }
             senseGroup.tags.forEach { header.addView(createTagView(it)) }
@@ -2338,7 +2338,7 @@ class OcrOverlayView(
         }
 
         if (senseGroup.isForms) {
-            val table = LinearLayout(context).apply { 
+            val table = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(30, 5, 10, 5)
             }
@@ -2350,7 +2350,7 @@ class OcrOverlayView(
             container.addView(table)
         } else {
             senseGroup.senses.forEach { sense ->
-                val senseLayout = LinearLayout(context).apply { 
+                val senseLayout = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     setPadding(30, 5, 10, 5)
                 }
@@ -2361,13 +2361,13 @@ class OcrOverlayView(
                     OverlayFont.applySystem(context, this)
                     setPadding(0, 0, 10, 0)
                 })
-                
+
                 val contentContainer = FlowLayout(context).apply {
                     setPadding(0, 0, 0, 15)
                 }
                 renderDefinition(contentContainer, sense.nodes)
                 senseLayout.addView(contentContainer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-                
+
                 container.addView(senseLayout)
             }
         }
@@ -2457,9 +2457,9 @@ class OcrOverlayView(
                     i++
                 }
                 is DefinitionNode.ListBlock -> {
-                    val block = LinearLayout(context).apply { 
+                    val block = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 10, 0, 10) } 
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 10, 0, 10) }
                     }
                     node.items.forEach { itemNodes ->
                         val itemRow = FlowLayout(context).apply { setPadding(0, 0, 0, 5) }
@@ -2554,11 +2554,11 @@ class OcrOverlayView(
         if (closed) return false
         val root: FrameLayout = this
         if (root.findViewWithTag<View>("manual_input_blocker") != null) return false
-        
+
         val prefs = context.getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
         val layoutSwap = prefs.getBoolean("layout_swap", false)
         val keyCode = event.keyCode
-        
+
         if (!controller.isHandledKey(keyCode)) return false
         if (event.action == KeyEvent.ACTION_UP) {
             if (keyCode == currentRepeatingKeyCode) stopRepeat()
@@ -2703,7 +2703,7 @@ class OcrOverlayView(
             while (isActive && currentRepeatingKeyCode == keyCode) {
                 if (closed) break
                 val root: FrameLayout = this@OcrOverlayView
-                
+
                 when (action) {
                     GamepadAction.SCROLL_UP, GamepadAction.SCROLL_DOWN -> scrollDictionary(keyCode, root)
                     GamepadAction.NAVIGATE_LEFT, GamepadAction.NAVIGATE_RIGHT, GamepadAction.NAVIGATE_UP, GamepadAction.NAVIGATE_DOWN -> executeNavigation(keyCode)
@@ -2723,7 +2723,7 @@ class OcrOverlayView(
     private fun executeNavigation(keyCode: Int) {
         if (closed) return
         val root: FrameLayout = this
-        
+
         controller.isControllerNavigation = true
 
         if (controller.isAlternativesVisible) {
@@ -2760,7 +2760,7 @@ class OcrOverlayView(
 
         val delta = (120 * resources.displayMetrics.density).toInt()
         val direction = if (keyCode == JpDictKeyEvent.KEYCODE_BUTTON_R1 || keyCode == JpDictKeyEvent.KEYCODE_BUTTON_R2) 1 else -1
-        
+
         if (abs(targetScrollY - scrollView.scrollY) > delta * 2) {
             targetScrollY = scrollView.scrollY
         }
@@ -2801,18 +2801,18 @@ class OcrOverlayView(
                 }
                 contentContainer.addView(cursorView)
             }
-            
+
             cursorView?.let { v ->
                 val desiredW = charBox.width() + (4 * resources.displayMetrics.density).toInt()
                 val desiredH = charBox.height() + (4 * resources.displayMetrics.density).toInt()
-                
+
                 if (v.layoutParams.width != desiredW || v.layoutParams.height != desiredH) {
                     val lp = v.layoutParams as FrameLayout.LayoutParams
                     lp.width = desiredW
                     lp.height = desiredH
                     v.layoutParams = lp
                 }
-                
+
                 v.translationX = (charBox.left - (2 * resources.displayMetrics.density).toInt()).toFloat()
                 v.translationY = (charBox.top - (2 * resources.displayMetrics.density).toInt()).toFloat()
                 v.visibility = View.VISIBLE
@@ -2825,7 +2825,7 @@ class OcrOverlayView(
         val contentContainer = root.findViewWithTag<FrameLayout>("content_container") ?: return
         val rootWidth = root.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val rootHeight = root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
-        
+
         if (controller.centerOnCharacter(lineIdx, charIdx, rootWidth, rootHeight)) {
             viewportAnimator?.cancel()
             val animX = ObjectAnimator.ofFloat(contentContainer, "translationX", controller.currentTransX)
@@ -3091,3 +3091,6 @@ private class QuadBorderView(
         canvas.restore()
     }
 }
+
+
+
