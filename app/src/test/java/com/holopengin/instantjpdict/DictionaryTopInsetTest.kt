@@ -5,14 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The status-bar inset the dictionary render owes
+ * The status-bar clearance the dictionary content owes
  * ([OcrOverlayStateController.dictionaryTopInset]).
  *
- * The overlay windows lay out under the system bars, so the panel whose top
- * edge is the screen's top edge renders its first lines behind the status bar
- * unless it pads them clear. The decision is gravity — where the panel is hung
- * — so that is what is pinned here: a top-hung portrait panel and either
- * landscape side panel pay the bar, a bottom-hung one does not.
+ * The overlay windows lay out under the system bars, so the content of a panel
+ * whose top edge is the screen's top edge renders its first lines behind the
+ * status bar unless it clears them. The decision is gravity — where the panel
+ * is hung — so that is what is pinned here: a top-hung portrait panel and
+ * either landscape side panel pay the bar, a bottom-hung one does not. The
+ * clearance is spent as padding INSIDE the scroll view, so the content can
+ * still scroll up beneath the bar.
  */
 class DictionaryTopInsetTest {
 

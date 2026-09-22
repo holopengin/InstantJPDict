@@ -1276,8 +1276,7 @@ class OcrOverlayView(
                     existingRoot.gravity.toJpDictGravity(),
                     statusBarHeightPx(),
                 )
-                applyDictionaryPadding(dictionaryContainer, inset)
-                updateDictionaryPanel(dictionaryContainer, matches, cacheKey)
+                updateDictionaryPanel(dictionaryContainer, matches, cacheKey, inset)
             }
             
             val neighborPanel = existingRoot.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
@@ -1304,6 +1303,7 @@ class OcrOverlayView(
         // The gravity this panel will be built at — one expression, used for
         // its placement and for the status-bar inset it needs at that edge.
         val activeGravity = if (isLandscape) controller.lastLandscapeGravity else controller.lastPortraitGravity
+        val dictTopInset = controller.dictionaryTopInset(activeGravity, statusBarHeightPx())
         val (panelWidthF, panelHeightF) = controller.getPanelDimensions(rootWidth, rootHeight)
         val panelWidth = if (isLandscape) panelWidthF.toInt() else FrameLayout.LayoutParams.MATCH_PARENT
         val panelHeight = if (isLandscape) FrameLayout.LayoutParams.MATCH_PARENT else panelHeightF.toInt()
@@ -1312,14 +1312,15 @@ class OcrOverlayView(
             tag = "dictionary_content_container"
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(android.graphics.Color.argb(245, 25, 25, 25))
+            // The panel's edge inset, with NO top: its top edge must stay at the
+            // screen's top edge so the entries can scroll up UNDER the status
+            // bar. The clearance belongs to the scroll content instead — see
+            // [applyDictionaryTopInset].
+            setPadding(dictEdgePx, 0, dictEdgePx, dictEdgePx)
             elevation = 20f
             setOnClickListener { }
         }
-        applyDictionaryPadding(
-            dictionaryPanel,
-            controller.dictionaryTopInset(activeGravity, statusBarHeightPx()),
-        )
-        updateDictionaryPanel(dictionaryPanel, matches, cacheKey)
+        updateDictionaryPanel(dictionaryPanel, matches, cacheKey, dictTopInset)
 
         val correctionPanel = createCorrectionPanel(controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, isLandscape, rootLayout, skipCenter)
         val alternativesPanelContainer = FrameLayout(context).apply {
@@ -1358,21 +1359,35 @@ class OcrOverlayView(
         updateCursor()
     }
 
+    /** The dictionary panel's edge inset, px — the number this panel has always had. */
+    private val dictEdgePx = 40
+
     /**
-     * The dictionary panel's edge inset plus its status-bar clearance on top
-     * ([dictTopInset] from [OcrOverlayStateController.dictionaryTopInset]).
+     * The dictionary content's top inset: the panel's edge plus the status-bar
+     * clearance ([dictTopInset] from [OcrOverlayStateController.dictionaryTopInset]),
+     * applied INSIDE the scroll view rather than on the panel around it.
      *
-     * One helper for the two call sites — the panel first shown and the panel
-     * already on screen — so the edge padding and the inset can never drift
-     * apart between them.
+     * On the panel's top the clearance would fix the viewport below the bar and
+     * the entries could never scroll under it; as content padding it does what
+     * is wanted — at rest (scrolled all the way up) the first line sits just
+     * below the status bar, and a scroll takes the content up beneath it.
+     *
+     * Both content paths call it — a freshly built one and one served from
+     * [dictionaryViewCache], whose stored padding may predate a turn — so the
+     * two cannot drift apart.
      */
-    private fun applyDictionaryPadding(panel: LinearLayout, dictTopInset: Int) {
-        // The panel's own edge inset; px, as this panel has always had it.
-        val edge = 40
-        panel.setPadding(edge, edge + dictTopInset, edge, edge)
+    private fun applyDictionaryTopInset(content: View, dictTopInset: Int) {
+        // 10/10/150 are the content's own l/r/b padding; the top carries the
+        // panel's edge (which the panel no longer does) plus the bar.
+        content.setPadding(10, dictEdgePx + dictTopInset, 10, 150)
     }
 
-    private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null) {
+    private fun updateDictionaryPanel(
+        container: LinearLayout,
+        matches: List<FormattedEntry>,
+        cacheKey: String? = null,
+        dictTopInset: Int = 0,
+    ) {
         container.removeAllViews()
         targetScrollY = 0
         scrollAnimator?.cancel()
@@ -1381,6 +1396,10 @@ class OcrOverlayView(
             val cachedView = dictionaryViewCache[cacheKey]
             if (cachedView != null) {
                 (cachedView.parent as? ViewGroup)?.removeView(cachedView)
+                // The stored content carries the padding it was built with,
+                // which may predate a turn; re-apply the current inset.
+                (cachedView as? ViewGroup)?.getChildAt(0)
+                    ?.let { applyDictionaryTopInset(it, dictTopInset) }
                 container.addView(cachedView)
                 return
             }
@@ -1393,15 +1412,18 @@ class OcrOverlayView(
                 gravity = Gravity.CENTER
                 textSize = 16f
                 OverlayFont.applySystem(context, this)
-                setPadding(0, 150, 0, 0)
+                // Not scrollable content, so it carries the clearance itself:
+                // its resting position is the panel's edge + 150, now counting
+                // the bar the panel no longer does.
+                setPadding(0, dictEdgePx + 150 + dictTopInset, 0, 0)
             })
             return
         }
 
         val scrollContent = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(10, 0, 10, 150)
         }
+        applyDictionaryTopInset(scrollContent, dictTopInset)
 
         // #66 follow-up: the copy buttons that used to sit here are gone. One
         // full-width pill row per lookup crowded the popup's headwords, so the

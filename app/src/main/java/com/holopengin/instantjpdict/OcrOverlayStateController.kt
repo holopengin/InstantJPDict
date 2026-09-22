@@ -726,13 +726,14 @@ class OcrOverlayStateController {
     }
 
     /**
-     * Top padding (px) that keeps the dictionary render out of the status bar.
+     * Top clearance (px) that keeps the dictionary content clear of the status
+     * bar.
      *
      * The overlay windows lay out UNDER the system bars (`FLAG_LAYOUT_NO_LIMITS`
      * in ShareImageActivity, the accessibility overlay in the service), so
-     * nothing insets for them automatically and the panel's first lines sit
-     * behind the bar. The inset is owed exactly where the panel's top edge IS
-     * the screen's top edge, and [activeGravity] says where the panel is hung:
+     * nothing insets for them automatically. The clearance is owed exactly
+     * where the panel's top edge IS the screen's top edge, and [activeGravity]
+     * says where the panel is hung:
      *
      *  - `TOP` — a portrait panel hung at the top;
      *  - `START` / `END` — a landscape side panel, which runs the full screen
@@ -743,8 +744,11 @@ class OcrOverlayStateController {
      * The test is therefore on BOTTOM *not* being set rather than on equality:
      * a side gravity read back out of a laid-out view arrives as `START|LEFT`
      * / `END|RIGHT`, the round trip through `Gravity`, and must still count.
-     * [statusBarPx] is the bar's runtime height, resolved by the caller (the
-     * overlay already reads it for the #64 strip scrim).
+     * The caller spends it as content padding inside the scroll view (the
+     * panel itself must keep its top edge at the screen's), so at rest the
+     * first entry sits just below the bar and scrolling takes content up
+     * beneath it. [statusBarPx] is the bar's runtime height, resolved by the
+     * caller (the overlay already reads it for the #64 strip scrim).
      */
     fun dictionaryTopInset(activeGravity: Int, statusBarPx: Int): Int =
         if (activeGravity and JpDictGravity.BOTTOM == 0) statusBarPx else 0
