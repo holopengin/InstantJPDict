@@ -36,6 +36,11 @@ NCNN_PC_DIR=/tmp/opencode/ncnn-install cargo build --release
 ```
 ./target/release/rec_dump <pc-conformance-cases-dir> /tmp/opencode/real_lines.jsonl
 # e.g. /home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/tests/conformance/cases
+
+# arbitrary screenshots/photos (no case JSON; rows carry an absolute `image`
+# field that real_eval prefers over the case lookup).  Det params pinned to
+# the app's shipped defaults (0.25 / 0.7, furigana off).
+./target/release/rec_dump --images <path-or-dir>... /tmp/opencode/real_lines.jsonl
 ```
 
 Then: `python real_eval.py /tmp/opencode/real_lines.jsonl`.
@@ -43,7 +48,7 @@ Then: `python real_eval.py /tmp/opencode/real_lines.jsonl`.
 Output shape (one JSON object per recognized line):
 
 ```
-{"case": "recognition-01-tategaki-fonts", "i": 0,
+{"case": "recognition-01-tategaki-fonts", "i": 0, "image": "<abs path>",
  "bbox": [x, y, w, h], "quad": null | [cx, cy, w, h, angle, conf],
  "line": {"text": "...", "vertical": false,
           "char_boxes": [[x, y, w, h], ...],       // shipped algorithm, PC

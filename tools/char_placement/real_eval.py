@@ -200,10 +200,14 @@ def main() -> None:
             continue
         bbox = row["bbox"]
         x, y, w, h = [int(round(v)) for v in bbox]
-        # Case name -> image path: the case JSON carries the image path.
-        case_path = args.images / f"cases/{row['case']}.json"
-        img_rel = json.loads(case_path.read_text())["case"]["image"]
-        full = Image.open(args.images / img_rel).convert("RGB")
+        # Image path: arbitrary-image rows carry an absolute one; conformance
+        # rows resolve through their case JSON under --images.
+        if row.get("image"):
+            full = Image.open(row["image"]).convert("RGB")
+        else:
+            case_path = args.images / f"cases/{row['case']}.json"
+            img_rel = json.loads(case_path.read_text())["case"]["image"]
+            full = Image.open(args.images / img_rel).convert("RGB")
         x = max(0, min(x, full.width - 1))
         y = max(0, min(y, full.height - 1))
         w = max(1, min(w, full.width - x))
