@@ -18,7 +18,7 @@ V=/tmp/opencode/charplace-venv/bin/python
 | `jpfmt.py` | font-metric classes (advance/optical), HarfBuzz shaping, FreeType raster, per-char advance + ink boxes |
 | `corpus.py` | rebuilds `corpus/ja_sample.txt` (Jitendex + Aozora Bunko, provenance in `corpus/PROVENANCE.md`) |
 | `synthesize.py` | case generator: layout, raster, degradation, CTC simulation, presets |
-| `place.py` | `current_char_boxes` (shipped-chain port), `proposed_char_boxes` (CAP), metrics |
+| `place.py` | `current_char_boxes` (shipped-chain port), `proposed_char_boxes` (CAP + final boundary pass), metrics |
 | `eval.py` | synthetic evaluation harness, JSON summaries |
 | `real_eval.py` | real dump evaluation + ink-run arbitration |
 | `export_kotlin_fixture.py` | writes the fixtures pinned by `CharPlacementTest` |
@@ -80,16 +80,19 @@ $V eval.py --data /tmp/opencode/charplace_synth --only all
 ```
 
 Algorithms compared per case: `current` (ship: snap + uniform), `current_nosnap`,
-`legacy`, `proposed`.  Metrics per character: reading-axis centre error
-(px and em), IoU vs the cross-extended ink box, axis-IoU vs the advance cell,
-width error, tap-at-centre hit, and 4-sample tap-jitter hit with the
-first-rect-wins order the overlay uses, plus per-optical-class and
-per-orientation breakdowns.
+`legacy`, `proposed` (final boundary pass on), `proposed_nopass` (midpoint cap,
+the ablation).  Metrics per character: reading-axis centre error (px and em),
+IoU vs the cross-extended ink box, axis-IoU vs the advance cell, width error,
+own-ink coverage (share of the glyph's ink interval the box covers), neighbour
+capture (share of a neighbour's ink the box swallows), tap-at-centre hit, and
+4-sample tap-jitter hit with the first-rect-wins order the overlay uses, plus
+per-optical-class and per-orientation breakdowns.
 
 Real inference:
 
 ```
 $V real_eval.py /tmp/opencode/real_lines.jsonl --json /tmp/opencode/real_eval.json
+$V real_eval.py /tmp/opencode/real_lines.jsonl --ab-pass   # pass vs midpoint cap
 ```
 
 See `real_dump/README.md` for producing the dump.  The harness reconstructs

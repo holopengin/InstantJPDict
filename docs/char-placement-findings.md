@@ -36,19 +36,23 @@ $ ./gradlew :app:testDebugUnitTest --tests "*CharPlacement*"
   per-timestep top-K that is already cached in `rawAlternatives`), fits a
   **JP advance-class layout template** to the run centres, then refines each
   character with a **robust ink measurement** (mid-quartile of the
-  reading-axis ink profile inside a template-bounded window) and sizes boxes
-  by advance class.  The template averages the quantization noise over the
-  whole line; ink refinement then takes out what is left, including for the
-  punctuation and small kana the shipped snapping refuses to touch.
+  reading-axis ink profile inside a template-bounded window) and ends with a
+  **final boundary pass**: adjacent boxes share a boundary placed in the empty
+  ink space between the glyphs, and the contested span is split when both
+  glyphs' measured inks cannot fit.  The template averages the quantization
+  noise over the whole line; ink refinement then takes out what is left,
+  including for the punctuation and small kana the shipped snapping refuses to
+  touch; the boundary pass stops the midpoint cap from chopping strokes.
 * Synthetic evaluation, 190 clean lines / 3556 characters (horizontal,
   vertical, rotated, degraded, ruby, tracking, long; real corpus):
   mean centre error **4.07px → 1.64px** (0.131em → 0.053em), p90 **9.60px →
   3.50px**, >0.5em errors **2.0% → 0.0%**, tap-at-centre hit **97.5% →
-  99.0%**, jittered-tap hit **94.3% → 98.3%**.  Every preset improves.
+  99.2%**, jittered-tap hit **94.4% → 98.2%**, and the share of a glyph's own
+  ink interval its box covers **0.919 → 0.954**.  Every preset improves.
 * Real inference spot check (290 lines / 3075 characters from the vendored
   recognition fixtures): where the two algorithms disagree by ≥2px on an
-  unambiguous ink component, the proposed centre is closer **1187 times vs
-  843** (39% ties).
+  unambiguous ink component, the proposed centre is closer **1184 times vs
+  848** (37% ties).
 * No new Android runtime dependencies; the Kotlin implementation is pure
   functions over `IntArray` pixels, `FloatArray` columns and a
   `List<List<Step>>` derived from `rawAlternatives`.
@@ -236,21 +240,70 @@ boxes: their ink is genuinely off-centre in the cell, the mid-quartile lands
 on it, and the renderer (which draws each glyph with its ink centre at the
 box centre) consequently draws them where the source has them.
 
-### Step 4 — boxes
+### Step 4 — the final pass: boundaries, not midpoints
+
+The old width rule capped each box at the midpoint between centres, which
+guarantees non-overlap but cuts ink: on the clean synthetic set **95.7% of
+boxes were midpoint-capped and 45% of them failed to cover their glyph's own
+ink interval** (mean coverage 0.947).  The cap also cannot tell a wide glyph
+from a narrow one, so a kanji beside a comma lost exactly as much as the comma.
+
+The final pass replaces the midpoint cap with a **shared boundary per adjacent
+pair**, chosen in the empty ink space between the glyphs:
+
+1. **Required room per glyph.**  The advance cell (`0.5 · u_i · em`) is the
+   floor; the profile is measured for an ink span (5% trimmed mass quantile
+   span) inside the character's Voronoi window, but only when the centre sits
+   on its own ink (`profile[centre] > floor`).  An offset-ink glyph whose
+   centre is a gap (punctuation) or a contaminated pull keeps the advance cell:
+   its "extent" would be the neighbour's stroke.  The result is capped at
+   `1.3 · advance half`.
+2. **Boundary.**  With `req_i = max(need_i, h_old_i)` (`h_old` = the old
+   midpoint cap), if `centre_i + req_i ≤ centre_{i+1} - req_{i+1}` both glyphs
+   fit and the boundary may sit anywhere in that interval: it goes to the
+   **emptiest point** (midpoint of the longest run under the profile floor,
+   else the mass minimum).
+3. **Split.**  When they do not fit (tight tracking, merged strokes, a wide
+   glyph beside a narrow one), the contested span is split at its emptiest
+   point, with each box kept at least `splitFloorFrac` of `h_old` (1.0 by
+   default — see below).
 
 ```
-half_i = min(0.5 · u_i · em, 0.49 · |centre_i - centre_{i-1}|,
-                                0.49 · |centre_{i+1} - centre_i|)
+req_i  = max(need_i, h_old_i)
+b_i    = emptiest(prof, centre_i + req_i, centre_{i+1} - req_{i+1})   if feasible
+       = emptiest(prof, centre_i + floor_i, centre_{i+1} - floor_{i+1})  else
+half_i = min(need_i, b_i - centre_i, centre_i - b_{i-1})
 box_i  = [centre_i - half_i, centre_i + half_i]       (clamped to [0, L])
 ```
 
-cross axis = the whole crop, exactly as the renderer and hit-tester expect.
-The neighbour-midpoint cap guarantees that **no box crosses its neighbour's
-centre**, which is what the first-rect-wins hit test needs; the advance-class
-width keeps the box roughly cell-sized for the fit-scaling in
-`LineOverlayView`.  Vertical lines are the same on the y axis; rotated lines
-are unchanged (they are computed in the upright local frame and mapped
-through the quad).
+Because the boundary never crosses `centre_i + h_old_i` or
+`centre_{i+1} - h_old_{i+1}`, **every box is at least as wide as the old cap
+allowed** (the pass is monotone: 1511 clean characters improve their ink
+coverage, 0 regress), and no box crosses its neighbour's centre, so the
+first-rect-wins hit test keeps working.  Cross axis = the whole crop, exactly
+as the renderer and hit-tester expect.  Vertical lines are the same on the y
+axis; rotated lines are unchanged (they are computed in the upright local
+frame and mapped through the quad).
+
+**Measured effect (clean synthetic set, 3556 characters).**  Coverage
+0.948 → 0.954, tap-at-centre 99.0% → 99.2%, jittered tap 98.2% → 98.4%,
+cell IoU 0.557 → 0.561, width error -0.085em → -0.065em; ink IoU 0.770 →
+0.765 (the boxes are now slightly wider than the ink, which is what buys the
+coverage).  On all 210 cases (CTC errors included) the same direction holds:
+coverage 0.944 → 0.951, tap 98.8% → 99.0%.
+
+Allowing the split to go below the old cap (`splitFloorFrac < 1`) buys ink IoU
+(0.778 at 0.70) but loses tap quality (98.8% → 98.8%/97.8% jitter) and cell
+IoU, so the default keeps the monotone floor.
+
+**What the pass cannot fix.**  On the real fixtures the ink-run arbitration
+(which measures *centres*) is unchanged by the pass (2 vs 3 of 3530 components
+differ by ≥1px), because the pass only moves box edges, and the dominant real
+error is centre placement — specifically offset-ink punctuation whose ink
+refinement window captures the neighbour's stroke (e.g. a `、` pulled 0.44em
+onto the following kanji, coverage 0.06).  That is an ink-refinement problem,
+not a boundary problem; a follow-up can use the optical class to constrain the
+punctuation anchor (JP punctuation sits at a known corner of its cell).
 
 ### Parameter sensitivity
 
@@ -295,12 +348,21 @@ first-rect-wins hit test).
 **Clean set, 190 lines / 3556 characters** (`current` = shipped chain with
 snap+uniform; `current_nosnap` = uniform only; `legacy` = neither):
 
-| algorithm | mean err | median | p90 | mean (em) | >0.5em | tap centre | tap jitter | ink IoU | cell IoU |
-|---|---|---|---|---|---|---|---|---|---|
-| legacy | 6.09px | 5.07px | 12.20px | 0.190em | 2.9% | 98.3% | 81.8% | 0.486 | 0.568 |
-| current_nosnap | 5.78px | 4.96px | 11.66px | 0.181em | 1.5% | 97.7% | 93.8% | 0.612 | 0.641 |
-| **current** | 4.07px | 2.62px | 9.60px | 0.131em | 2.0% | 97.5% | 94.3% | 0.661 | 0.605 |
-| **proposed** | **1.64px** | **1.00px** | **3.50px** | **0.053em** | **0.0%** | **99.0%** | **98.3%** | **0.770** | 0.557 |
+| algorithm | mean err | median | p90 | mean (em) | >0.5em | tap centre | tap jitter | cover | ink IoU | cell IoU |
+|---|---|---|---|---|---|---|---|---|---|---|
+| legacy | 6.09px | 5.07px | 12.20px | 0.190em | 2.9% | 98.3% | 82.0% | 0.957 | 0.486 | 0.568 |
+| current_nosnap | 5.78px | 4.96px | 11.66px | 0.181em | 1.5% | 97.7% | 93.8% | 0.880 | 0.612 | 0.641 |
+| **current** | 4.07px | 2.62px | 9.60px | 0.131em | 2.0% | 97.5% | 94.4% | 0.919 | 0.661 | 0.605 |
+| proposed (midpoint cap) | 1.64px | 1.00px | 3.50px | 0.053em | 0.0% | 99.0% | 98.1% | 0.948 | 0.770 | 0.557 |
+| **proposed + final pass** | **1.64px** | **1.00px** | **3.50px** | **0.053em** | **0.0%** | **99.2%** | **98.2%** | **0.954** | 0.765 | **0.561** |
+
+`cover` = mean share of a glyph's own ink interval (reading axis) the box
+covers; it is the metric the final pass moves, and it moves monotonically
+(1511 characters improve, 0 regress).  `tap jitter` uses four σ=0.12em samples
+per character with a fixed CRC seed; run-to-run differences before that seed
+was pinned were ~0.4pp, the same size as the pass's jitter gain, so treat the
+tap-centre and cover columns as the load-bearing ones.
+
 
 Per preset (mean error em, shipped → proposed): core 0.105 → 0.049,
 degraded 0.102 → 0.058, errors 0.092 → 0.042, long 0.143 → 0.057, rotated
@@ -330,18 +392,18 @@ quad warp is not implemented in the Python harness):
   document is the real thing, not a straw man.
 * Proposed vs pinned: 2.56px mean |Δcentre| (they are different algorithms;
   the interesting question is which is right).
-* Independent arbitration: 3342 ink runs whose centre is contained by exactly
-  one box of each algorithm.  Proposed is closer to the ink run **1187
-  (36%)**, shipped **843 (25%)**, tie 1312 (39%).  Restricting to the 1476
-  runs where the two algorithms disagree by ≥2px: proposed **780 (53%)**,
-  shipped **626 (42%)**, 70 ties.  (The ink-run centroid is a proxy, not
+* Independent arbitration: 3350 ink runs whose centre is contained by exactly
+  one box of each algorithm.  Proposed is closer to the ink run **1184
+  (35%)**, shipped **848 (25%)**, tie 1318 (39%).  Restricting to the 1481
+  runs where the two algorithms disagree by ≥2px: proposed **779 (53%)**,
+  shipped **633 (43%)**, 69 ties.  (The ink-run centroid is a proxy, not
   ground truth — the proposed algorithm optimises a related quantity — but
   the margin survives that caveat, and a visual check of the worst
   disagreements shows proposed boundaries tracking glyph gaps better than the
   shipped ones.)
-* Per fixture, disagreements (proposed/current): tategaki fonts 44/6,
-  newspaper+ruby 148/60, phone photo 123/154, ruby test 66/49, phone UI
-  lines 69/47, 97/64, 68/82, 87/58, 78/106.  Clean font pages and
+* Per fixture, disagreements (proposed/current): tategaki fonts 43/6,
+  newspaper+ruby 148/62, phone photo 123/157, ruby test 66/49, phone UI
+  lines 69/47, 97/64, 68/82, 87/59, 78/107.  Clean font pages and
   ruby-heavy pages favour the proposed algorithm most; two dense UI
   screenshots (7 and 9) favour the shipped chain.  Those two are the
   honest weak spot: synthetic-only tuning has not seen their exact ink
@@ -404,6 +466,26 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
   Latin; the cell-IoU is slightly lower than the shipped chain's as a result.
   If a consumer ever needs exact tiling (e.g. a highlight rectangle for the
   whole line), do not derive it from char boxes; that is already the case.
+* **The final pass moves edges, not centres.**  On the real fixtures the
+  ink-run arbitration (a centre metric) is unchanged by the pass (2 vs 3 of
+  3530 components differ by ≥1px between with-pass and without).  Its measured
+  value there is coverage/cell fit, not centre placement.
+* **Measured extents are contaminated by construction** when the ink pull is:
+  a window that captured a neighbour's stroke also measures that stroke as the
+  glyph's extent.  The pass therefore trusts an extent only when the centre
+  sits on ink (profile above the floor) and clips it to the Voronoi window and
+  to `1.3 · advance half`; the earlier, ungated version over-estimated 61% of
+  extents and produced 1436 phantom split pairs (vs 1104 real ones).
+* **Offset-ink punctuation in dense text** remains the worst single failure:
+  a `、` whose mid-quartile window includes the next kanji's stroke can be
+  pulled ~0.44em onto it, and no boundary choice can then cover its ink
+  (coverage 0.06 in the measured case).  This is the ink-refinement step, not
+  the boundary step; the optical class (punctuation sits at a known cell
+  corner) is the obvious follow-up.
+* **Split asymmetry is available but off**: `splitFloorFrac < 1` lets the
+  emptier side win the contested span (ink IoU 0.765 → 0.778 at 0.70) at the
+  cost of tap quality (tap 99.2% → 98.8%, jitter 98.2% → 97.8%) and cell IoU,
+  so the default keeps every box at least as wide as the old cap.
 
 ## 6. Adoption plan (Android, no new dependencies)
 

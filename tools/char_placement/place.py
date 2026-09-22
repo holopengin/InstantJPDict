@@ -547,6 +547,25 @@ class ProposedOptions:
     conf_floor: float = 1.0  # raw-logit margin below which ink trust halves
     # Second pass
     refine_passes: int = 1
+    # Final pass: boundaries, not midpoints.  Each pair of neighbours gets a
+    # shared boundary chosen in the empty ink space between the glyphs (or, when
+    # the measured inks cannot both fit, split at the emptiest point of the
+    # contested span).  Boxes grow from the advance cell to cover their own
+    # measured ink when the boundary allows, so the midpoint cap no longer cuts
+    # strokes -- see docs/char-placement-findings.md.
+    final_pass: bool = True
+    extent_pad_px: float = 1.0  # slack added to the measured ink half-extent
+    extent_floor: float = 0.5  # profile mass floor for the ink run
+    extent_window_em: float = 0.15  # slack past the advance cell when measuring
+    # Growth beyond the advance cell: only when the centre sits on its own ink
+    # and only within the character's own Voronoi window, capped proportionally
+    # so a halfwidth box cannot swell into a fullwidth cell.
+    extent_grow_frac: float = 0.3
+    # When a pair cannot both have their measured room, the split still leaves
+    # each box this share of its old half-width (1.0 = fully monotone; lower
+    # lets the emptier side win the contested span).
+    split_floor_frac: float = 1.0
+    min_half_px: float = 2.0
 
 
 def _robust_template_fit(
@@ -661,6 +680,62 @@ def _mid_quartile(prof: np.ndarray, lo: float, hi: float) -> tuple[float, float,
     return mass, 0.5 * (q1 + q3), q3 - q1
 
 
+def _ink_run(
+    prof: np.ndarray, centre: float, lo_lim: float, hi_lim: float, floor: float
+) -> tuple[float, float]:
+    """Trimmed mass span of `prof` around `centre`, clipped to the limits.
+
+    Used by the final pass to estimate how far a glyph's own ink extends around
+    its measured centre.  A quantile span, not a floor walk: the profile is
+    smoothed, so a narrow inter-glyph gap can stay above any low floor and a
+    contiguous run would walk straight into the neighbour's strokes (measured:
+    that over-estimated 61% of extents and produced phantom split pairs).  The
+    5% trim drops anti-aliasing tails; the window limits keep a neighbour's
+    stroke from inflating the estimate.
+    """
+    a = int(np.floor(_clamp(lo_lim, 0, len(prof))))
+    b = int(np.ceil(_clamp(hi_lim, 0, len(prof))))
+    if b - a <= 0:
+        return centre, centre
+    seg = prof[a:b].astype(np.float64)
+    mass = float(seg.sum())
+    if mass <= 0:
+        return centre, centre
+    cum = np.cumsum(seg)
+    lo = float(np.searchsorted(cum, mass * 0.05)) + a
+    hi = float(np.searchsorted(cum, mass * 0.95)) + a
+    if hi < lo:
+        lo = hi
+    return lo, hi
+
+
+def _emptiest_point(prof: np.ndarray, lo: float, hi: float, floor: float) -> float:
+    """Midpoint of the emptiest run inside [lo, hi], else the mass minimum.
+
+    The boundary between two glyphs belongs where there is no ink: prefer the
+    middle of the longest run under the floor, and fall back to the lightest
+    point (ties broken toward the interval centre) when the span is inked.
+    Only whole pixels inside [lo, hi] are candidates, so the returned point
+    never leaves the interval -- callers rely on it for their no-regression
+    floor.
+    """
+    a = int(np.ceil(_clamp(lo, 0, len(prof))))
+    b = int(np.floor(_clamp(hi, 0, len(prof)))) + 1
+    if b <= a:
+        return 0.5 * (lo + hi)
+    seg = prof[a:b].astype(np.float64)
+    thr = max(floor, 0.10 * float(seg.max()))
+    best_len = best_end = cur = 0
+    for k, v in enumerate(seg):
+        cur = cur + 1 if v <= thr else 0
+        if cur > best_len:
+            best_len, best_end = cur, k
+    if best_len >= 1:
+        return float(a + best_end - (best_len - 1) / 2.0)
+    cost = seg + 1e-3 * np.abs(np.arange(seg.size) - seg.size / 2.0)
+    return float(a + int(np.argmin(cost)))
+
+
 def proposed_char_boxes(
     text: str,
     char_cols,
@@ -671,6 +746,7 @@ def proposed_char_boxes(
     pixels=None,
     steps: list[list[tuple[str, float]]] | None = None,
     opts: ProposedOptions | None = None,
+    debug: dict | None = None,
 ) -> list[tuple[float, float, float, float]]:
     """The proposed single algorithm.  Returns (x0, y0, x1, y1) in crop px."""
     opts = opts or ProposedOptions()
@@ -738,6 +814,11 @@ def proposed_char_boxes(
             )
 
     centers = list(anchors)
+    if debug is not None:
+        debug["ctc_centers"] = list(ctc_centers)
+        debug["tmpl_centers"] = list(tmpl_centers)
+        debug["anchors"] = list(anchors)
+        debug["ink_pulls"] = []
     if prof is not None:
         win = max(opts.window_em * em, opts.window_stride * stride)
         masses = []
@@ -776,20 +857,105 @@ def proposed_char_boxes(
                     opts.ink_max_pull_em * em,
                 )
                 w = 0.5 if chars[i].margin < opts.conf_floor else 1.0
+                if debug is not None:
+                    debug["ink_pulls"].append(
+                        dict(pass_=_pass, i=i, lo=lo, hi=hi, mass=mass,
+                             ink_c=ink_c, spread=spread, pull=pull, w=w)
+                    )
                 centers[i] = centers[i] + w * pull
 
-    # 4. Boxes ---------------------------------------------------------------
+    # 4. Boundaries and boxes ------------------------------------------------
+    # Measured ink extents decide how much room each glyph wants; a shared
+    # boundary per adjacent pair then goes into the empty ink space between the
+    # two glyphs.  When both extents fit between the centres, both boxes get
+    # their room; when they do not, the span is split at its emptiest point,
+    # with each box kept tappable.  Extents are trusted only when the centre
+    # sits on its own ink: an offset-ink glyph (punctuation whose centre is a
+    # gap) or a contaminated ink pull falls back to the advance cell, because
+    # its "extent" would otherwise be the neighbour's stroke.
+    desired = [0.5 * units[i] * em for i in range(n)]
+    need = list(desired)
+    boundaries: list[float] = []
+    if not opts.final_pass:
+        # Ablation: the previous behaviour -- one midpoint boundary per pair,
+        # boxes capped at 0.49 of the neighbour distance.
+        boundaries = [0.5 * (centers[i] + centers[i + 1]) for i in range(n - 1)]
+    if opts.final_pass and prof is not None:
+        for i in range(n):
+            ci = int(np.clip(round(centers[i]), 0, len(prof) - 1))
+            if prof[ci] <= opts.extent_floor:
+                continue
+            pad = 0.5 * units[i] * em + opts.extent_window_em * em
+            lo_lim = centers[i] - pad
+            hi_lim = centers[i] + pad
+            if i > 0:
+                lo_lim = max(lo_lim, 0.5 * (centers[i] + centers[i - 1]))
+            if i < n - 1:
+                hi_lim = min(hi_lim, 0.5 * (centers[i] + centers[i + 1]))
+            span_lo, span_hi = _ink_run(prof, centers[i], lo_lim, hi_lim,
+                                        opts.extent_floor)
+            half_need = (
+                max(centers[i] - span_lo, span_hi - centers[i]) + opts.extent_pad_px
+            )
+            need[i] = _clamp(
+                half_need, desired[i], desired[i] * (1.0 + opts.extent_grow_frac)
+            )
+
+    if opts.final_pass:
+        # h_old: what the midpoint cap allowed.  Every boundary is constrained
+        # so no box ends up narrower than before (the pass is monotone).
+        h_old = list(desired)
+        for i in range(n):
+            if i > 0:
+                d = centers[i] - centers[i - 1]
+                if d > 0:
+                    h_old[i] = min(h_old[i], 0.49 * d)
+            if i < n - 1:
+                d = centers[i + 1] - centers[i]
+                if d > 0:
+                    h_old[i] = min(h_old[i], 0.49 * d)
+        req = [max(need[i], h_old[i]) for i in range(n)]
+        for i in range(n - 1):
+            d = centers[i + 1] - centers[i]
+            mid = 0.5 * (centers[i] + centers[i + 1])
+            if d <= 0 or prof is None:
+                boundaries.append(mid)
+                continue
+            lo = centers[i] + req[i]
+            hi = centers[i + 1] - req[i + 1]
+            if hi >= lo:
+                # Both glyphs fit: the boundary can sit anywhere between their
+                # measured inks -- put it in the emptiest spot.
+                boundaries.append(_emptiest_point(prof, lo, hi, opts.extent_floor))
+                continue
+            # They do not fit (tight tracking, merged strokes, or a wide glyph
+            # beside a narrow one): split at the emptiest point, keeping each
+            # box at least split_floor_frac of its old half-width.
+            lo = centers[i] + max(opts.split_floor_frac * h_old[i], opts.min_half_px)
+            hi = centers[i + 1] - max(
+                opts.split_floor_frac * h_old[i + 1], opts.min_half_px
+            )
+            boundaries.append(
+                _emptiest_point(prof, lo, hi, opts.extent_floor) if hi > lo else mid
+            )
+
     boxes = []
     for i in range(n):
-        half = 0.5 * units[i] * em
-        if i > 0:
-            d = centers[i] - centers[i - 1]
-            if d > 0:
-                half = min(half, 0.49 * d)
-        if i < n - 1:
-            d = centers[i + 1] - centers[i]
-            if d > 0:
-                half = min(half, 0.49 * d)
+        half = need[i]
+        if not opts.final_pass:
+            if i > 0:
+                d = centers[i] - centers[i - 1]
+                if d > 0:
+                    half = min(half, 0.49 * d)
+            if i < n - 1:
+                d = centers[i + 1] - centers[i]
+                if d > 0:
+                    half = min(half, 0.49 * d)
+        else:
+            if i > 0:
+                half = min(half, centers[i] - boundaries[i - 1])
+            if i < n - 1:
+                half = min(half, boundaries[i] - centers[i])
         half = max(half, 1.0)
         a = _clamp(centers[i] - half, 0.0, L)
         b = _clamp(centers[i] + half, 0.0, L)
@@ -797,6 +963,12 @@ def proposed_char_boxes(
             b = min(L, a + 1.0)
             a = max(0.0, b - 1.0)
         boxes.append((a, b))
+    if debug is not None:
+        debug.update(
+            em=em, x0=x0, ls=ls, centers=list(centers), desired=list(desired),
+            need=list(need), boundaries=list(boundaries), units=list(units),
+            origins=list(origins),
+        )
     if vertical:
         return [(0.0, a, cross, b) for (a, b) in boxes]
     return [(a, 0.0, b, cross) for (a, b) in boxes]
@@ -837,6 +1009,10 @@ class CaseScore:
     tap_jitter_hit: int = 0
     tap_jitter_total: int = 0
     miss_half_em: int = 0  # chars with center error > 0.5 em
+    # reading-axis fit: own ink covered by the box (1.0 = all of it) and the
+    # largest share of a neighbour's ink the box swallows
+    ink_cover: list[float] = field(default_factory=list)
+    cross_capture: list[float] = field(default_factory=list)
     # per optical class (center / punct / small) center errors in em
     by_class: dict = field(default_factory=lambda: {"center": [], "punct": [], "small": []})
 
@@ -851,6 +1027,8 @@ class CaseScore:
         self.tap_jitter_hit += other.tap_jitter_hit
         self.tap_jitter_total += other.tap_jitter_total
         self.miss_half_em += other.miss_half_em
+        self.ink_cover += other.ink_cover
+        self.cross_capture += other.cross_capture
         for k in self.by_class:
             self.by_class[k] += other.by_class[k]
 
@@ -872,6 +1050,14 @@ class CaseScore:
             "width_err_mean_em": float(np.mean(self.width_err_em)) if self.width_err_em else 0.0,
             "tap_center_hit_rate": self.tap_center_hit / n,
             "tap_jitter_hit_rate": self.tap_jitter_hit / max(self.tap_jitter_total, 1),
+            "ink_cover_mean": float(np.mean(self.ink_cover)) if self.ink_cover else 0.0,
+            "ink_cover_lt90_rate": sum(1 for c in self.ink_cover if c < 0.90)
+            / max(len(self.ink_cover), 1),
+            "cross_capture_mean": float(np.mean(self.cross_capture))
+            if self.cross_capture
+            else 0.0,
+            "cross_capture_gt25_rate": sum(1 for c in self.cross_capture if c > 0.25)
+            / max(len(self.cross_capture), 1),
             "center_err_mean_em_punct": float(np.mean(self.by_class["punct"]))
             if self.by_class["punct"]
             else 0.0,
@@ -937,6 +1123,23 @@ def score_boxes(
         box_width = (box[2] - box[0]) if not vertical else (box[3] - box[1])
         cell_width = (cell[2] - cell[0]) if not vertical else (cell[3] - cell[1])
         sc.width_err_em.append((box_width - cell_width) / max(em, 1e-6))
+        # Reading-axis fit: how much of the glyph's own ink the box covers and
+        # how much of a neighbour's ink it swallows (final-pass A/B metrics).
+        i0, i1 = (ink[1], ink[3]) if vertical else (ink[0], ink[2])
+        b0, b1 = (box[1], box[3]) if vertical else (box[0], box[2])
+        sc.ink_cover.append(max(0.0, min(b1, i1) - max(b0, i0)) / max(i1 - i0, 1e-6))
+        capture = 0.0
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(boxes) and 0 <= j < len(decoded_to_true):
+                t2 = decoded_to_true[j]
+                if t2 is None or t2 >= len(true_ink_boxes):
+                    continue
+                nink = true_ink_boxes[t2]
+                n0, n1 = (nink[1], nink[3]) if vertical else (nink[0], nink[2])
+                if n1 - n0 <= 0:
+                    continue
+                capture = max(capture, (min(b1, n1) - max(b0, n0)) / (n1 - n0))
+        sc.cross_capture.append(max(capture, 0.0))
         if d2t < len(true_text):
             cls = optical_class(true_text[d2t])
             sc.by_class[cls].append(err / max(em, 1e-6))

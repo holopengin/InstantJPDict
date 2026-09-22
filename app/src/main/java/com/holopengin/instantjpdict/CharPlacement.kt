@@ -44,9 +44,16 @@ import kotlin.math.min
  *    centroid so a neighbour's stroke leaking into the window cannot drag the
  *    centre; punctuation and small kana are measured the same way, which puts
  *    their boxes on their real (corner-placed) ink.
- * 5. **Boxes.**  Width = advance class x em, capped at the midpoints between
- *    neighbouring centres so no box ever crosses its neighbour's centre (the
- *    hit-test is first-rect-wins), then clamped into `[0, L]`.
+ * 5. **Boxes.**  Width = advance class x em, grown (only when the centre sits
+ *    on its own ink, and only within that character's Voronoi window) to cover
+ *    a measured ink span up to `extentGrowFrac` past the cell.
+ * 6. **Final pass: boundaries, not midpoints.**  Adjacent boxes share a
+ *    boundary placed in the empty ink space between the two glyphs.  When both
+ *    measured extents fit between the centres, both boxes get their room; when
+ *    they do not, the contested span is split at its emptiest point, with each
+ *    box kept at least `splitFloorFrac` of the old midpoint cap.  Every box is
+ *    therefore at least as wide as the midpoint cap allowed (the pass is
+ *    monotone), and no box crosses its neighbour's centre.
  */
 internal object CharPlacement {
 
@@ -68,6 +75,14 @@ internal object CharPlacement {
         val maxSpreadEm: Float = 0.8f,
         val confFloor: Float = 1.0f,
         val refinePasses: Int = 1,
+        // Final pass (see the class doc): boundaries instead of midpoints.
+        val finalPass: Boolean = true,
+        val extentPadPx: Float = 1f,
+        val extentFloor: Float = 0.5f,
+        val extentWindowEm: Float = 0.15f,
+        val extentGrowFrac: Float = 0.3f,
+        val splitFloorFrac: Float = 1f,
+        val minHalfPx: Float = 2f,
     )
 
     /** Output box in crop pixels; the cross axis is the whole crop. */
@@ -186,6 +201,73 @@ internal object CharPlacement {
             if (cum >= q3) { p3 = i.toFloat(); break }
         }
         return Triple(mass, (p1 + p3) / 2f, p3 - p1)
+    }
+
+    /**
+     * Trimmed mass span of the profile around [centre], clipped to the limits:
+     * how far a glyph's own ink extends.  A quantile span, not a floor walk --
+     * the profile is smoothed, so a narrow inter-glyph gap can stay above any
+     * low floor and a contiguous run would walk into the neighbour's strokes
+     * (measured: that over-estimated 61% of extents and produced phantom
+     * splits).  The 5% trim drops anti-aliasing tails.  Returns (centre,
+     * centre) when the window holds no ink; the caller then keeps the advance
+     * cell.
+     */
+    private fun inkSpan(
+        prof: FloatArray,
+        centre: Float,
+        loLim: Float,
+        hiLim: Float,
+    ): Pair<Float, Float> {
+        val a = floor(loLim.coerceIn(0f, prof.size.toFloat())).toInt()
+        val b = ceil(hiLim.coerceIn(0f, prof.size.toFloat())).toInt()
+        if (b - a <= 0) return centre to centre
+        var mass = 0f
+        for (i in a until b) mass += prof[i]
+        if (mass <= 0f) return centre to centre
+        val q1 = mass * 0.05f
+        val q3 = mass * 0.95f
+        var cum = 0f
+        var lo = centre
+        var hi = centre
+        var haveLo = false
+        for (i in a until b) {
+            cum += prof[i]
+            if (!haveLo && cum >= q1) { lo = i.toFloat(); haveLo = true }
+            if (cum >= q3) { hi = i.toFloat(); break }
+        }
+        if (hi < lo) hi = lo
+        return lo to hi
+    }
+
+    /**
+     * Midpoint of the emptiest run inside [lo, hi], else the mass minimum
+     * (ties toward the interval centre).  Only whole pixels inside [lo, hi]
+     * are candidates, so the result never leaves the interval -- callers rely
+     * on it for their no-regression floor.
+     */
+    private fun emptiestPoint(prof: FloatArray, lo: Float, hi: Float, floor: Float): Float {
+        val a = ceil(lo.coerceIn(0f, prof.size.toFloat())).toInt()
+        val b = floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1
+        if (b <= a) return 0.5f * (lo + hi)
+        var peak = 0f
+        for (i in a until b) if (prof[i] > peak) peak = prof[i]
+        val thr = max(floor, 0.10f * peak)
+        var bestLen = 0
+        var bestEnd = 0
+        var cur = 0
+        for (i in a until b) {
+            cur = if (prof[i] <= thr) cur + 1 else 0
+            if (cur > bestLen) { bestLen = cur; bestEnd = i }
+        }
+        if (bestLen >= 1) return bestEnd.toFloat() - (bestLen - 1) / 2f
+        var best = a
+        var bestCost = Float.MAX_VALUE
+        for (i in a until b) {
+            val cost = prof[i] + 1e-3f * abs((i - a) - (b - a) / 2f)
+            if (cost < bestCost) { bestCost = cost; best = i }
+        }
+        return best.toFloat()
     }
 
     private fun weightedMedian(xs: List<Float>, ws: List<Float>): Float {
@@ -384,16 +466,85 @@ internal object CharPlacement {
             }
         }
 
+        // Final pass: boundaries, not midpoints.  Measured ink extents decide
+        // how much room each glyph wants (trusted only when the centre sits on
+        // its own ink); a shared boundary per adjacent pair then goes into the
+        // empty ink space between the two glyphs, or splits the contested span
+        // when both cannot fit.  Every box stays at least as wide as the old
+        // midpoint cap allowed.
+        val desired = FloatArray(n) { 0.5f * units[it] * tmpl.em }
+        val need = desired.copyOf()
+        if (options.finalPass && prof != null) {
+            for (i in 0 until n) {
+                val ci = Math.round(centers[i]).coerceIn(0, prof.profile.size - 1)
+                if (prof.profile[ci] <= options.extentFloor) continue
+                val pad = 0.5f * units[i] * tmpl.em + options.extentWindowEm * tmpl.em
+                var loLim = centers[i] - pad
+                var hiLim = centers[i] + pad
+                if (i > 0) loLim = max(loLim, 0.5f * (centers[i] + centers[i - 1]))
+                if (i < n - 1) hiLim = min(hiLim, 0.5f * (centers[i] + centers[i + 1]))
+                val (spanLo, spanHi) = inkSpan(prof.profile, centers[i], loLim, hiLim)
+                val halfNeed =
+                    max(centers[i] - spanLo, spanHi - centers[i]) + options.extentPadPx
+                need[i] = halfNeed.coerceIn(
+                    desired[i], desired[i] * (1f + options.extentGrowFrac)
+                )
+            }
+        }
+        val boundaries = FloatArray(max(n - 1, 0))
+        if (!options.finalPass) {
+            for (i in boundaries.indices) boundaries[i] = 0.5f * (centers[i] + centers[i + 1])
+        } else {
+            // hOld: what the midpoint cap allowed -- the no-regression floor.
+            val hOld = desired.copyOf()
+            for (i in 0 until n) {
+                if (i > 0) {
+                    val d = centers[i] - centers[i - 1]
+                    if (d > 0f) hOld[i] = min(hOld[i], 0.49f * d)
+                }
+                if (i < n - 1) {
+                    val d = centers[i + 1] - centers[i]
+                    if (d > 0f) hOld[i] = min(hOld[i], 0.49f * d)
+                }
+            }
+            val req = FloatArray(n) { max(need[it], hOld[it]) }
+            for (i in boundaries.indices) {
+                val d = centers[i + 1] - centers[i]
+                val mid = 0.5f * (centers[i] + centers[i + 1])
+                if (d <= 0f || prof == null) { boundaries[i] = mid; continue }
+                val lo = centers[i] + req[i]
+                val hi = centers[i + 1] - req[i + 1]
+                if (hi >= lo) {
+                    boundaries[i] = emptiestPoint(prof.profile, lo, hi, options.extentFloor)
+                    continue
+                }
+                val lo2 = centers[i] + max(options.splitFloorFrac * hOld[i], options.minHalfPx)
+                val hi2 = centers[i + 1] - max(
+                    options.splitFloorFrac * hOld[i + 1], options.minHalfPx
+                )
+                boundaries[i] = if (hi2 > lo2) {
+                    emptiestPoint(prof.profile, lo2, hi2, options.extentFloor)
+                } else {
+                    mid
+                }
+            }
+        }
+
         val boxes = ArrayList<Box>(n)
         for (i in 0 until n) {
-            var half = 0.5f * units[i] * tmpl.em
-            if (i > 0) {
-                val d = centers[i] - centers[i - 1]
-                if (d > 0f) half = min(half, 0.49f * d)
-            }
-            if (i < n - 1) {
-                val d = centers[i + 1] - centers[i]
-                if (d > 0f) half = min(half, 0.49f * d)
+            var half = need[i]
+            if (!options.finalPass) {
+                if (i > 0) {
+                    val d = centers[i] - centers[i - 1]
+                    if (d > 0f) half = min(half, 0.49f * d)
+                }
+                if (i < n - 1) {
+                    val d = centers[i + 1] - centers[i]
+                    if (d > 0f) half = min(half, 0.49f * d)
+                }
+            } else {
+                if (i > 0) half = min(half, centers[i] - boundaries[i - 1])
+                if (i < n - 1) half = min(half, boundaries[i] - centers[i])
             }
             half = max(half, 1f)
             var a = (centers[i] - half).coerceIn(0f, L)

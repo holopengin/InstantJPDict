@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +24,7 @@ from place import (
     score_boxes,
 )
 
-ALGOS = ("current", "current_nosnap", "legacy", "proposed")
+ALGOS = ("current", "current_nosnap", "legacy", "proposed", "proposed_nopass")
 
 
 def run_algo(
@@ -49,6 +50,10 @@ def run_algo(
         return current_char_boxes(**common, box_layout_mode=0, box_uniform_size=False)
     if algo == "proposed":
         return proposed_char_boxes(**common, steps=case["steps"], opts=ProposedOptions())
+    if algo == "proposed_nopass":
+        return proposed_char_boxes(
+            **common, steps=case["steps"], opts=ProposedOptions(final_pass=False)
+        )
     raise ValueError(algo)
 
 
@@ -94,7 +99,7 @@ def main() -> None:
                     decoded_to_true=case["decoded_to_true"],
                     true_text=true_text,
                     cross_extent=float(case["crop_w"] if case["orientation"] == "v" else case["crop_h"]),
-                    seed=hash(case["id"]) % 100000,
+                    seed=zlib.crc32(case["id"].encode()) % 100000,
                 )
                 scores[algo].merge(sc)
                 key = (case["orientation"], algo)
@@ -113,18 +118,19 @@ def main() -> None:
 
     print(f"cases={counts['cases']} (clean={counts['clean']}) chars={counts['chars']}")
     header = (
-        f"{'algo':<14}{'err mean':>9}{'err med':>9}{'err p90':>9}"
+        f"{'algo':<16}{'err mean':>9}{'err med':>9}{'err p90':>9}"
         f"{'err em':>8}{'miss':>7}{'tap':>7}{'jitter':>8}"
-        f"{'inkIoU':>8}{'cellIoU':>9}{'wErr em':>9}"
+        f"{'inkIoU':>8}{'cover':>7}{'xcap':>7}{'cellIoU':>9}{'wErr em':>9}"
     )
     print(header)
     for algo in ALGOS:
         s = scores[algo].summary()
         print(
-            f"{algo:<14}{s['center_err_mean_px']:>9.2f}{s['center_err_median_px']:>9.2f}"
+            f"{algo:<16}{s['center_err_mean_px']:>9.2f}{s['center_err_median_px']:>9.2f}"
             f"{s['center_err_p90_px']:>9.2f}{s['center_err_mean_em']:>8.3f}"
             f"{s['miss_rate_over_half_em']:>7.3f}{s['tap_center_hit_rate']:>7.3f}"
             f"{s['tap_jitter_hit_rate']:>8.3f}{s['ink_iou_mean']:>8.3f}"
+            f"{s['ink_cover_mean']:>7.3f}{s['cross_capture_gt25_rate']:>7.3f}"
             f"{s['cell_iou_mean']:>9.3f}{s['width_err_mean_em']:>9.3f}"
         )
     print("\nby orientation:")

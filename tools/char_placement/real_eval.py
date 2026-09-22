@@ -145,6 +145,11 @@ def main() -> None:
     ap.add_argument("--json", type=Path, default=None)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dump-info", action="store_true")
+    ap.add_argument(
+        "--ab-pass",
+        action="store_true",
+        help="arbitrate the final boundary pass against the midpoint cap",
+    )
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in args.dump.read_text(encoding="utf-8").splitlines()]
@@ -162,6 +167,9 @@ def main() -> None:
         "tie_ink": 0,
         "chars": 0,
         "prop_confident_wins": 0,
+        "pass_closer_ink": 0,
+        "nopass_closer_ink": 0,
+        "tie_pass": 0,
     }
     detail = []
 
@@ -230,6 +238,19 @@ def main() -> None:
             steps=[[(c, s) for c, s in alts] for alts in steps],
             opts=ProposedOptions(),
         )
+        prop_np = None
+        if args.ab_pass:
+            prop_np = proposed_char_boxes(
+                text=text,
+                char_cols=np.array(char_cols, dtype=np.float32),
+                seq_len_total=len(steps),
+                crop_w=rgb.shape[1],
+                crop_h=rgb.shape[0],
+                orientation="v" if vertical else "h",
+                pixels=pixels,
+                steps=[[(c, s) for c, s in alts] for alts in steps],
+                opts=ProposedOptions(final_pass=False),
+            )
         ax = 1 if vertical else 0
         cur_d, cur_iou, n = axis_metrics(cur, pinned_local, vertical)
         prop_d, prop_iou, _ = axis_metrics(prop, pinned_local, vertical)
@@ -286,6 +307,32 @@ def main() -> None:
                 case_stat["cur"] += 1
                 if disagree:
                     case_stat["dis_cur"] += 1
+        if prop_np is not None:
+            # Same arbitration, but between the final pass and the midpoint cap:
+            # both are "proposed", so the ink proxy decides between them.
+            np_pts = [(b[ax] + b[ax + 2]) / 2.0 for b in prop_np]
+            for cval in comps:
+                ccentre = cval[0]
+                pass_owner = [
+                    i for i, b in enumerate(prop) if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                nop_owner = [
+                    i for i, b in enumerate(prop_np) if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                if (len(pass_owner) != 1 or len(nop_owner) != 1
+                        or pass_owner[0] != nop_owner[0]):
+                    continue
+                i = pass_owner[0]
+                if i >= len(text):
+                    continue
+                e_pass = abs(prop_pts[i] - ccentre)
+                e_nop = abs(np_pts[i] - ccentre)
+                if abs(e_pass - e_nop) < 1.0:
+                    stats["tie_pass"] += 1
+                elif e_pass < e_nop:
+                    stats["pass_closer_ink"] += 1
+                else:
+                    stats["nopass_closer_ink"] += 1
         detail.append(
             {
                 "case": row["case"],
@@ -325,6 +372,14 @@ def main() -> None:
                 f" disagreements={dis:<4} proposed {cs['dis_prop']:<4} current {cs['dis_cur']:<4}"
                 f" tie {cs.get('dis_tie', 0)}"
             )
+    totp = stats["pass_closer_ink"] + stats["nopass_closer_ink"] + stats["tie_pass"]
+    if totp:
+        print(
+            f"final-pass arbitration on {totp} clean components:"
+            f" pass closer {stats['pass_closer_ink']} ({stats['pass_closer_ink']/totp:.0%}),"
+            f" midpoint closer {stats['nopass_closer_ink']} ({stats['nopass_closer_ink']/totp:.0%}),"
+            f" tie {stats['tie_pass']}"
+        )
     if args.json:
         args.json.write_text(json.dumps({"stats": stats, "detail": detail}, indent=1))
         print(f"wrote {args.json}")
