@@ -1,0 +1,11 @@
+[package]
+name = "rec_dump"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jpdict_core = { path = "/home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/core", default-features = false, features = ["native"] }
+image = "0.25"
+serde_json = "1"
+
+[workspace]
