@@ -80,7 +80,9 @@ $V eval.py --data /tmp/opencode/charplace_synth --only all
 ```
 
 Algorithms compared per case: `current` (ship: snap + uniform), `current_nosnap`,
-`legacy`, `proposed` (final boundary pass on), `proposed_nopass` (midpoint cap,
+`legacy`, `proposed` (final pass + translate-before-split), `proposed_nopass`
+(midpoint cap, the original ablation), `proposed_notranslate` (final pass
+without translation),
 the ablation).  Metrics per character: reading-axis centre error (px and em),
 IoU vs the cross-extended ink box, axis-IoU vs the advance cell, width error,
 own-ink coverage (share of the glyph's ink interval the box covers), neighbour
@@ -94,6 +96,7 @@ Real inference:
 $V real_eval.py /tmp/opencode/real_lines.jsonl --json /tmp/opencode/real_eval.json
 $V real_eval.py /tmp/opencode/real_lines.jsonl --ab-pass    # pass vs midpoint cap
 $V real_eval.py /tmp/opencode/real_lines.jsonl --ab-punct   # punct fallback vs not
+$V real_eval.py /tmp/opencode/real_lines.jsonl --ab-translate  # translate vs split
 ```
 
 See `real_dump/README.md` for producing the dump.  The harness reconstructs

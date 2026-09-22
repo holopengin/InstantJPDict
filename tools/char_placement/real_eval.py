@@ -155,6 +155,11 @@ def main() -> None:
         action="store_true",
         help="arbitrate the punctuation window fallback against no fallback",
     )
+    ap.add_argument(
+        "--ab-translate",
+        action="store_true",
+        help="arbitrate translate-before-split against no translation",
+    )
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in args.dump.read_text(encoding="utf-8").splitlines()]
@@ -178,6 +183,9 @@ def main() -> None:
         "punct_closer_ink": 0,
         "base_closer_ink": 0,
         "tie_punct": 0,
+        "translate_closer_ink": 0,
+        "notranslate_closer_ink": 0,
+        "tie_translate": 0,
     }
     detail = []
 
@@ -248,6 +256,7 @@ def main() -> None:
         )
         prop_np = None
         prop_base = None
+        prop_notranslate = None
         if args.ab_pass:
             prop_np = proposed_char_boxes(
                 text=text,
@@ -259,6 +268,18 @@ def main() -> None:
                 pixels=pixels,
                 steps=[[(c, s) for c, s in alts] for alts in steps],
                 opts=ProposedOptions(final_pass=False),
+            )
+        if args.ab_translate:
+            prop_notranslate = proposed_char_boxes(
+                text=text,
+                char_cols=np.array(char_cols, dtype=np.float32),
+                seq_len_total=len(steps),
+                crop_w=rgb.shape[1],
+                crop_h=rgb.shape[0],
+                orientation="v" if vertical else "h",
+                pixels=pixels,
+                steps=[[(c, s) for c, s in alts] for alts in steps],
+                opts=ProposedOptions(translate_overlap=False),
             )
         if args.ab_punct:
             prop_base = proposed_char_boxes(
@@ -354,6 +375,33 @@ def main() -> None:
                     stats["pass_closer_ink"] += 1
                 else:
                     stats["nopass_closer_ink"] += 1
+        if prop_notranslate is not None:
+            # Translate-before-split vs no translation: same arbitration, both
+            # are "proposed" -- the ink proxy decides between them.
+            nt_pts = [(b[ax] + b[ax + 2]) / 2.0 for b in prop_notranslate]
+            for cval in comps:
+                ccentre = cval[0]
+                tr_owner = [
+                    i for i, b in enumerate(prop) if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                nt_owner = [
+                    i for i, b in enumerate(prop_notranslate)
+                    if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                if (len(tr_owner) != 1 or len(nt_owner) != 1
+                        or tr_owner[0] != nt_owner[0]):
+                    continue
+                i = tr_owner[0]
+                if i >= len(text):
+                    continue
+                e_tr = abs(prop_pts[i] - ccentre)
+                e_nt = abs(nt_pts[i] - ccentre)
+                if abs(e_tr - e_nt) < 1.0:
+                    stats["tie_translate"] += 1
+                elif e_tr < e_nt:
+                    stats["translate_closer_ink"] += 1
+                else:
+                    stats["notranslate_closer_ink"] += 1
         if prop_base is not None:
             # Punctuation window fallback vs no fallback, same arbitration.
             base_pts = [(b[ax] + b[ax + 2]) / 2.0 for b in prop_base]
@@ -425,6 +473,15 @@ def main() -> None:
             f" pass closer {stats['pass_closer_ink']} ({stats['pass_closer_ink']/totp:.0%}),"
             f" midpoint closer {stats['nopass_closer_ink']} ({stats['nopass_closer_ink']/totp:.0%}),"
             f" tie {stats['tie_pass']}"
+        )
+    tott = (stats["translate_closer_ink"] + stats["notranslate_closer_ink"]
+            + stats["tie_translate"])
+    if tott:
+        print(
+            f"translate arbitration on {tott} clean components:"
+            f" translate closer {stats['translate_closer_ink']} ({stats['translate_closer_ink']/tott:.0%}),"
+            f" split closer {stats['notranslate_closer_ink']} ({stats['notranslate_closer_ink']/tott:.0%}),"
+            f" tie {stats['tie_translate']}"
         )
     totq = stats["punct_closer_ink"] + stats["base_closer_ink"] + stats["tie_punct"]
     if totq:

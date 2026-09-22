@@ -51,10 +51,12 @@ import kotlin.math.min
  *    on its own ink, and only within that character's Voronoi window) to cover
  *    a measured ink span up to `extentGrowFrac` past the cell.
  * 6. **Final pass: boundaries, not midpoints.**  Adjacent boxes share a
- *    boundary placed in the empty ink space between the two glyphs.  When both
- *    measured extents fit between the centres, both boxes get their room; when
- *    they do not, the contested span is split at its emptiest point, with each
- *    box kept at least `splitFloorFrac` of the old midpoint cap.  Every box is
+ *    boundary placed in the empty ink space between the two glyphs.  A pair
+ *    whose rooms do not fit first translates apart into its flanking pairs'
+ *    positive slack (cap `translateMaxEm`), so translation — not a split —
+ *    resolves the collision wherever the empty space allows; only the residue
+ *    is split, at its emptiest point, with each box kept at least
+ *    `splitFloorFrac` of the old midpoint cap.  Every box is
  *    therefore at least as wide as the midpoint cap allowed (the pass is
  *    monotone), and no box crosses its neighbour's centre.
  */
@@ -90,6 +92,16 @@ internal object CharPlacement {
         val punctSpreadFallback: Boolean = true,
         val punctFallbackWindowEm: Float = 0.5f,
         val punctFallbackMaxEm: Float = 0.6f,
+        // Translate-before-split: push overlapping pairs apart into their
+        // neighbours' slack before falling back to a split.  translateMaxEm
+        // is the measured peak (0.04em): small outward moves debias centres
+        // the ink refinement pulled inward by the crowding while resolving
+        // the fit; bigger caps buy a little cover but push centre error back
+        // above the no-translate baseline.
+        val translateOverlap: Boolean = true,
+        val translateMaxEm: Float = 0.04f,
+        val translatePasses: Int = 2,
+        val translateGateCut: Boolean = false,
     )
 
     /** Output box in crop pixels; the cross axis is the whole crop. */
@@ -275,6 +287,70 @@ internal object CharPlacement {
             if (cost < bestCost) { bestCost = cost; best = i }
         }
         return best.toFloat()
+    }
+
+    /**
+     * Push overlapping pairs apart into their neighbours' slack, in place —
+     * the translate-before-split step of the final pass.
+     *
+     * For a pair whose required half-widths do not fit between the centres
+     * (`need[i] + need[i+1] > d`), translating the two glyphs outward by the
+     * deficit hands both their full room, so the boundary pass can place the
+     * divider in genuinely empty space instead of splitting the contested
+     * span.  Only *positive* slack of the flanking pairs may be consumed
+     * (capped at [ProposedOptions.translateMaxEm]), so a move can shrink a
+     * neighbour pair's interval but never make it infeasible; whatever
+     * deficit remains is left for the split path.  Slack is recomputed after
+     * every move, so chains resolve honestly left-to-right.
+     */
+    private fun translateApart(
+        centers: FloatArray,
+        need: FloatArray,
+        inkHalf: FloatArray,
+        desired: FloatArray,
+        em: Float,
+        options: Options,
+    ) {
+        val n = centers.size
+        if (n < 2 || !options.translateOverlap) return
+        val cap = options.translateMaxEm * em
+        fun slacks(): FloatArray {
+            val out = FloatArray(n - 1)
+            for (i in 0 until n - 1) {
+                out[i] = (centers[i + 1] - centers[i]) - need[i] - need[i + 1]
+            }
+            return out
+        }
+        fun wouldSplitCut(i: Int): Boolean {
+            for (j in i..(i + 1)) {
+                if (j >= n) continue
+                var h = desired[j]
+                if (j > 0) h = min(h, 0.49f * (centers[j] - centers[j - 1]))
+                if (j < n - 1) h = min(h, 0.49f * (centers[j + 1] - centers[j]))
+                if (inkHalf[j] > h) return true
+            }
+            return false
+        }
+        repeat(max(1, options.translatePasses)) {
+            var slack = slacks()
+            var moved = false
+            for (i in 0 until n - 1) {
+                val d = centers[i + 1] - centers[i]
+                val deficit = need[i] + need[i + 1] - d
+                if (deficit <= 0f) continue
+                if (options.translateGateCut && !wouldSplitCut(i)) continue
+                val roomL = if (i > 0) min(max(slack[i - 1], 0f), cap) else 0f
+                val roomR = if (i + 1 < n - 1) min(max(slack[i + 1], 0f), cap) else 0f
+                val move = min(deficit, roomL + roomR)
+                if (move <= 0f) continue
+                val dl = move * (roomL / (roomL + roomR))
+                centers[i] -= dl
+                centers[i + 1] += move - dl
+                slack = slacks()
+                moved = true
+            }
+            if (!moved) return
+        }
     }
 
     private fun weightedMedian(xs: List<Float>, ws: List<Float>): Float {
@@ -512,6 +588,9 @@ internal object CharPlacement {
         // midpoint cap allowed.
         val desired = FloatArray(n) { 0.5f * units[it] * tmpl.em }
         val need = desired.copyOf()
+        // Raw measured ink half-extents (unclamped, unpadded): the translate
+        // gate needs to know what a split would actually cut.
+        val inkHalf = need.copyOf()
         if (options.finalPass && prof != null) {
             for (i in 0 until n) {
                 val ci = Math.round(centers[i]).coerceIn(0, prof.profile.size - 1)
@@ -522,12 +601,19 @@ internal object CharPlacement {
                 if (i > 0) loLim = max(loLim, 0.5f * (centers[i] + centers[i - 1]))
                 if (i < n - 1) hiLim = min(hiLim, 0.5f * (centers[i] + centers[i + 1]))
                 val (spanLo, spanHi) = inkSpan(prof.profile, centers[i], loLim, hiLim)
+                inkHalf[i] = max(centers[i] - spanLo, spanHi - centers[i])
                 val halfNeed =
                     max(centers[i] - spanLo, spanHi - centers[i]) + options.extentPadPx
                 need[i] = halfNeed.coerceIn(
                     desired[i], desired[i] * (1f + options.extentGrowFrac)
                 )
             }
+        }
+        if (options.finalPass) {
+            // Translate first: an overlapping pair pushes apart into its
+            // neighbours' positive slack, so the boundary pass below gives
+            // both glyphs their full room; only the residue is split.
+            translateApart(centers, need, inkHalf, desired, tmpl.em, options)
         }
         val boundaries = FloatArray(max(n - 1, 0))
         if (!options.finalPass) {

@@ -24,7 +24,8 @@ from place import (
     score_boxes,
 )
 
-ALGOS = ("current", "current_nosnap", "legacy", "proposed", "proposed_nopass")
+ALGOS = ("current", "current_nosnap", "legacy", "proposed", "proposed_nopass",
+         "proposed_notranslate")
 
 
 def run_algo(
@@ -53,6 +54,11 @@ def run_algo(
     if algo == "proposed_nopass":
         return proposed_char_boxes(
             **common, steps=case["steps"], opts=ProposedOptions(final_pass=False)
+        )
+    if algo == "proposed_notranslate":
+        return proposed_char_boxes(
+            **common, steps=case["steps"],
+            opts=ProposedOptions(translate_overlap=False),
         )
     raise ValueError(algo)
 

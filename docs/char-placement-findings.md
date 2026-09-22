@@ -39,18 +39,18 @@ $ ./gradlew :app:testDebugUnitTest --tests "*CharPlacement*"
   reading-axis ink profile inside a template-bounded window, retried around
   the CTC run for punctuation whose window picks up a neighbour's stroke) and
   ends with a **final boundary pass**: adjacent boxes share a boundary placed
-  in the empty ink space between the glyphs, and the contested span is split
-  when both glyphs' measured inks cannot fit.  The template averages the
+  in the empty ink space between the glyphs — and an overlapping pair first
+  translates apart into that empty space; only the residue is split.  The template averages the
   quantization noise over the whole line; ink refinement then takes out what is
   left, including for the punctuation and small kana the shipped snapping
   refuses to touch; the boundary pass stops the midpoint cap from chopping
   strokes.
 * Synthetic evaluation, 190 clean lines / 3556 characters (horizontal,
   vertical, rotated, degraded, ruby, tracking, long; real corpus):
-  mean centre error **4.07px → 1.61px** (0.131em → 0.052em), p90 **9.60px →
-  3.50px**, >0.5em errors **2.0% → 0.0%**, tap-at-centre hit **97.5% →
-  99.2%**, jittered-tap hit **94.4% → 98.3%**, and the share of a glyph's own
-  ink interval its box covers **0.919 → 0.955**.  Every preset improves.
+  mean centre error **4.07px → 1.46px** (0.131em → 0.047em), p90 **9.60px →
+  3.00px**, >0.5em errors **2.0% → 0.0%**, tap-at-centre hit **97.5% →
+  99.5%**, jittered-tap hit **94.4% → 98.8%**, and the share of a glyph's own
+  ink interval its box covers **0.919 → 0.970**.  Every preset improves.
 * Real inference spot check (290 lines / 3075 characters from the vendored
   recognition fixtures): where the two algorithms disagree by ≥2px on an
   unambiguous ink component, the proposed centre is closer **1184 times vs
@@ -260,12 +260,19 @@ pair**, chosen in the empty ink space between the glyphs:
    centre is a gap (punctuation) or a contaminated pull keeps the advance cell:
    its "extent" would be the neighbour's stroke.  The result is capped at
    `1.3 · advance half`.
-2. **Boundary.**  With `req_i = max(need_i, h_old_i)` (`h_old` = the old
+2. **Translate first.**  When a pair's rooms do not fit
+   (`need_i + need_{i+1} > gap`) it is pushed apart by its deficit into the
+   *positive slack of its flanking pairs* — the empty space beside them — with
+   slack recomputed after every move, so a move can shrink a neighbour pair's
+   interval but never drive it negative.  Each glyph's move is capped at
+   `translate_max_em` (0.04em — the measured peak, below); whatever deficit
+   remains falls through to the split.
+3. **Boundary.**  With `req_i = max(need_i, h_old_i)` (`h_old` = the old
    midpoint cap), if `centre_i + req_i ≤ centre_{i+1} - req_{i+1}` both glyphs
    fit and the boundary may sit anywhere in that interval: it goes to the
    **emptiest point** (midpoint of the longest run under the profile floor,
    else the mass minimum).
-3. **Split.**  When they do not fit (tight tracking, merged strokes, a wide
+4. **Split.**  When they do not fit (tight tracking, merged strokes, a wide
    glyph beside a narrow one), the contested span is split at its emptiest
    point, with each box kept at least `splitFloorFrac` of `h_old` (1.0 by
    default — see below).
@@ -287,12 +294,35 @@ as the renderer and hit-tester expect.  Vertical lines are the same on the y
 axis; rotated lines are unchanged (they are computed in the upright local
 frame and mapped through the quad).
 
-**Measured effect (clean synthetic set, 3556 characters).**  Coverage
-0.949 → 0.955, tap-at-centre 99.2% (unchanged), jittered tap 98.2% → 98.3%,
-cell IoU 0.558 → 0.562, width error -0.086em → -0.066em; ink IoU 0.771 →
-0.765 (the boxes are now slightly wider than the ink, which is what buys the
-coverage).  On all 210 cases (CTC errors included) the same direction holds:
-coverage 0.945 → 0.952, tap 98.9% → 99.1%.
+**Measured effect, boundaries only (clean set, 3556 characters).**
+Coverage 0.949 → 0.955, tap-at-centre 99.2% (unchanged), jittered tap
+98.2% → 98.3%, cell IoU 0.558 → 0.562, width error -0.086em → -0.066em;
+ink IoU 0.771 → 0.765 (boxes slightly wider than the ink, which is what buys
+the coverage).
+
+**Translation is where the win is.**  Diagnosis first: 51.9% of pairs fail
+the requirement test `need_i + need_{i+1} > gap`, but only **17 pairs have
+source inks that truly overlap** — the collision is our own policy (both
+boxes at the advance cell) against centre pitches jittered below the em, and
+with `splitFloorFrac = 1.0` the split's floor interval collapsed to ~0.02·d,
+so for half the pairs the pass degenerated back into the midpoint split it
+was meant to replace.  53% of those pairs have flank room ≥ their deficit —
+exactly the case this step exploits.
+
+With translation (clean set): centre error **1.61 → 1.46px** (p90
+3.50 → 3.00), tap **99.2% → 99.5%**, jitter **98.3% → 98.8%**, coverage
+**0.955 → 0.970**, cell IoU **0.562 → 0.571**, width error
+**-0.066 → -0.036em**.  All 210 cases: **1.71 → 1.55px** (p90 3.50 → 3.09),
+coverage 0.952 → 0.967 — and **every preset improves** on error and cover
+(rotated 1.99 → 1.79, degraded 1.94 → 1.70, errors 2.28 → 2.13).  Costs:
+ink IoU 0.765 → 0.762, the CTC-error subset's tap 0.980 → 0.978.
+
+Why *small* moves win: centres the ink refinement pulled inward by crowding
+are debiased by the outward translation, so at the cap the mean error drops
+*below* the no-translate baseline; past ~0.10em the moves overshoot and error
+climbs back above it.  Sweep (clean, mean px): no translate 1.61, cap 0.03 →
+1.45, **0.04 → 1.46**, 0.08 → 1.55, 0.15 → 1.68, 0.35 → 1.71.  0.04em is the
+knee: every fit metric at its plateau, error still improving.
 
 Allowing the split to go below the old cap (`splitFloorFrac < 1`) buys ink IoU
 (0.778 at 0.70) but loses tap quality (98.8% → 98.8%/97.8% jitter) and cell
@@ -368,7 +398,8 @@ snap+uniform; `current_nosnap` = uniform only; `legacy` = neither):
 | current_nosnap | 5.78px | 4.96px | 11.66px | 0.181em | 1.5% | 97.7% | 93.8% | 0.880 | 0.612 | 0.641 |
 | **current** | 4.07px | 2.62px | 9.60px | 0.131em | 2.0% | 97.5% | 94.4% | 0.919 | 0.661 | 0.605 |
 | proposed (midpoint cap) | 1.61px | 1.00px | 3.50px | 0.052em | 0.0% | 99.2% | 98.2% | 0.949 | 0.771 | 0.558 |
-| **proposed + final pass** | **1.61px** | **1.00px** | **3.50px** | **0.052em** | **0.0%** | **99.2%** | **98.3%** | **0.955** | 0.765 | **0.562** |
+| proposed (final pass, no translation) | 1.61px | 1.00px | 3.50px | 0.052em | 0.0% | 99.2% | 98.3% | 0.955 | 0.765 | 0.562 |
+| **proposed (+ translation)** | **1.46px** | **1.00px** | **3.00px** | **0.047em** | **0.0%** | **99.5%** | **98.8%** | **0.970** | 0.762 | **0.571** |
 
 `cover` = mean share of a glyph's own ink interval (reading axis) the box
 covers; it is the metric the final pass moves, and it moves monotonically
@@ -422,6 +453,12 @@ quad warp is not implemented in the Python harness):
   screenshots (7 and 9) favour the shipped chain.  Those two are the
   honest weak spot: synthetic-only tuning has not seen their exact ink
   statistics, and their crops are UI chrome as much as text.
+* **Translate A/B (`--ab-translate`)**: on 3544 clean components the real
+  ink-run proxy mildly prefers *no* translation — split 420 vs translate 244,
+  2880 ties (81%).  That proxy measures exactly the centredness (≤0.04em)
+  translation deliberately spends, and cannot see the coverage/tap/width
+  gains; ground truth (the synthetic set) decides the default.  Recheck if
+  device taps ever feel off-centre.
 * **Real alignment measurement**: the shipped map `(charCols + 0.5)·stride` is
   unbiased against an ink proxy (mean +0.065 timesteps over 2598 characters)
   but spread out by quantization (50.7% of characters beyond ±0.25
@@ -495,6 +532,9 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
   CTC retry fixes the measured cases (corner-punctuation mean 0.098em →
   0.086em, >0.3em 8.0% → 5.0%) but never fires on the real fixtures, so it is
   a synthetic-tuned safety net, not a real-data win.
+* **Translation spends centredness for fit by design**, and the real proxy
+  mildly prefers the split (above).  The default rests on synthetic ground
+  truth; a contrary device report is the trigger to revisit the cap.
 * **Split asymmetry is available but off**: `splitFloorFrac < 1` lets the
   emptier side win the contested span (ink IoU 0.765 → 0.778 at 0.70) at the
   cost of tap quality (tap 99.2% → 98.8%, jitter 98.2% → 97.8%) and cell IoU,

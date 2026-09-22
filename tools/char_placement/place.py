@@ -556,6 +556,27 @@ class ProposedOptions:
     conf_floor: float = 1.0  # raw-logit margin below which ink trust halves
     # Second pass
     refine_passes: int = 1
+    # Resolve overlapping requirements by translating apart before splitting:
+    # a pair whose required half-widths do not fit between their centres is
+    # pushed into its neighbours' positive slack (the empty space flanking the
+    # pair) first, and only whatever deficit remains is split.  Slack is
+    # consumed, never driven negative, so a translation can never make a
+    # NEIGHBOURING pair infeasible.  Measured on the clean set: 51.9% of pairs
+    # are infeasible on requirements (but only 17 pairs have source inks that
+    # truly overlap) and 53% of those have enough flank room to fully resolve.
+    translate_overlap: bool = True
+    # Cap on one glyph's move, in em.  Measured peak on the clean set: small
+    # outward moves *debias* centres the ink refinement pulled inward by the
+    # crowding (err 1.61 -> 1.46px) while resolving the fit (cover 0.955 ->
+    # 0.970, tap 0.992 -> 0.995); larger caps keep buying cover but overshoot
+    # the debiasing and push the centre error back above the no-translate
+    # baseline past ~0.10em.
+    translate_max_em: float = 0.04
+    translate_passes: int = 2
+    # Only translate a pair when the split would actually cut one of its
+    # glyphs' ink (ink half-extent > what the split's floor allows).  Keeps
+    # the centre-error cost to the pairs that need the room.
+    translate_gate_cut: bool = False
     # Final pass: boundaries, not midpoints.  Each pair of neighbours gets a
     # shared boundary chosen in the empty ink space between the glyphs (or, when
     # the measured inks cannot both fit, split at the emptiest point of the
@@ -745,6 +766,75 @@ def _emptiest_point(prof: np.ndarray, lo: float, hi: float, floor: float) -> flo
     return float(a + int(np.argmin(cost)))
 
 
+def _translate_apart(
+    centers: list[float],
+    need: list[float],
+    ink_half: list[float],
+    desired: list[float],
+    em: float,
+    opts,
+) -> None:
+    """Push overlapping pairs apart into their neighbours' slack, in place.
+
+    For a pair whose required half-widths do not fit between the centres
+    (`need[i] + need[i+1] > d`), translating the two glyphs outward by the
+    deficit hands both their full room, so the boundary pass can place the
+    divider in genuinely empty space instead of splitting the contested span.
+
+    Only *positive* slack of the flanking pairs may be consumed (capped at
+    `translate_max_em`), so a move can shrink a neighbour pair's interval but
+    never make it infeasible; whatever deficit remains after the move is left
+    for the split path.  Slack is recomputed after every move, so chains
+    resolve left-to-right honestly.
+    """
+    n = len(centers)
+    if n < 2 or not opts.translate_overlap:
+        return
+    cap = opts.translate_max_em * em
+
+    def slacks() -> list[float]:
+        out = []
+        for i in range(n - 1):
+            out.append((centers[i + 1] - centers[i]) - need[i] - need[i + 1])
+        return out
+
+    def would_split_cut(i: int) -> bool:
+        # Would the split path's floor leave ink outside this glyph's box?
+        for j in (i, i + 1):
+            if j >= n:
+                continue
+            h = min(desired[j], 0.49 * (centers[j] - centers[j - 1])) if j > 0 else desired[j]
+            if j < n - 1:
+                h = min(h, 0.49 * (centers[j + 1] - centers[j]))
+            if ink_half[j] > h:
+                return True
+        return False
+
+    for _ in range(max(1, opts.translate_passes)):
+        slack = slacks()
+        moved = False
+        for i in range(n - 1):
+            d = centers[i + 1] - centers[i]
+            deficit = need[i] + need[i + 1] - d
+            if deficit <= 0:
+                continue
+            if opts.translate_gate_cut and not would_split_cut(i):
+                continue
+            room_l = min(max(slack[i - 1], 0.0), cap) if i > 0 else 0.0
+            room_r = min(max(slack[i + 1], 0.0), cap) if i + 1 < n - 1 else 0.0
+            move = min(deficit, room_l + room_r)
+            if move <= 0:
+                continue
+            total = room_l + room_r
+            dl = move * (room_l / total)
+            centers[i] -= dl
+            centers[i + 1] += move - dl
+            slack = slacks()
+            moved = True
+        if not moved:
+            break
+
+
 def proposed_char_boxes(
     text: str,
     char_cols,
@@ -909,6 +999,9 @@ def proposed_char_boxes(
     # its "extent" would otherwise be the neighbour's stroke.
     desired = [0.5 * units[i] * em for i in range(n)]
     need = list(desired)
+    # Raw measured ink half-extents (unclamped, unpadded): the gate needs to
+    # know what the split would actually cut, not what the box aspires to.
+    ink_half = list(need)
     boundaries: list[float] = []
     if not opts.final_pass:
         # Ablation: the previous behaviour -- one midpoint boundary per pair,
@@ -928,6 +1021,7 @@ def proposed_char_boxes(
                 hi_lim = min(hi_lim, 0.5 * (centers[i] + centers[i + 1]))
             span_lo, span_hi = _ink_run(prof, centers[i], lo_lim, hi_lim,
                                         opts.extent_floor)
+            ink_half[i] = max(centers[i] - span_lo, span_hi - centers[i])
             half_need = (
                 max(centers[i] - span_lo, span_hi - centers[i]) + opts.extent_pad_px
             )
@@ -936,6 +1030,10 @@ def proposed_char_boxes(
             )
 
     if opts.final_pass:
+        # Translate first: an overlapping pair pushes apart into its
+        # neighbours' positive slack, so the boundary pass below gives both
+        # glyphs their full room; only the residue (if any) is split.
+        _translate_apart(centers, need, ink_half, desired, em, opts)
         # h_old: what the midpoint cap allowed.  Every boundary is constrained
         # so no box ends up narrower than before (the pass is monotone).
         h_old = list(desired)
