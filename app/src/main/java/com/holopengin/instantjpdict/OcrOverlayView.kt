@@ -2082,15 +2082,25 @@ class OcrOverlayView(
         val padding = (box.height() * 0.5).toInt()
         val cropRect = Rect((box.left - padding).coerceAtLeast(0), (box.top - padding).coerceAtLeast(0), (box.right + padding).coerceAtMost(bitmap.width), (box.bottom + padding).coerceAtMost(bitmap.height))
         val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
+        // The preview, HALVED in both axes (240dp -> a 120dp box): it was
+        // gigantic and, being the widest child, it set the panel's width.  The
+        // panel is top-anchored, so the height it gives up is added back into
+        // the top margin below — its BOTTOM edge does not move; only its top
+        // sits lower.
+        val previewBox = (resources.displayMetrics.density * 240).toInt()
+        val previewHalf = previewBox / 2
         val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0)); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
         // The panel's anchor is applied at addView below (top of screen); its
         // own layoutParams there were dead — FrameLayout's params replace them.
-        val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(30, 30, 30, 30); gravity = Gravity.TOP; elevation = 201f; setOnClickListener { } }
-        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); val size = (resources.displayMetrics.density * 240).toInt(); layoutParams = LinearLayout.LayoutParams(size, size); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
+        // A vertical LinearLayout aligns its children LEFT unless told
+        // otherwise, and the panel's gravity said only TOP — so the title, the
+        // entry and Confirm all hugged the left edge.  Centre them.
+        val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(30, 30, 30, 30); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; elevation = 201f; setOnClickListener { } }
+        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); layoutParams = LinearLayout.LayoutParams(previewHalf, previewHalf); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
         // One line, always: with a large system font scale the title's natural
         // width exceeds the panel, it wrapped to two lines, and the entry box
         // below consumed the second line.
-        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) })
+        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; gravity = Gravity.CENTER_HORIZONTAL; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) })
         // 20sp, not 36: with the bundled face's 1.448em line box plus font
         // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
         // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
@@ -2100,8 +2110,10 @@ class OcrOverlayView(
         // Top of the screen, clear of the status bar — NOT vertically centred.
         // A keyboard opened over a centred panel covered exactly what you were
         // typing (the IME does not resize an accessibility overlay), so the
-        // panel pins to the top where the keyboard cannot reach it.
-        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = statusBarHeightPx() + 40 })
+        // panel pins to the top where the keyboard cannot reach it.  The
+        // preview's height cut is added here so the panel's bottom edge stays
+        // exactly where it was — only the top edge moves down.
+        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = statusBarHeightPx() + 40 + (previewBox - previewHalf) })
         host.requestSoftInputResize()
         rootLayout.addView(blocker, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         blocker.bringToFront()
