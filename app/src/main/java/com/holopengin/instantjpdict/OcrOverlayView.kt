@@ -2083,13 +2083,25 @@ class OcrOverlayView(
         val cropRect = Rect((box.left - padding).coerceAtLeast(0), (box.top - padding).coerceAtLeast(0), (box.right + padding).coerceAtMost(bitmap.width), (box.bottom + padding).coerceAtMost(bitmap.height))
         val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
         val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0)); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
-        val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(60, 60, 60, 60); gravity = Gravity.CENTER_HORIZONTAL; elevation = 201f; setOnClickListener { } }
-        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); val size = (resources.displayMetrics.density * 120).toInt(); layoutParams = LinearLayout.LayoutParams(size, size); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
-        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; OverlayFont.apply(context, this); setPadding(0, 30, 0, 10) })
-        val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 36f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN); OverlayFont.apply(context, this) }
+        // The panel's anchor is applied at addView below (top of screen); its
+        // own layoutParams there were dead — FrameLayout's params replace them.
+        val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(30, 30, 30, 30); gravity = Gravity.TOP; elevation = 201f; setOnClickListener { } }
+        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); val size = (resources.displayMetrics.density * 240).toInt(); layoutParams = LinearLayout.LayoutParams(size, size); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
+        // One line, always: with a large system font scale the title's natural
+        // width exceeds the panel, it wrapped to two lines, and the entry box
+        // below consumed the second line.
+        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) })
+        // 20sp, not 36: with the bundled face's 1.448em line box plus font
+        // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
+        // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
+        val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 20f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN); OverlayFont.apply(context, this) }
         panel.addView(editText, LinearLayout.LayoutParams(250, LinearLayout.LayoutParams.WRAP_CONTENT))
         panel.addView(Button(context).apply { text = "Confirm"; setOnClickListener { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) } } }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 20 })
-        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        // Top of the screen, clear of the status bar — NOT vertically centred.
+        // A keyboard opened over a centred panel covered exactly what you were
+        // typing (the IME does not resize an accessibility overlay), so the
+        // panel pins to the top where the keyboard cannot reach it.
+        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = statusBarHeightPx() + 40 })
         host.requestSoftInputResize()
         rootLayout.addView(blocker, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         blocker.bringToFront()
