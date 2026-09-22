@@ -2100,7 +2100,13 @@ class OcrOverlayView(
         // One line, always: with a large system font scale the title's natural
         // width exceeds the panel, it wrapped to two lines, and the entry box
         // below consumed the second line.
-        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; gravity = Gravity.CENTER_HORIZONTAL; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) })
+        // WRAP_CONTENT, not the MATCH_PARENT addView without params gives it:
+        // only a wrap-content child widens a wrap-content panel, so the title
+        // was clamped to the image's 120dp width and ellipsized itself to
+        // "Enter a Cha...".  Its own gravity goes with it — the panel centres
+        // the (now wrap-content) row.  END ellipsis stays as the screen-narrow
+        // safety net.
+        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         // 20sp, not 36: with the bundled face's 1.448em line box plus font
         // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
         // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
