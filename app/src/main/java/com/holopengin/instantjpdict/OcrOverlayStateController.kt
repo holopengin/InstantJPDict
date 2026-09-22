@@ -725,6 +725,30 @@ class OcrOverlayStateController {
         return Pair(panelWidth, panelHeight)
     }
 
+    /**
+     * Top padding (px) that keeps the dictionary render out of the status bar.
+     *
+     * The overlay windows lay out UNDER the system bars (`FLAG_LAYOUT_NO_LIMITS`
+     * in ShareImageActivity, the accessibility overlay in the service), so
+     * nothing insets for them automatically and the panel's first lines sit
+     * behind the bar. The inset is owed exactly where the panel's top edge IS
+     * the screen's top edge, and [activeGravity] says where the panel is hung:
+     *
+     *  - `TOP` — a portrait panel hung at the top;
+     *  - `START` / `END` — a landscape side panel, which runs the full screen
+     *    height and so always has its top edge at the top;
+     *  - `BOTTOM` — a portrait panel near the navigation bar, nowhere near the
+     *    status bar, so nothing is owed.
+     *
+     * The test is therefore on BOTTOM *not* being set rather than on equality:
+     * a side gravity read back out of a laid-out view arrives as `START|LEFT`
+     * / `END|RIGHT`, the round trip through `Gravity`, and must still count.
+     * [statusBarPx] is the bar's runtime height, resolved by the caller (the
+     * overlay already reads it for the #64 strip scrim).
+     */
+    fun dictionaryTopInset(activeGravity: Int, statusBarPx: Int): Int =
+        if (activeGravity and JpDictGravity.BOTTOM == 0) statusBarPx else 0
+
     fun updateGravity(rootWidth: Int, rootHeight: Int, tappedBox: JpDictRect) {
         val isLandscape = rootWidth > rootHeight
 

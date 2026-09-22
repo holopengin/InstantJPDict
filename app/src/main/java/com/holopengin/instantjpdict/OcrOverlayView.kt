@@ -1267,7 +1267,18 @@ class OcrOverlayView(
         
         if (existingRoot != null) {
             val dictionaryContainer = existingRoot.findViewWithTag<LinearLayout>("dictionary_content_container")
-            if (dictionaryContainer != null) updateDictionaryPanel(dictionaryContainer, matches, cacheKey)
+            if (dictionaryContainer != null) {
+                // The gravity the panel was actually built with, not a fresh
+                // one: a turn keeps this panel alive without re-gravitating it,
+                // so its own gravity is what says whether its top edge is the
+                // screen's top edge.
+                val inset = controller.dictionaryTopInset(
+                    existingRoot.gravity.toJpDictGravity(),
+                    statusBarHeightPx(),
+                )
+                applyDictionaryPadding(dictionaryContainer, inset)
+                updateDictionaryPanel(dictionaryContainer, matches, cacheKey)
+            }
             
             val neighborPanel = existingRoot.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
             if (neighborPanel != null) updateNeighborHighlights(neighborPanel)
@@ -1290,6 +1301,9 @@ class OcrOverlayView(
 
         controller.updateGravity(rootWidth, rootHeight, tappedBox)
         controller.isDictionaryVisible = true
+        // The gravity this panel will be built at — one expression, used for
+        // its placement and for the status-bar inset it needs at that edge.
+        val activeGravity = if (isLandscape) controller.lastLandscapeGravity else controller.lastPortraitGravity
         val (panelWidthF, panelHeightF) = controller.getPanelDimensions(rootWidth, rootHeight)
         val panelWidth = if (isLandscape) panelWidthF.toInt() else FrameLayout.LayoutParams.MATCH_PARENT
         val panelHeight = if (isLandscape) FrameLayout.LayoutParams.MATCH_PARENT else panelHeightF.toInt()
@@ -1298,10 +1312,13 @@ class OcrOverlayView(
             tag = "dictionary_content_container"
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(android.graphics.Color.argb(245, 25, 25, 25))
-            setPadding(40, 40, 40, 40)
             elevation = 20f
             setOnClickListener { }
         }
+        applyDictionaryPadding(
+            dictionaryPanel,
+            controller.dictionaryTopInset(activeGravity, statusBarHeightPx()),
+        )
         updateDictionaryPanel(dictionaryPanel, matches, cacheKey)
 
         val correctionPanel = createCorrectionPanel(controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine, isLandscape, rootLayout, skipCenter)
@@ -1315,7 +1332,7 @@ class OcrOverlayView(
             tag = "correction_ui_root"
             elevation = 100f
             orientation = if (isLandscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            gravity = (if (isLandscape) controller.lastLandscapeGravity else controller.lastPortraitGravity).toAndroidGravity()
+            gravity = activeGravity.toAndroidGravity()
 
             val isReverse = if (isLandscape) controller.lastLandscapeGravity == JpDictGravity.END else controller.lastPortraitGravity == JpDictGravity.BOTTOM
             if (isReverse) {
@@ -1339,6 +1356,20 @@ class OcrOverlayView(
 
         centerWordInVisibleArea(rootLayout, controller.currentTappedLineIdx, controller.currentTappedCharIdxInLine)
         updateCursor()
+    }
+
+    /**
+     * The dictionary panel's edge inset plus its status-bar clearance on top
+     * ([dictTopInset] from [OcrOverlayStateController.dictionaryTopInset]).
+     *
+     * One helper for the two call sites — the panel first shown and the panel
+     * already on screen — so the edge padding and the inset can never drift
+     * apart between them.
+     */
+    private fun applyDictionaryPadding(panel: LinearLayout, dictTopInset: Int) {
+        // The panel's own edge inset; px, as this panel has always had it.
+        val edge = 40
+        panel.setPadding(edge, edge + dictTopInset, edge, edge)
     }
 
     private fun updateDictionaryPanel(container: LinearLayout, matches: List<FormattedEntry>, cacheKey: String? = null) {
