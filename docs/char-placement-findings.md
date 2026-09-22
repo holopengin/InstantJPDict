@@ -522,9 +522,12 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
    the tap-through metrics on device match the synthetic directions (the
    `TapDisambiguator`, `GapDetector` and nav-graph paths do not care how the
    boxes were produced, only that they contain the glyph centres).
-4. **Keep a kill switch during rollout.**  One SharedPreferences flag
-   (`BOX_PLACEMENT_MODE = cap | legacy`, default cap after a device A/B)
-   read where `BOX_LAYOUT_MODE` is read today; no other plumbing.
+4. **Keep a kill switch during rollout.**  Landed as the boolean
+   `PREF_BOX_PLACEMENT_CAP` (`box_placement_cap`, ON for the device A/B) read
+   in `computeCharBoxes`; the debug screen's "CTC-anchored char placement
+   (experimental)" switch flips it, and turning it off restores the shipped
+   chain bit-for-bit.  The long-line stitch path still needs the stitched
+   column mapping — validate separately.
 5. **Guard rails.**  Pure functions: input `text` shorter than the run count
    or an empty pixel array must fall back to the `charCols` path (implemented
    and tested); `cropW/H < 8` skips the ink pass.

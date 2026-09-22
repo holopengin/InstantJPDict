@@ -83,6 +83,13 @@ class OcrEngine(
         const val PREF_DET_FURIGANA_SCREEN = "ppocr_det_furigana"
         const val PREF_DET_FURIGANA_CAMERA = "ppocr_det_furigana_camera"
         const val DEF_DET_FURIGANA = false
+        /** CAP char placement (research/char-placement): the debug screen's
+         *  "Char placement (CAP)" switch. ON for the device A/B; off restores
+         *  the shipped chain bit-for-bit. The algorithm falls back inside
+         *  itself when the crop pixels or the top-K steps are missing, so the
+         *  re-decode path still gets the template fit. */
+        const val PREF_BOX_PLACEMENT_CAP = "box_placement_cap"
+        const val DEF_BOX_PLACEMENT_CAP = true
 
         // Defaults (previous hard constants)
         const val DEF_DET_LONG_SIDE = 960
@@ -284,6 +291,9 @@ class OcrEngine(
     /** #28/#100: this entry point's furigana switch; off keeps every contour. */
     private val detFurigana: Boolean
         get() = prefs.getBoolean(furiganaPref, DEF_DET_FURIGANA)
+    /** CAP char placement switch (debug screen); on for the device A/B. */
+    private val capPlacement: Boolean
+        get() = prefs.getBoolean(PREF_BOX_PLACEMENT_CAP, DEF_BOX_PLACEMENT_CAP)
     private val xOverlapThresh: Float
         get() = prefs.getFloat(PREF_X_OVERLAP, DEF_X_OVERLAP)
     /** Live squish factor from debug slider (0.2–1.0, default 0.5). #24 */
@@ -1197,13 +1207,14 @@ class OcrEngine(
                 val job = batchJobs.getOrNull(index) ?: return@emit
                 if (result.text.isEmpty()) return@emit
 
-                // Crop pixels for idea-4 snapping (crop alive until batch
-                // recycle below; null-safe when sizes mismatch).
+                // Crop pixels for idea-4 snapping / CAP ink evidence (crop alive
+                // until batch recycle below; null-safe when sizes mismatch).
                 val crop = crops.getOrNull(index)
                 var snapPx: IntArray? = null
                 var snapW = 0
                 var snapH = 0
-                if (BOX_LAYOUT_MODE == BOX_SNAP && crop != null && !crop.isRecycled && crop.width >= 8 && crop.height >= 8) {
+                val needCropPixels = BOX_LAYOUT_MODE == BOX_SNAP || capPlacement
+                if (needCropPixels && crop != null && !crop.isRecycled && crop.width >= 8 && crop.height >= 8) {
                     try {
                         snapW = crop.width; snapH = crop.height
                         val arr = IntArray(snapW * snapH)
@@ -1257,6 +1268,7 @@ class OcrEngine(
                         cropX, cropY, cropW, cropH,
                         job.isVertical,
                         snapPx, snapW, snapH,
+                        recRaw,
                     )
                     charBoxes = local.map { quad.mapLocalRect(it) }
                 } else {
@@ -1269,6 +1281,7 @@ class OcrEngine(
                         cropX, cropY, cropW, cropH,
                         job.isVertical,
                         snapPx, snapW, snapH,
+                        recRaw,
                     )
                 }
 
@@ -2229,9 +2242,40 @@ class OcrEngine(
         pixels: IntArray? = null,
         pixW: Int = 0,
         pixH: Int = 0,
+        steps: List<List<Pair<Char, Float>>>? = null,
     ): List<JpDictRect> {
         val n = charCols.size
         if (n == 0 || seqLenTotal <= 0) return emptyList()
+
+        // CAP (research/char-placement): CTC activation runs + layout template +
+        // ink refinement + the final boundary pass.  Falls back inside itself
+        // when the top-K steps or the crop pixels are missing, so this branch is
+        // safe on the re-decode path too; the shipped chain below stays as the
+        // debug-screen kill switch (PREF_BOX_PLACEMENT_CAP off).
+        if (capPlacement) {
+            val placed = CharPlacement.place(
+                text = text,
+                charCols = charCols,
+                seqLenTotal = seqLenTotal,
+                cropW = cropW,
+                cropH = cropH,
+                isVertical = isVertical,
+                pixels = pixels,
+                steps = steps?.map { alts ->
+                    alts.map { (c, s) -> CharPlacement.Step(c, s) }
+                },
+            )
+            if (placed.isNotEmpty()) {
+                return placed.map { box ->
+                    JpDictRect(
+                        (cropX + box.left).roundToInt(),
+                        (cropY + box.top).roundToInt(),
+                        (cropX + box.right).roundToInt(),
+                        (cropY + box.bottom).roundToInt(),
+                    )
+                }
+            }
+        }
 
         if (!isVertical) {
             // ── HORIZONTAL: x-axis char boxes ──
@@ -2472,10 +2516,23 @@ class OcrEngine(
         }
 
         val newCharBoxes = if (oldLine.cropW > 0 && oldLine.cropH > 0) {
+            // CAP evidence on the re-decode path: the cached top-K is still
+            // here, normalized like the emit path (no crop pixels survive, so
+            // CAP runs its template without ink refinement).
+            val steps = if (oldLine.isVertical) {
+                oldLine.rawAlternatives.map { alts ->
+                    alts.map { (c, s) ->
+                        JapaneseUtil.verticalPunctuationChar(c) to s
+                    }
+                }
+            } else {
+                oldLine.rawAlternatives
+            }
             val local = computeCharBoxes(
                 vertText, charCols.toFloatArray(), oldLine.seqLenTotal,
                 oldLine.cropX, oldLine.cropY, oldLine.cropW, oldLine.cropH,
                 oldLine.isVertical,
+                steps = steps,
             )
             // #53: a rotated Line's char boxes live in its upright frame, so
             // re-decode must place them back through the frame too.

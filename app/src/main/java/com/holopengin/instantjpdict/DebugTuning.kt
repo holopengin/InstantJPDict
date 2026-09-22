@@ -61,5 +61,6 @@ internal object DebugTuning {
         FeatureRow(OcrEngine.PREF_DET_ROTATED, OcrEngine.DEF_DET_ROTATED),
         FeatureRow(OcrEngine.PREF_DET_FURIGANA_SCREEN, OcrEngine.DEF_DET_FURIGANA),
         FeatureRow(OcrEngine.PREF_DET_FURIGANA_CAMERA, OcrEngine.DEF_DET_FURIGANA),
+        FeatureRow(OcrEngine.PREF_BOX_PLACEMENT_CAP, OcrEngine.DEF_BOX_PLACEMENT_CAP),
     )
 }

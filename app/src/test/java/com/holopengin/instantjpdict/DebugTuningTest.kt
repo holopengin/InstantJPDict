@@ -48,6 +48,7 @@ class DebugTuningTest {
                 OcrEngine.PREF_DET_ROTATED,
                 OcrEngine.PREF_DET_FURIGANA_SCREEN,
                 OcrEngine.PREF_DET_FURIGANA_CAMERA,
+                OcrEngine.PREF_BOX_PLACEMENT_CAP,
             ),
             DebugTuning.features.map { it.key },
         )

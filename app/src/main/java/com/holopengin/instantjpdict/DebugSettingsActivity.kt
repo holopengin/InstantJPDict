@@ -168,6 +168,19 @@ class DebugSettingsActivity : AppCompatActivity() {
             OcrEngine.setDetFurigana(this, checked, OcrEngine.PREF_DET_FURIGANA_CAMERA)
             Log.d(TAG, "det_furigana_camera_enabled=$checked")
         })
+        // research/char-placement: CAP places each char box from the CTC
+        // activation runs, a fitted advance-class template, ink refinement and
+        // a final boundary pass. ON for the device A/B; off restores the
+        // shipped chain, so a line that looks worse can be attributed.
+        behaviourBody.addView(ui.switchRow(
+            null,
+            "CTC-anchored char placement (experimental)",
+            "Char boxes from activation runs + ink; off = the shipped chain",
+            prefs.getBoolean(OcrEngine.PREF_BOX_PLACEMENT_CAP, OcrEngine.DEF_BOX_PLACEMENT_CAP)
+        ) { checked ->
+            prefs.edit().putBoolean(OcrEngine.PREF_BOX_PLACEMENT_CAP, checked).apply()
+            Log.d(TAG, "box_placement_cap=$checked")
+        })
         behaviourCard.addView(behaviourBody)
         content.addView(behaviourCard)
 
