@@ -36,19 +36,21 @@ $ ./gradlew :app:testDebugUnitTest --tests "*CharPlacement*"
   per-timestep top-K that is already cached in `rawAlternatives`), fits a
   **JP advance-class layout template** to the run centres, then refines each
   character with a **robust ink measurement** (mid-quartile of the
-  reading-axis ink profile inside a template-bounded window) and ends with a
-  **final boundary pass**: adjacent boxes share a boundary placed in the empty
-  ink space between the glyphs, and the contested span is split when both
-  glyphs' measured inks cannot fit.  The template averages the quantization
-  noise over the whole line; ink refinement then takes out what is left,
-  including for the punctuation and small kana the shipped snapping refuses to
-  touch; the boundary pass stops the midpoint cap from chopping strokes.
+  reading-axis ink profile inside a template-bounded window, retried around
+  the CTC run for punctuation whose window picks up a neighbour's stroke) and
+  ends with a **final boundary pass**: adjacent boxes share a boundary placed
+  in the empty ink space between the glyphs, and the contested span is split
+  when both glyphs' measured inks cannot fit.  The template averages the
+  quantization noise over the whole line; ink refinement then takes out what is
+  left, including for the punctuation and small kana the shipped snapping
+  refuses to touch; the boundary pass stops the midpoint cap from chopping
+  strokes.
 * Synthetic evaluation, 190 clean lines / 3556 characters (horizontal,
   vertical, rotated, degraded, ruby, tracking, long; real corpus):
-  mean centre error **4.07px → 1.64px** (0.131em → 0.053em), p90 **9.60px →
+  mean centre error **4.07px → 1.61px** (0.131em → 0.052em), p90 **9.60px →
   3.50px**, >0.5em errors **2.0% → 0.0%**, tap-at-centre hit **97.5% →
-  99.2%**, jittered-tap hit **94.4% → 98.2%**, and the share of a glyph's own
-  ink interval its box covers **0.919 → 0.954**.  Every preset improves.
+  99.2%**, jittered-tap hit **94.4% → 98.3%**, and the share of a glyph's own
+  ink interval its box covers **0.919 → 0.955**.  Every preset improves.
 * Real inference spot check (290 lines / 3075 characters from the vendored
   recognition fixtures): where the two algorithms disagree by ≥2px on an
   unambiguous ink component, the proposed centre is closer **1184 times vs
@@ -286,24 +288,36 @@ axis; rotated lines are unchanged (they are computed in the upright local
 frame and mapped through the quad).
 
 **Measured effect (clean synthetic set, 3556 characters).**  Coverage
-0.948 → 0.954, tap-at-centre 99.0% → 99.2%, jittered tap 98.2% → 98.4%,
-cell IoU 0.557 → 0.561, width error -0.085em → -0.065em; ink IoU 0.770 →
+0.949 → 0.955, tap-at-centre 99.2% (unchanged), jittered tap 98.2% → 98.3%,
+cell IoU 0.558 → 0.562, width error -0.086em → -0.066em; ink IoU 0.771 →
 0.765 (the boxes are now slightly wider than the ink, which is what buys the
 coverage).  On all 210 cases (CTC errors included) the same direction holds:
-coverage 0.944 → 0.951, tap 98.8% → 99.0%.
+coverage 0.945 → 0.952, tap 98.9% → 99.1%.
 
 Allowing the split to go below the old cap (`splitFloorFrac < 1`) buys ink IoU
 (0.778 at 0.70) but loses tap quality (98.8% → 98.8%/97.8% jitter) and cell
 IoU, so the default keeps the monotone floor.
 
+**Punctuation windows.**  The boundary pass only moves box edges; the one
+measured *centre* failure it cannot touch is a punctuation window that has
+picked up a neighbour's stroke: the mid-quartile spread then exceeds
+`maxSpreadEm` (0.8em), and a `、` was measured pulled 0.44em onto the following
+kanji.  That gate used to apply to `CENTER` glyphs only; it now applies to
+punctuation and small kana too, and on firing it retries the measurement around
+the **CTC run centre** (which sits on the glyph) in a 0.5em window, accepting
+the retry only when it is a compact blob (`spread <= 0.8em`) within `0.6em` of
+the anchor.  A rejected retry keeps the primary measurement rather than
+dropping the pull.  Measured on the clean synthetic set (339 corner-punctuation
+characters): mean error 0.098em → **0.086em**, p90 0.273em → **0.250em**,
+>0.3em 8.0% → **5.0%**, and the line-wide >0.5em miss rate 0.1% → **0.0%**.
+On the real fixtures the fallback never fires (0 of 3075 boxes change): their
+punctuation windows are clean, and the fix is a safety net for dense, small
+text.
+
 **What the pass cannot fix.**  On the real fixtures the ink-run arbitration
 (which measures *centres*) is unchanged by the pass (2 vs 3 of 3530 components
 differ by ≥1px), because the pass only moves box edges, and the dominant real
-error is centre placement — specifically offset-ink punctuation whose ink
-refinement window captures the neighbour's stroke (e.g. a `、` pulled 0.44em
-onto the following kanji, coverage 0.06).  That is an ink-refinement problem,
-not a boundary problem; a follow-up can use the optical class to constrain the
-punctuation anchor (JP punctuation sits at a known corner of its cell).
+error is centre placement.
 
 ### Parameter sensitivity
 
@@ -353,8 +367,8 @@ snap+uniform; `current_nosnap` = uniform only; `legacy` = neither):
 | legacy | 6.09px | 5.07px | 12.20px | 0.190em | 2.9% | 98.3% | 82.0% | 0.957 | 0.486 | 0.568 |
 | current_nosnap | 5.78px | 4.96px | 11.66px | 0.181em | 1.5% | 97.7% | 93.8% | 0.880 | 0.612 | 0.641 |
 | **current** | 4.07px | 2.62px | 9.60px | 0.131em | 2.0% | 97.5% | 94.4% | 0.919 | 0.661 | 0.605 |
-| proposed (midpoint cap) | 1.64px | 1.00px | 3.50px | 0.053em | 0.0% | 99.0% | 98.1% | 0.948 | 0.770 | 0.557 |
-| **proposed + final pass** | **1.64px** | **1.00px** | **3.50px** | **0.053em** | **0.0%** | **99.2%** | **98.2%** | **0.954** | 0.765 | **0.561** |
+| proposed (midpoint cap) | 1.61px | 1.00px | 3.50px | 0.052em | 0.0% | 99.2% | 98.2% | 0.949 | 0.771 | 0.558 |
+| **proposed + final pass** | **1.61px** | **1.00px** | **3.50px** | **0.052em** | **0.0%** | **99.2%** | **98.3%** | **0.955** | 0.765 | **0.562** |
 
 `cover` = mean share of a glyph's own ink interval (reading axis) the box
 covers; it is the metric the final pass moves, and it moves monotonically
@@ -476,12 +490,11 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
   sits on ink (profile above the floor) and clips it to the Voronoi window and
   to `1.3 · advance half`; the earlier, ungated version over-estimated 61% of
   extents and produced 1436 phantom split pairs (vs 1104 real ones).
-* **Offset-ink punctuation in dense text** remains the worst single failure:
-  a `、` whose mid-quartile window includes the next kanji's stroke can be
-  pulled ~0.44em onto it, and no boundary choice can then cover its ink
-  (coverage 0.06 in the measured case).  This is the ink-refinement step, not
-  the boundary step; the optical class (punctuation sits at a known cell
-  corner) is the obvious follow-up.
+* **Offset-ink punctuation in dense text** was the worst single centre failure
+  (a `、` pulled 0.44em onto the next kanji, coverage 0.06).  The spread-gated
+  CTC retry fixes the measured cases (corner-punctuation mean 0.098em →
+  0.086em, >0.3em 8.0% → 5.0%) but never fires on the real fixtures, so it is
+  a synthetic-tuned safety net, not a real-data win.
 * **Split asymmetry is available but off**: `splitFloorFrac < 1` lets the
   emptier side win the contested span (ink IoU 0.765 → 0.778 at 0.70) at the
   cost of tap quality (tap 99.2% → 98.8%, jitter 98.2% → 97.8%) and cell IoU,

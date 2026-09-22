@@ -92,7 +92,8 @@ Real inference:
 
 ```
 $V real_eval.py /tmp/opencode/real_lines.jsonl --json /tmp/opencode/real_eval.json
-$V real_eval.py /tmp/opencode/real_lines.jsonl --ab-pass   # pass vs midpoint cap
+$V real_eval.py /tmp/opencode/real_lines.jsonl --ab-pass    # pass vs midpoint cap
+$V real_eval.py /tmp/opencode/real_lines.jsonl --ab-punct   # punct fallback vs not
 ```
 
 See `real_dump/README.md` for producing the dump.  The harness reconstructs

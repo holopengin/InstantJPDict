@@ -42,8 +42,11 @@ import kotlin.math.min
  *    mid-quartile of the profile inside its Voronoi window (clipped to
  *    +/- `windowEm * em` around the anchor).  Quartiles are used instead of a
  *    centroid so a neighbour's stroke leaking into the window cannot drag the
- *    centre; punctuation and small kana are measured the same way, which puts
- *    their boxes on their real (corner-placed) ink.
+ *    centre.  A window whose mid-quartile spread exceeds `maxSpreadEm` is
+ *    retried around the CTC run centre (which sits on the glyph) for
+ *    punctuation and small kana -- their ink is small enough for a neighbour's
+ *    stroke to dominate the wide window -- and the retry is taken only when it
+ *    is a compact blob near the anchor.
  * 5. **Boxes.**  Width = advance class x em, grown (only when the centre sits
  *    on its own ink, and only within that character's Voronoi window) to cover
  *    a measured ink span up to `extentGrowFrac` past the cell.
@@ -83,6 +86,10 @@ internal object CharPlacement {
         val extentGrowFrac: Float = 0.3f,
         val splitFloorFrac: Float = 1f,
         val minHalfPx: Float = 2f,
+        // Punctuation/small-kana window fallback (see the ink pass).
+        val punctSpreadFallback: Boolean = true,
+        val punctFallbackWindowEm: Float = 0.5f,
+        val punctFallbackMaxEm: Float = 0.6f,
     )
 
     /** Output box in crop pixels; the cross axis is the whole crop. */
@@ -457,8 +464,39 @@ internal object CharPlacement {
                     if (hi <= lo) continue
                     val (mass, inkC, spread) = midQuartile(prof.profile, lo, hi)
                     if (mass < max(6f, options.minMassFrac * medMass)) continue
-                    if (classes[i] == OpticalClass.CENTER && spread > options.maxSpreadEm * tmpl.em) continue
-                    val pull = (inkC - centers[i])
+                    var ink = inkC
+                    if (spread > options.maxSpreadEm * tmpl.em &&
+                        classes[i] != OpticalClass.CENTER
+                    ) {
+                        // A smeared window: for punctuation and small kana a
+                        // neighbour's stroke can dominate it (a `、` pulled
+                        // 0.44em onto the following kanji).  Retry around the
+                        // CTC run centre -- it sits on the glyph -- and take
+                        // the retry only when it is a compact blob near the
+                        // anchor; otherwise keep the primary measurement.
+                        if (options.punctSpreadFallback) {
+                            val winFb = max(
+                                options.punctFallbackWindowEm * tmpl.em,
+                                options.windowStride * pxPerT,
+                            )
+                            val lo2 = max(lo0, ctcCenters[i] - winFb)
+                            val hi2 = min(hi0, ctcCenters[i] + winFb)
+                            if (hi2 > lo2) {
+                                val (mass2, inkC2, spread2) =
+                                    midQuartile(prof.profile, lo2, hi2)
+                                if (mass2 >= max(6f, options.minMassFrac * medMass) &&
+                                    spread2 <= options.maxSpreadEm * tmpl.em &&
+                                    abs(inkC2 - anchors[i]) <=
+                                    options.punctFallbackMaxEm * tmpl.em
+                                ) {
+                                    ink = inkC2
+                                }
+                            }
+                        }
+                    } else if (spread > options.maxSpreadEm * tmpl.em) {
+                        continue
+                    }
+                    val pull = (ink - centers[i])
                         .coerceIn(-options.inkMaxPullEm * tmpl.em, options.inkMaxPullEm * tmpl.em)
                     val w = if (margins[i] < options.confFloor) 0.5f else 1f
                     centers[i] += w * pull

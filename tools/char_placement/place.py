@@ -535,6 +535,15 @@ class ProposedOptions:
     # wins when the template is genuinely off.
     anchor_tol_em: float = 0.4
     anchor_tol_stride: float = 1.2
+    # Punctuation / small kana: their ink is small, so a mid-quartile window
+    # that reaches the neighbour's stroke lands between the two inks (measured:
+    # a `、` pulled 0.44em onto the following kanji).  A window whose spread
+    # exceeds the gate is retried around the CTC run centre -- it sits on the
+    # glyph -- and the retry is taken only when it is a compact blob close to
+    # the anchor; otherwise the primary measurement is kept.
+    punct_spread_fallback: bool = True
+    punct_fallback_window_em: float = 0.5
+    punct_fallback_max_em: float = 0.6
     # Template fit
     huber_em: float = 0.35  # residual scale for IRLS weights
     ridge_ls: float = 1e-3
@@ -820,7 +829,7 @@ def proposed_char_boxes(
         debug["anchors"] = list(anchors)
         debug["ink_pulls"] = []
     if prof is not None:
-        win = max(opts.window_em * em, opts.window_stride * stride)
+        win_center = max(opts.window_em * em, opts.window_stride * stride)
         masses = []
         for i in range(n):
             lo = 0.0 if i == 0 else 0.5 * (centers[i - 1] + centers[i])
@@ -836,10 +845,11 @@ def proposed_char_boxes(
 
         for _pass in range(opts.refine_passes + 1):
             for i in range(n):
-                lo = 0.0 if i == 0 else 0.5 * (centers[i - 1] + centers[i])
-                hi = L if i == n - 1 else 0.5 * (centers[i] + centers[i + 1])
-                lo = max(lo, anchors[i] - win)
-                hi = min(hi, anchors[i] + win)
+                win = win_center
+                lo0 = 0.0 if i == 0 else 0.5 * (centers[i - 1] + centers[i])
+                hi0 = L if i == n - 1 else 0.5 * (centers[i] + centers[i + 1])
+                lo = max(lo0, anchors[i] - win)
+                hi = min(hi0, anchors[i] + win)
                 if hi <= lo:
                     continue
                 # Robust ink centre: mid-quartile of the profile inside the
@@ -849,7 +859,31 @@ def proposed_char_boxes(
                 mass, ink_c, spread = _mid_quartile(prof, lo, hi)
                 if mass < max(6.0, opts.min_mass_frac * med_mass):
                     continue
-                if classes[i] == "center" and spread > opts.max_spread_em * em:
+                if spread > opts.max_spread_em * em and classes[i] != "center":
+                    # A smeared/ambiguous window: punctuation and small kana are
+                    # small enough that a neighbour's stroke can dominate the
+                    # wide window (measured: a `、` pulled 0.44em onto the
+                    # following kanji).  Retry around the CTC run centre -- it
+                    # sits on the glyph -- and take the retry only when it is a
+                    # compact blob near the anchor; otherwise keep the primary
+                    # measurement rather than dropping the pull.
+                    if opts.punct_spread_fallback:
+                        win_fb = max(
+                            opts.punct_fallback_window_em * em,
+                            opts.window_stride * stride,
+                        )
+                        lo2 = max(lo0, ctc_centers[i] - win_fb)
+                        hi2 = min(hi0, ctc_centers[i] + win_fb)
+                        if hi2 > lo2:
+                            mass2, ink_c2, spread2 = _mid_quartile(prof, lo2, hi2)
+                            if (
+                                mass2 >= max(6.0, opts.min_mass_frac * med_mass)
+                                and spread2 <= opts.max_spread_em * em
+                                and abs(ink_c2 - anchors[i])
+                                <= opts.punct_fallback_max_em * em
+                            ):
+                                mass, ink_c, spread = mass2, ink_c2, spread2
+                elif spread > opts.max_spread_em * em:
                     continue
                 pull = _clamp(
                     ink_c - centers[i],

@@ -150,6 +150,11 @@ def main() -> None:
         action="store_true",
         help="arbitrate the final boundary pass against the midpoint cap",
     )
+    ap.add_argument(
+        "--ab-punct",
+        action="store_true",
+        help="arbitrate the punctuation window fallback against no fallback",
+    )
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in args.dump.read_text(encoding="utf-8").splitlines()]
@@ -170,6 +175,9 @@ def main() -> None:
         "pass_closer_ink": 0,
         "nopass_closer_ink": 0,
         "tie_pass": 0,
+        "punct_closer_ink": 0,
+        "base_closer_ink": 0,
+        "tie_punct": 0,
     }
     detail = []
 
@@ -239,6 +247,7 @@ def main() -> None:
             opts=ProposedOptions(),
         )
         prop_np = None
+        prop_base = None
         if args.ab_pass:
             prop_np = proposed_char_boxes(
                 text=text,
@@ -250,6 +259,18 @@ def main() -> None:
                 pixels=pixels,
                 steps=[[(c, s) for c, s in alts] for alts in steps],
                 opts=ProposedOptions(final_pass=False),
+            )
+        if args.ab_punct:
+            prop_base = proposed_char_boxes(
+                text=text,
+                char_cols=np.array(char_cols, dtype=np.float32),
+                seq_len_total=len(steps),
+                crop_w=rgb.shape[1],
+                crop_h=rgb.shape[0],
+                orientation="v" if vertical else "h",
+                pixels=pixels,
+                steps=[[(c, s) for c, s in alts] for alts in steps],
+                opts=ProposedOptions(punct_spread_fallback=False),
             )
         ax = 1 if vertical else 0
         cur_d, cur_iou, n = axis_metrics(cur, pinned_local, vertical)
@@ -333,6 +354,31 @@ def main() -> None:
                     stats["pass_closer_ink"] += 1
                 else:
                     stats["nopass_closer_ink"] += 1
+        if prop_base is not None:
+            # Punctuation window fallback vs no fallback, same arbitration.
+            base_pts = [(b[ax] + b[ax + 2]) / 2.0 for b in prop_base]
+            for cval in comps:
+                ccentre = cval[0]
+                punct_owner = [
+                    i for i, b in enumerate(prop) if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                base_owner = [
+                    i for i, b in enumerate(prop_base) if b[ax] <= ccentre <= b[ax + 2]
+                ]
+                if (len(punct_owner) != 1 or len(base_owner) != 1
+                        or punct_owner[0] != base_owner[0]):
+                    continue
+                i = punct_owner[0]
+                if i >= len(text):
+                    continue
+                e_punct = abs(prop_pts[i] - ccentre)
+                e_base = abs(base_pts[i] - ccentre)
+                if abs(e_punct - e_base) < 1.0:
+                    stats["tie_punct"] += 1
+                elif e_punct < e_base:
+                    stats["punct_closer_ink"] += 1
+                else:
+                    stats["base_closer_ink"] += 1
         detail.append(
             {
                 "case": row["case"],
@@ -379,6 +425,14 @@ def main() -> None:
             f" pass closer {stats['pass_closer_ink']} ({stats['pass_closer_ink']/totp:.0%}),"
             f" midpoint closer {stats['nopass_closer_ink']} ({stats['nopass_closer_ink']/totp:.0%}),"
             f" tie {stats['tie_pass']}"
+        )
+    totq = stats["punct_closer_ink"] + stats["base_closer_ink"] + stats["tie_punct"]
+    if totq:
+        print(
+            f"punctuation-fallback arbitration on {totq} clean components:"
+            f" fallback closer {stats['punct_closer_ink']} ({stats['punct_closer_ink']/totq:.0%}),"
+            f" no-fallback closer {stats['base_closer_ink']} ({stats['base_closer_ink']/totq:.0%}),"
+            f" tie {stats['tie_punct']}"
         )
     if args.json:
         args.json.write_text(json.dumps({"stats": stats, "detail": detail}, indent=1))
