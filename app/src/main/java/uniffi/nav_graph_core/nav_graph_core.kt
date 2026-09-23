@@ -786,6 +786,30 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -861,6 +885,18 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_nav_graph_core_fn_method_kanjivarianttable_obsolete_forms_of(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_clone_oovcandidates(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_oovcandidates(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_oovcandidates_new(`table`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_oovcandidates_has_discriminating_components(`ptr`: Pointer,`emitted`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_method_oovcandidates_majority_components(`ptr`: Pointer,`topK`: RustBuffer.ByValue,`needFraction`: Double,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_oovcandidates_neighbours_of(`ptr`: Pointer,`emitted`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_build_nav_graph(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_from_bytes(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -871,6 +907,18 @@ internal interface UniffiLib : Library {
     ): Byte
     fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    fun uniffi_nav_graph_core_fn_func_gap_context_before(`text`: RustBuffer.ByValue,`index`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_gap_fallback(`limit`: Long,`lm`: RustBuffer.ByValue,`context`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_gap_generate(`alternatives`: RustBuffer.ByValue,`limit`: Long,`lm`: RustBuffer.ByValue,`context`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_gap_is_offerable(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_gap_kana_defaults(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_gap_punct_defaults(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_base_index_of(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_base_order(uniffi_out_err: UniffiRustCallStatus, 
@@ -884,6 +932,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_kana_size_window(`text`: RustBuffer.ByValue,`index`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_oov_suggestions_assemble(`current`: Int,`headAlternatives`: RustBuffer.ByValue,`oov`: RustBuffer.ByValue,`variants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ruby_style_for_mini(`isMini`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1009,6 +1059,18 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_context_before(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_fallback(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_generate(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_is_offerable(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_kana_defaults(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_punct_defaults(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_base_index_of(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_base_order(
@@ -1022,6 +1084,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_kana_size_window(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ruby_style_for_mini(
     ): Short
@@ -1057,6 +1121,12 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_method_kanjivarianttable_obsolete_forms_of(
     ): Short
+    fun uniffi_nav_graph_core_checksum_method_oovcandidates_has_discriminating_components(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_oovcandidates_majority_components(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_oovcandidates_neighbours_of(
+    ): Short
     fun uniffi_nav_graph_core_checksum_constructor_componenttable_parse(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_deinflector_empty(
@@ -1064,6 +1134,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_empty(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_parse(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_oovcandidates_new(
     ): Short
     fun ffi_nav_graph_core_uniffi_contract_version(
     ): Int
@@ -1097,6 +1169,24 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical() != 15884.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_context_before() != 23487.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_fallback() != 20499.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_generate() != 13605.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_is_offerable() != 8186.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_kana_defaults() != 55160.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_punct_defaults() != 19173.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_base_index_of() != 11984.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1116,6 +1206,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble() != 12834.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_ruby_style_for_mini() != 58587.toShort()) {
@@ -1169,6 +1262,15 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_kanjivarianttable_obsolete_forms_of() != 24546.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_method_oovcandidates_has_discriminating_components() != 60743.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_oovcandidates_majority_components() != 13353.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_oovcandidates_neighbours_of() != 53821.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_constructor_componenttable_parse() != 18278.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1179,6 +1281,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_parse() != 16583.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_oovcandidates_new() != 27416.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1317,6 +1422,29 @@ public object FfiConverterFloat: FfiConverter<Float, Float> {
 
     override fun write(value: Float, buf: ByteBuffer) {
         buf.putFloat(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterDouble: FfiConverter<Double, Double> {
+    override fun lift(value: Double): Double {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Double {
+        return buf.getDouble()
+    }
+
+    override fun lower(value: Double): Double {
+        return value
+    }
+
+    override fun allocationSize(value: Double) = 8UL
+
+    override fun write(value: Double, buf: ByteBuffer) {
+        buf.putDouble(value)
     }
 }
 
@@ -2836,6 +2964,335 @@ public object FfiConverterTypeKanjiVariantTable: FfiConverter<KanjiVariantTable,
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Component-level candidate policy for out-of-vocabulary characters (#44):
+ * the substitution neighbours of a character the head emitted, and the
+ * majority components of a top-K the head offered at a deleted one.
+ *
+ * Wraps `jpdict_core::util::oov_candidates::OovCandidates`, which holds the
+ * shared KRADFILE table; the measured rules (intersected IDF fraction,
+ * majority vote with strongest-component fallback) are documented upstream.
+ */
+public interface OovCandidatesInterface {
+    
+    /**
+     * Whether component evidence can discriminate at all for this character:
+     * two or more components. A single-component character makes every one of
+     * its carriers a full match, which is noise presented as evidence.
+     */
+    fun `hasDiscriminatingComponents`(`emitted`: kotlin.Int): kotlin.Boolean
+    
+    /**
+     * The components a top-K of characters **agree on**, by majority vote: a
+     * component carried by at least `need_fraction` of `top_k` (at least one
+     * character). Ordered strongest first — by how many of the top-K carry it,
+     * then by codepoint. An empty `top_k`, or one whose characters are all
+     * unknown, returns an empty list.
+     */
+    fun `majorityComponents`(`topK`: List<kotlin.Int>, `needFraction`: kotlin.Double): List<kotlin.Int>
+    
+    /**
+     * Candidate characters for a character the head **emitted** (the
+     * substitution mode), ordered by [`Candidate::idf_fraction`] descending,
+     * ties broken by codepoint. An unknown character, or one whose components
+     * carry no IDF mass, yields an empty list rather than an error.
+     */
+    fun `neighboursOf`(`emitted`: kotlin.Int): List<Candidate>
+    
+    companion object
+}
+
+/**
+ * Component-level candidate policy for out-of-vocabulary characters (#44):
+ * the substitution neighbours of a character the head emitted, and the
+ * majority components of a top-K the head offered at a deleted one.
+ *
+ * Wraps `jpdict_core::util::oov_candidates::OovCandidates`, which holds the
+ * shared KRADFILE table; the measured rules (intersected IDF fraction,
+ * majority vote with strongest-component fallback) are documented upstream.
+ */
+open class OovCandidates: Disposable, AutoCloseable, OovCandidatesInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    /**
+     * Wrap the already-parsed component table. The table is **shared**, not
+     * cloned: the Kotlin host owns it as a `ComponentTable` object of its own,
+     * and one parse of the 12k-entry indexes serves every consumer.
+     */
+    constructor(`table`: ComponentTable) :
+        this(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_oovcandidates_new(
+        FfiConverterTypeComponentTable.lower(`table`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_oovcandidates(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_oovcandidates(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Whether component evidence can discriminate at all for this character:
+     * two or more components. A single-component character makes every one of
+     * its carriers a full match, which is noise presented as evidence.
+     */override fun `hasDiscriminatingComponents`(`emitted`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_oovcandidates_has_discriminating_components(
+        it, FfiConverterInt.lower(`emitted`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The components a top-K of characters **agree on**, by majority vote: a
+     * component carried by at least `need_fraction` of `top_k` (at least one
+     * character). Ordered strongest first — by how many of the top-K carry it,
+     * then by codepoint. An empty `top_k`, or one whose characters are all
+     * unknown, returns an empty list.
+     */override fun `majorityComponents`(`topK`: List<kotlin.Int>, `needFraction`: kotlin.Double): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_oovcandidates_majority_components(
+        it, FfiConverterSequenceInt.lower(`topK`),FfiConverterDouble.lower(`needFraction`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Candidate characters for a character the head **emitted** (the
+     * substitution mode), ordered by [`Candidate::idf_fraction`] descending,
+     * ties broken by codepoint. An unknown character, or one whose components
+     * carry no IDF mass, yields an empty list rather than an error.
+     */override fun `neighboursOf`(`emitted`: kotlin.Int): List<Candidate> {
+            return FfiConverterSequenceTypeCandidate.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_oovcandidates_neighbours_of(
+        it, FfiConverterInt.lower(`emitted`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOovCandidates: FfiConverter<OovCandidates, Pointer> {
+
+    override fun lower(value: OovCandidates): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): OovCandidates {
+        return OovCandidates(value)
+    }
+
+    override fun read(buf: ByteBuffer): OovCandidates {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: OovCandidates) = 8UL
+
+    override fun write(value: OovCandidates, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 /**
  * Bounding box for a detected character.
@@ -2875,6 +3332,61 @@ public object FfiConverterTypeBoundingBox: FfiConverterRustBuffer<BoundingBox> {
             FfiConverterInt.write(value.`y`, buf)
             FfiConverterInt.write(value.`w`, buf)
             FfiConverterInt.write(value.`h`, buf)
+    }
+}
+
+
+
+/**
+ * A character that could stand where the emitted character was, with the
+ * strength of the visual relation to it.
+ *
+ * The Kotlin facade re-exposes this as
+ * `OovCandidates.Candidate(char: Char, idfFraction: Float, sharesAllComponents: Boolean)`.
+ */
+data class Candidate (
+    /**
+     * The candidate character, as its `i32` code point (Kotlin `Char.code`).
+     */
+    var `char`: kotlin.Int, 
+    /**
+     * Share of the emitted character's component information (IDF mass) that
+     * this candidate also carries, in `[0, 1]`. Intersected, never the
+     * candidate's whole mass.
+     */
+    var `idfFraction`: kotlin.Float, 
+    /**
+     * The candidate carries **every** component of the emitted character —
+     * the near-identity relation.
+     */
+    var `sharesAllComponents`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCandidate: FfiConverterRustBuffer<Candidate> {
+    override fun read(buf: ByteBuffer): Candidate {
+        return Candidate(
+            FfiConverterInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Candidate) = (
+            FfiConverterInt.allocationSize(value.`char`) +
+            FfiConverterFloat.allocationSize(value.`idfFraction`) +
+            FfiConverterBoolean.allocationSize(value.`sharesAllComponents`)
+    )
+
+    override fun write(value: Candidate, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`char`, buf)
+            FfiConverterFloat.write(value.`idfFraction`, buf)
+            FfiConverterBoolean.write(value.`sharesAllComponents`, buf)
     }
 }
 
@@ -2925,6 +3437,51 @@ public object FfiConverterTypeDeinflectionResult: FfiConverterRustBuffer<Deinfle
             FfiConverterString.write(value.`term`, buf)
             FfiConverterSequenceString.write(value.`reasons`, buf)
             FfiConverterSequenceString.write(value.`ruleTypes`, buf)
+    }
+}
+
+
+
+/**
+ * One recogniser alternative: the character and the CTC score that proposed
+ * it, field-for-field the `(char, f32)` pair PC's `generate` takes.
+ *
+ * The algorithm reads only `ch` — scores never order the pool — but they
+ * cross so the Kotlin facade can keep its `List<Pair<Char, Float>>` API.
+ */
+data class GapAlternative (
+    /**
+     * The proposed character's code point (Kotlin `Char.code`).
+     */
+    var `ch`: kotlin.Int, 
+    /**
+     * The recogniser's CTC score for the proposal (carried, not consumed).
+     */
+    var `score`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapAlternative: FfiConverterRustBuffer<GapAlternative> {
+    override fun read(buf: ByteBuffer): GapAlternative {
+        return GapAlternative(
+            FfiConverterInt.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapAlternative) = (
+            FfiConverterInt.allocationSize(value.`ch`) +
+            FfiConverterFloat.allocationSize(value.`score`)
+    )
+
+    override fun write(value: GapAlternative, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`ch`, buf)
+            FfiConverterFloat.write(value.`score`, buf)
     }
 }
 
@@ -3075,6 +3632,93 @@ public object FfiConverterTypeRubyStyle: FfiConverterRustBuffer<RubyStyle> {
 
 
 
+/**
+ * One entry of the popup list: the character and where it came from.
+ *
+ * The Kotlin facade re-exposes this as
+ * `OovSuggestions.Suggestion(char: Char, source: Source)`.
+ */
+data class Suggestion (
+    /**
+     * The suggested character, as its `i32` code point (Kotlin `Char.code`).
+     */
+    var `ch`: kotlin.Int, 
+    /**
+     * Why the entry is in the list.
+     */
+    var `source`: SuggestionSource
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSuggestion: FfiConverterRustBuffer<Suggestion> {
+    override fun read(buf: ByteBuffer): Suggestion {
+        return Suggestion(
+            FfiConverterInt.read(buf),
+            FfiConverterTypeSuggestionSource.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Suggestion) = (
+            FfiConverterInt.allocationSize(value.`ch`) +
+            FfiConverterTypeSuggestionSource.allocationSize(value.`source`)
+    )
+
+    override fun write(value: Suggestion, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`ch`, buf)
+            FfiConverterTypeSuggestionSource.write(value.`source`, buf)
+    }
+}
+
+
+
+/**
+ * Where a popup entry came from. The panel tints non-`Head` entries by source
+ * so the provenance is visible at a glance.
+ *
+ * Mirrors `jpdict_core::util::oov_suggestions::Source`; the Kotlin facade
+ * re-exposes it as its own `Source` enum so call sites are unchanged.
+ */
+
+enum class SuggestionSource {
+    
+    HEAD,
+    COMPONENTS,
+    VARIANT,
+    /**
+     * The blank path's LM-ranked entries (mobile tags them; `assemble` never
+     * emits this variant itself).
+     */
+    LM;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSuggestionSource: FfiConverterRustBuffer<SuggestionSource> {
+    override fun read(buf: ByteBuffer) = try {
+        SuggestionSource.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SuggestionSource) = 4UL
+
+    override fun write(value: SuggestionSource, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -3207,6 +3851,38 @@ public object FfiConverterOptionalTypeDeinflector: FfiConverterRustBuffer<Deinfl
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeOovCandidates: FfiConverterRustBuffer<OovCandidates?> {
+    override fun read(buf: ByteBuffer): OovCandidates? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeOovCandidates.read(buf)
+    }
+
+    override fun allocationSize(value: OovCandidates?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeOovCandidates.allocationSize(value)
+        }
+    }
+
+    override fun write(value: OovCandidates?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeOovCandidates.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>> {
     override fun read(buf: ByteBuffer): List<kotlin.Int> {
         val len = buf.getInt()
@@ -3319,6 +3995,34 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCandidate: FfiConverterRustBuffer<List<Candidate>> {
+    override fun read(buf: ByteBuffer): List<Candidate> {
+        val len = buf.getInt()
+        return List<Candidate>(len) {
+            FfiConverterTypeCandidate.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Candidate>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCandidate.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Candidate>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCandidate.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDeinflectionResult: FfiConverterRustBuffer<List<DeinflectionResult>> {
     override fun read(buf: ByteBuffer): List<DeinflectionResult> {
         val len = buf.getInt()
@@ -3347,6 +4051,34 @@ public object FfiConverterSequenceTypeDeinflectionResult: FfiConverterRustBuffer
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeGapAlternative: FfiConverterRustBuffer<List<GapAlternative>> {
+    override fun read(buf: ByteBuffer): List<GapAlternative> {
+        val len = buf.getInt()
+        return List<GapAlternative>(len) {
+            FfiConverterTypeGapAlternative.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GapAlternative>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGapAlternative.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GapAlternative>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGapAlternative.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<KanaSizePair>> {
     override fun read(buf: ByteBuffer): List<KanaSizePair> {
         val len = buf.getInt()
@@ -3365,6 +4097,62 @@ public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeKanaSizePair.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSuggestion: FfiConverterRustBuffer<List<Suggestion>> {
+    override fun read(buf: ByteBuffer): List<Suggestion> {
+        val len = buf.getInt()
+        return List<Suggestion>(len) {
+            FfiConverterTypeSuggestion.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Suggestion>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSuggestion.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Suggestion>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSuggestion.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBuffer<List<List<GapAlternative>>> {
+    override fun read(buf: ByteBuffer): List<List<GapAlternative>> {
+        val len = buf.getInt()
+        return List<List<GapAlternative>>(len) {
+            FfiConverterSequenceTypeGapAlternative.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<List<GapAlternative>>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterSequenceTypeGapAlternative.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<List<GapAlternative>>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterSequenceTypeGapAlternative.write(it, buf)
         }
     }
 }
@@ -3447,6 +4235,98 @@ public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(
         FfiConverterTypeBoundingBox.lower(`sRaw`),FfiConverterTypeBoundingBox.lower(`bRaw`),FfiConverterTypeBoundingBox.lower(`sUn`),FfiConverterTypeBoundingBox.lower(`bUn`),FfiConverterInt.lower(`imgH`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The characters before the gap, the context the back-off chain can use: the
+         * model is order 4, so anything longer is ignored and the placeholder itself
+         * is dropped rather than read as a real character.
+         *
+         * Delegates to `jpdict_core::util::gap_candidates::context_before`; the
+         * Kotlin facade wraps this back into `GapCandidates.contextBefore`.
+         */ fun `gapContextBefore`(`text`: kotlin.String, `index`: kotlin.Long): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_context_before(
+        FfiConverterString.lower(`text`),FfiConverterLong.lower(`index`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The fallback list, punctuation first, never empty: the model orders
+         * *within* a class and the classes stay in this order.
+         *
+         * Delegates to `jpdict_core::util::gap_candidates::fallback`; the Kotlin
+         * facade wraps this back into `GapCandidates.fallback`.
+         */ fun `gapFallback`(`limit`: kotlin.Long, `lm`: CharLm?, `context`: List<kotlin.Int>): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_fallback(
+        FfiConverterLong.lower(`limit`),FfiConverterOptionalTypeCharLm.lower(`lm`),FfiConverterSequenceInt.lower(`context`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Candidates for the blank, best first, from the line's per-timestep top-K.
+         *
+         * Duplicates collapse; the LM reorders the pool by `context` when one is
+         * loaded, else the pool keeps its discovery order. Capped at `limit`.
+         *
+         * Delegates to `jpdict_core::util::gap_candidates::generate`; the Kotlin
+         * facade wraps this back into `GapCandidates.generate`.
+         */ fun `gapGenerate`(`alternatives`: List<List<GapAlternative>>, `limit`: kotlin.Long, `lm`: CharLm?, `context`: List<kotlin.Int>): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_generate(
+        FfiConverterSequenceSequenceTypeGapAlternative.lower(`alternatives`),FfiConverterLong.lower(`limit`),FfiConverterOptionalTypeCharLm.lower(`lm`),FfiConverterSequenceInt.lower(`context`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether a character the recogniser proposed is worth offering. Kanji, kana
+         * and punctuation alike: the gap in vertical Japanese text is very often a
+         * 読点 or a bracket, so a kanji-only pool comes back empty exactly where the
+         * evidence was there.
+         */ fun `gapIsOfferable`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_is_offerable(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The kana a gap most often holds when it is not punctuation, in the fixed
+         * class order. Rust-sourced because UniFFI cannot export consts.
+         */ fun `gapKanaDefaults`(): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_kana_defaults(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Punctuation a gap most often holds, in the fixed class order; see
+         * [`gap_fallback`]. Rust-sourced because UniFFI cannot export consts.
+         */ fun `gapPunctDefaults`(): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_punct_defaults(
+        _status)
 }
     )
     }
@@ -3543,6 +4423,29 @@ public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_navigate(
         FfiConverterTypeNavGraph.lower(`graph`),FfiConverterInt.lower(`idx`),FfiConverterInt.lower(`dir`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The popup list for one character: the head's own ranking first and
+         * unchanged, then component neighbours by descending IDF mass, then the
+         * obsolete variant forms of the current character.
+         *
+         * Delegates to `jpdict_core::util::oov_suggestions::assemble`; the rules
+         * (IDF tier, group caps, cross-group dedup, the current character always
+         * present) are documented upstream. `variants` is the already-resolved
+         * `variant_forms(current)` list: the PC closure takes the current character,
+         * but every caller resolves it before the call (the Kotlin facade evaluates
+         * its lambda), so a constant closure over `variants` is equivalent. Pass
+         * `oov: None` when the component table is unavailable: the list is then the
+         * head list unchanged.
+         */ fun `oovSuggestionsAssemble`(`current`: kotlin.Int, `headAlternatives`: List<kotlin.Int>, `oov`: OovCandidates?, `variants`: List<kotlin.Int>): List<Suggestion> {
+            return FfiConverterSequenceTypeSuggestion.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_oov_suggestions_assemble(
+        FfiConverterInt.lower(`current`),FfiConverterSequenceInt.lower(`headAlternatives`),FfiConverterOptionalTypeOovCandidates.lower(`oov`),FfiConverterSequenceInt.lower(`variants`),_status)
 }
     )
     }
