@@ -1,13 +1,24 @@
 package com.holopengin.instantjpdict.util
 
 import android.content.Context
+import uniffi.nav_graph_core.KanaOrthographyTable as RustKanaOrthographyTable
 
 /**
  * Pre-reform kana orthography (#75): the lookup-query normaliser for text written
- * before the 1946 spelling reform (旧仮名遣い), loaded from
- * `variants/kana_variants.txt` (source, licence and SHA-256 are in the
+ * before the 1946 spelling reform (旧仮名遣い). The table is the committed
+ * `variants/kana_variants.txt` rows (source, licence and SHA-256 are in the
  * `kana_variants.PROVENANCE.txt` beside it; regenerate with
  * `tools/build_kana_variants.py`).
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core`
+ * implementation (`core/src/util/japanese.rs`, exposed through `nav_graph_core`'s
+ * UniFFI surface), so the table and the fold have one source of truth. PC inlines
+ * the rows as consts, byte-identical to the asset, so [install] installs the
+ * builtin table and the asset is no longer read at runtime; [parse] still parses
+ * the asset's text, which is what the tests install. The context rules, the
+ * direction rule and the parse rules are documented upstream; this class only
+ * adapts types (`Char` ↔ `Int` code points, `Long` → `Int`) and keeps the API
+ * call sites already use.
  *
  * **Query-side only, exactly like the kanji variant fold (#44).** The reader sees
  * the book's own orthography; only the string handed to the dictionary is
@@ -58,9 +69,13 @@ object KanaOrthography {
     @Volatile
     private var table: Table = Table.EMPTY
 
-    /** Parse the committed asset and install it. Idempotent. */
+    /**
+     * Install the builtin table (the committed asset's rows, inlined in PC).
+     * Idempotent. [context] is kept for the call-site signature — the asset is
+     * no longer read here, so it is unused.
+     */
     fun install(context: Context) {
-        install(parse(context.assets.open(ASSET_PATH).bufferedReader().use { it.readText() }))
+        install(Table(RustKanaOrthographyTable.builtin()))
     }
 
     /** Install an already-parsed table (tests, or a table from another source). */
@@ -89,91 +104,38 @@ object KanaOrthography {
      * `を`/`ヲ` are left alone, and the 小書き row is not applied — see the class
      * doc for the measurement behind both.
      */
-    fun modernise(query: String): String {
-        if (query.isEmpty()) return query
-        val t = table
-        val sb = StringBuilder(query.length)
-        for (i in query.indices) {
-            val c = query[i]
-            val mapped = t.canonical(c)
-            if (mapped == c) {
-                sb.append(c)
-                continue
-            }
-            val prev = if (i > 0) query[i - 1] else null
-            val next = if (i + 1 < query.length) query[i + 1] else null
-            sb.append(if (applies(c, mapped, prev, next)) mapped else c)
-        }
-        return sb.toString()
-    }
-
-    /**
-     * The context a row member needs, from the rows the table attests:
-     *
-     *  - ワ行 (`ゐゑヰヱ`): unconditional — the characters are not modern orthography.
-     *  - だ行 (`ぢづヂヅ`): unless preceded by `つ`/`ち` (連濁: `つづく`, `ちぢむ`).
-     *  - 促音 (`つ`/`ツ`): only before a kana the sokuon can precede (`った`, `っぱ`,
-     *    `っさ`) — not before か行, see the class doc.
-     *  - 拗音 (`やゆよ`/`ヤユヨ`): only after an i-column kana (`しよ`->`しょ`,
-     *    `ちや`->`ちゃ`), which is the 旧仮名遣い yōon.
-     *
-     * A row member the table does not carry is left alone, so an unknown character
-     * and a character whose variant is ordinary modern usage (`を`, `あ`) both fold
-     * to themselves.
-     */
-    private fun applies(variant: Char, canonical: Char, prev: Char?, next: Char?): Boolean = when {
-        variant in WAGYOU -> true
-        variant in DAKUGYOU -> prev !in DAKUTEN_PREV
-        variant in SOKUON -> next in SOKUON_TRIGGERS
-        variant in YOON -> prev in YOON_BASE
-        else -> false
-    }
-
-    private val WAGYOU = "ゐゑヰヱ".toCharSet()
-    private val DAKUGYOU = "ぢづヂヅ".toCharSet()
-    private val SOKUON = "つツ".toCharSet()
-    private val YOON = "やゆよヤユヨ".toCharSet()
-    private val DAKUTEN_PREV = "つちツチ".toCharSet()
-    private val SOKUON_TRIGGERS = "たちつてとさしすせそぱぴぷぺぽタチツテトサシスセソパピプペポ".toCharSet()
-    private val YOON_BASE = "きしちにひみりぎじびぴキシチニヒミリギジビピ".toCharSet()
-
-    private fun String.toCharSet(): Set<Char> = toSet()
+    fun modernise(query: String): String = table.modernise(query)
 
     /**
      * An immutable parsed table: one `variant<TAB>canonical` pair per line, `#`
      * comments and blank lines ignored, malformed lines skipped — the same shape as
-     * `variants/kanji_variants.txt`, so the two read alike.
+     * `variants/kanji_variants.txt`, so the two read alike. Wraps the Rust handle
+     * [inner] (`uniffi.nav_graph_core.KanaOrthographyTable`); the parse and
+     * context rules live in `jpdict_core`.
      */
-    class Table internal constructor(pairs: List<Pair<Char, Char>>) {
-        private val canonicalByVariant: Map<Char, Char> =
-            LinkedHashMap<Char, Char>().apply {
-                for ((variant, canonical) in pairs) putIfAbsent(variant, canonical)
-            }
-
+    class Table internal constructor(private val inner: RustKanaOrthographyTable) {
         /** Number of distinct variants in this table. */
-        val size: Int get() = canonicalByVariant.size
+        val size: Int get() = inner.entryCount().toInt()
 
-        fun canonical(variant: Char): Char = canonicalByVariant[variant] ?: variant
+        fun canonical(variant: Char): Char = Char(inner.canonical(variant.code))
+
+        /**
+         * Rewrite [query] through this table (the installed table when called via
+         * [KanaOrthography.modernise]). The context rules are the same ones
+         * [KanaOrthography] documents: ワ行 unconditional, だ行 unless preceded by
+         * `つ`/`ち`, 促音 only before た行/さ行/ぱ行, 拗音 only after an i-column
+         * kana. `internal`: callers go through [KanaOrthography.modernise], as
+         * before the swap.
+         */
+        internal fun modernise(query: String): String = inner.modernise(query)
 
         override fun toString(): String = "KanaOrthography.Table($size variants)"
 
         companion object {
-            val EMPTY = Table(emptyList())
+            /** The identity table: every lookup returns its input. */
+            val EMPTY: Table = Table(RustKanaOrthographyTable.empty())
 
-            fun parse(text: String): Table {
-                val pairs = mutableListOf<Pair<Char, Char>>()
-                for (raw in text.lineSequence()) {
-                    val line = raw.trim()
-                    if (line.isEmpty() || line.startsWith("#")) continue
-                    val parts = line.split('\t')
-                    if (parts.size != 2) continue
-                    val variant = parts[0].singleOrNull() ?: continue
-                    val canonical = parts[1].singleOrNull() ?: continue
-                    if (variant == canonical) continue
-                    pairs.add(variant to canonical)
-                }
-                return Table(pairs)
-            }
+            fun parse(text: String): Table = Table(RustKanaOrthographyTable.parse(text))
         }
     }
 }

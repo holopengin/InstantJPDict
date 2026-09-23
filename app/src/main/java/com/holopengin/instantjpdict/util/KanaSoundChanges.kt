@@ -1,13 +1,24 @@
 package com.holopengin.instantjpdict.util
 
 import android.content.Context
+import uniffi.nav_graph_core.KanaSoundTable as RustKanaSoundTable
 
 /**
  * Historical kana sound changes (#81): the lookup-query normaliser for the class of
- * 旧仮名遣い that #75's variant table structurally cannot reach, loaded from
- * `variants/kana_sound_changes.txt` (source, licence and SHA-256 are in the
- * `kana_sound_changes.PROVENANCE.txt` beside it; regenerate with
+ * 旧仮名遣い that #75's variant table structurally cannot reach. The table is the
+ * committed `variants/kana_sound_changes.txt` rows (source, licence and SHA-256
+ * are in the `kana_sound_changes.PROVENANCE.txt` beside it; regenerate with
  * `tools/build_kana_sound_changes.py`).
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core`
+ * implementation (`core/src/util/japanese.rs`, exposed through `nav_graph_core`'s
+ * UniFFI surface), so the table and the two passes have one source of truth. PC
+ * inlines the rows as consts, byte-identical to the asset, so [install] installs
+ * the builtin table and the asset is no longer read at runtime; [parse] still
+ * parses the asset's text, which is what the tests install. The grammatical
+ * conditions and the pass order are documented upstream; this class only adapts
+ * types (`Char` ↔ `Int` code points, `Long` → `Int`) and keeps the API call sites
+ * already use.
  *
  * **Why JMdict cannot generate this.** [KanaOrthography] folds alternations JMdict
  * records *inside one entry* as variant readings (`かつかざん`/`かっかざん`,
@@ -70,9 +81,13 @@ object KanaSoundChanges {
     @Volatile
     private var table: Table = Table.EMPTY
 
-    /** Parse the committed asset and install it. Idempotent. */
+    /**
+     * Install the builtin table (the committed asset's rows, inlined in PC).
+     * Idempotent. [context] is kept for the call-site signature — the asset is
+     * no longer read here, so it is unused.
+     */
     fun install(context: Context) {
-        install(parse(context.assets.open(ASSET_PATH).bufferedReader().use { it.readText() }))
+        install(Table(RustKanaSoundTable.builtin()))
     }
 
     /** Install an already-parsed table (tests, or a table from another source). */
@@ -92,144 +107,41 @@ object KanaSoundChanges {
      * query is a rule's input. Query-side only — callers keep displaying the raw
      * text, and the raw and #75-normalised forms are still searched alongside this.
      */
-    fun modernise(query: String): String {
-        if (query.isEmpty()) return query
-        return vowelChanges(haGyouten(query))
-    }
-
-    /** Pass 1: 語中・語尾のハ行 -> ワ行, under each character's ending condition. */
-    private fun haGyouten(query: String): String {
-        val t = table
-        val sb = StringBuilder(query.length)
-        for (i in query.indices) {
-            val c = query[i]
-            val mapped = t.ha(c)
-            if (mapped == null) {
-                sb.append(c)
-                continue
-            }
-            val prev = if (i > 0) query[i - 1] else null
-            val next = if (i + 1 < query.length) query[i + 1] else null
-            sb.append(if (applies(c, prev, next)) mapped else c)
-        }
-        return sb.toString()
-    }
-
-    /**
-     * Pass 2: 母音の変化 before `う` — `au` (アウ->オウ) replaces one character, `eu`
-     * (エウ->ヨウ) replaces the エ段 character with its イ段 counterpart + small ょ
-     * and keeps the `う` (`け` + `う` -> `きょ` + `う`).
-     */
-    private fun vowelChanges(query: String): String {
-        val t = table
-        val sb = StringBuilder(query.length)
-        var i = 0
-        while (i < query.length) {
-            val c = query[i]
-            val next = if (i + 1 < query.length) query[i + 1] else null
-            if (next == 'う') {
-                val au = t.au(c)
-                if (au != null) {
-                    sb.append(au).append('う')
-                    i += 2
-                    continue
-                }
-                val eu = t.eu(c)
-                if (eu != null) {
-                    sb.append(eu).append('う')
-                    i += 2
-                    continue
-                }
-            }
-            sb.append(c)
-            i += 1
-        }
-        return sb.toString()
-    }
-
-    /**
-     * Whether a `ha`-row character folds in this context. `ほ` has no branch: it is
-     * withheld (see the class doc), so even a table that carried the pair would leave
-     * it alone until a condition is added and pinned in tests.
-     */
-    private fun applies(variant: Char, prev: Char?, next: Char?): Boolean = when (variant) {
-        // ハ行四段 終止形・連体形: word-final, or before a particle. Not after ウ:
-        // kana-written 夫婦/毛布 end in ふ and are not verb endings.
-        'ふ' -> prev != null && prev != 'う' &&
-            (next == null || !isKana(next) || next in PARTICLES)
-        // ハ行四段 連用形: 思ひつ -> 思いつ; 思ひながら -> 思いながら.
-        'ひ' -> next != null && next in HI_SUFFIX
-        // ハ行四段 仮定形・已然形 and the 下二段 連用形: 数へて, 添へた, 言へば.
-        'へ' -> next != null && next in HE_SUFFIX
-        // 未然形 + ず/ぬ/む/ば: 言はず -> 言わず, 思はば -> 思わば. The particle は
-        // is not in the suffix set, and a word-initial は is excluded above.
-        'は' -> prev != null && next != null && next in HA_SUFFIX
-        else -> false
-    }
-
-    private fun isKana(c: Char): Boolean =
-        c in '\u3041'..'\u3096' || c in '\u30A1'..'\u30F6'
-
-    /**
-     * What can follow a 終止形 before it folds to `う`: the sentence particles, plus
-     * the leading character of the common multi-character particles (から, まで, より,
-     * こそ, しか). A 終止形 before any other kana is left alone on the full prefix;
-     * the lookup also searches the shorter prefix that ends at the `ふ`, which is the
-     * 終止形 itself.
-     */
-    private val PARTICLES = "はがのにをともやかぞなよねだでどばへこそしかまでより".toCharSet()
-
-    private val HI_SUFFIX = "てつな".toCharSet()
-    private val HE_SUFFIX = "したてばどきけるれりま".toCharSet()
-    private val HA_SUFFIX = "ずぬむば".toCharSet()
-
-    private fun String.toCharSet(): Set<Char> = toSet()
+    fun modernise(query: String): String = table.modernise(query)
 
     /**
      * An immutable parsed table: one `variant<TAB>modern<TAB>row` line per pair, `#`
      * comments and blank lines ignored, malformed lines skipped. Rows are `ha`
      * (single-char ハ行転呼), `au` (single-char アウ) and `eu` (one character to its
-     * イ段+small-ょ counterpart).
+     * イ段+small-ょ counterpart). Wraps the Rust handle [inner]
+     * (`uniffi.nav_graph_core.KanaSoundTable`); the parse rules and the two passes
+     * live in `jpdict_core`.
      */
-    class Table internal constructor(
-        private val ha: Map<Char, Char>,
-        private val au: Map<Char, Char>,
-        private val eu: Map<Char, String>,
-    ) {
+    class Table internal constructor(private val inner: RustKanaSoundTable) {
         /** Number of distinct pairs in this table. */
-        val size: Int get() = ha.size + au.size + eu.size
+        val size: Int get() = inner.entryCount().toInt()
 
-        fun ha(variant: Char): Char? = ha[variant]
+        fun ha(variant: Char): Char? = inner.ha(variant.code)?.let { Char(it) }
 
-        fun au(variant: Char): Char? = au[variant]
+        fun au(variant: Char): Char? = inner.au(variant.code)?.let { Char(it) }
 
-        fun eu(variant: Char): String? = eu[variant]
+        fun eu(variant: Char): String? = inner.eu(variant.code)
+
+        /**
+         * Rewrite [query] through this table (the installed table when called via
+         * [KanaSoundChanges.modernise]): the ハ行転呼 pass, then the vowel-change
+         * pass, exactly as [KanaSoundChanges] documents them. `internal`: callers
+         * go through [KanaSoundChanges.modernise], as before the swap.
+         */
+        internal fun modernise(query: String): String = inner.modernise(query)
 
         override fun toString(): String = "KanaSoundChanges.Table($size pairs)"
 
         companion object {
-            val EMPTY = Table(emptyMap(), emptyMap(), emptyMap())
+            /** The identity table: every lookup misses. */
+            val EMPTY: Table = Table(RustKanaSoundTable.empty())
 
-            fun parse(text: String): Table {
-                val ha = LinkedHashMap<Char, Char>()
-                val au = LinkedHashMap<Char, Char>()
-                val eu = LinkedHashMap<Char, String>()
-                for (raw in text.lineSequence()) {
-                    val line = raw.trim()
-                    if (line.isEmpty() || line.startsWith("#")) continue
-                    val parts = line.split('\t')
-                    if (parts.size != 3) continue
-                    val variant = parts[0].singleOrNull() ?: continue
-                    val modern = parts[1]
-                    if (modern.isEmpty() || modern == variant.toString()) continue
-                    when (parts[2]) {
-                        "ha" -> if (modern.length == 1) ha.putIfAbsent(variant, modern[0])
-                        "au" -> if (modern.length == 1) au.putIfAbsent(variant, modern[0])
-                        "eu" -> if (modern.length in 1..2) eu.putIfAbsent(variant, modern)
-                    }
-                }
-                return Table(ha, au, eu)
-            }
+            fun parse(text: String): Table = Table(RustKanaSoundTable.parse(text))
         }
     }
 }
