@@ -275,7 +275,10 @@ internal object CharPlacement {
      */
     private fun emptiestPoint(prof: FloatArray, lo: Float, hi: Float, floor: Float): Float {
         val a = ceil(lo.coerceIn(0f, prof.size.toFloat())).toInt()
-        val b = floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1
+        // b clamped to prof.size: Python slices prof[a:b], which reads to the
+        // array end when b overshoots; `a until b` would index past it. Keeps
+        // (b - a) == Python's seg.size for the cost terms below.
+        val b = (floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1).coerceAtMost(prof.size)
         if (b <= a) return 0.5f * (lo + hi)
         var peak = 0f
         for (i in a until b) if (prof[i] > peak) peak = prof[i]
@@ -314,7 +317,12 @@ internal object CharPlacement {
         options: Options,
     ): Boolean {
         val a = ceil(lo.coerceIn(0f, prof.size.toFloat())).toInt()
-        val b = floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1
+        // b clamped to prof.size — the LAST glyph's window clips to hi == L ==
+        // prof.size (its Voronoi bound is the line end), so floor(hi) + 1 walks
+        // one past the profile. Python's prof[a:b] slice silently caps there;
+        // indexing threw IndexOutOfBoundsException, which the rec callback
+        // swallowed, and the device rendered whole detected lines blank.
+        val b = (floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1).coerceAtMost(prof.size)
         if (b - a <= 0) return false
         var total = 0f
         var peak = 0f

@@ -619,12 +619,33 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
    only if the pipeline text/box surface changes (it does not: same inputs,
    same `LineResult` shape).
 
+### Porting pitfall: Python slicing vs Kotlin indexing (blank-lines bug, fixed)
+
+`_window_is_bimodal` / `_emptiest_point` compute
+`b = floor(clamp(hi, 0, len(prof))) + 1` and then read `prof[a:b]` — a slice
+that silently caps at the array end.  The Kotlin port walked `a until b`,
+which **indexes past the profile exactly when `hi == prof.size`**: the last
+glyph's Voronoi window clips to the line end (`hi0 = L`), the common case on
+tight det crops.  The `IndexOutOfBoundsException` left `CharPlacement.place`
+into the per-result `onEach` callback in `recognizePpocrBatch`, whose
+`catch (_: Exception) {})` swallowed it without a log — **the device detected
+every line and rendered about half of them blank**, `logcat` showing only
+`Batch N 4 jobs → 2 lines` and no error anywhere.  Fixed by clamping `b` to
+`prof.size` in both walks (value-identical to the Python slice; also fixes
+`(b - a)` vs `seg.size` in the tie terms when `hi ≥ size`) and by logging the
+emit callback's exception instead of dropping it.  Regression:
+`CharPlacementEdgeCaseTest` (last-glyph window at the line end) throws
+`ArrayIndexOutOfBoundsException` before the fix.  Rule for future ports:
+Python slices and NumPy reductions are bounds-tolerant — every ported index
+walk needs an explicit clamp, and no callback on the recognition path may
+catch silently.
+
 ## 7. Files
 
 | path | what |
 |---|---|
 | `app/src/main/java/.../CharPlacement.kt` | Kotlin port of the algorithm (research sketch, not yet wired) |
-| `app/src/test/java/.../CharPlacementTest.kt` | parity vs Python + ink-containment, 6 fixture cases |
+| `app/src/test/java/.../CharPlacementTest.kt` | parity vs Python + ink-containment, 6 fixture cases + line-end edge regression |
 | `app/src/test/resources/char_placement/` | committed fixture (crop PNGs + raw luminance + JSON) |
 | `tools/char_placement/jpfmt.py` | font-metric classes, HarfBuzz shaping, FreeType raster |
 | `tools/char_placement/synthesize.py` | generator + documented CTC simulation + presets |

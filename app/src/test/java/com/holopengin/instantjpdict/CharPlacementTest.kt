@@ -151,3 +151,51 @@ class CharPlacementTest {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Device regression: the bimodal-window walk must not read past the profile.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class CharPlacementEdgeCaseTest {
+
+    /**
+     * The LAST glyph's Voronoi window is clipped to the line length L, and
+     * `windowIsBimodal` walked `prof[a .. floor(hi)+1]` — one past the end
+     * when `hi == L`, which is the common case for a det crop that hugs the
+     * final glyph.  Kotlin threw IndexOutOfBoundsException, the rec callback
+     * swallowed it silently (`catch (_: Exception) {})`), and the device saw
+     * whole detected lines render blank ("detecting all lines, recognizing
+     * half").  Python never showed it: `prof[a:b]` slices past the end.  The
+     * profile is white background with two ink blobs, one on each glyph, so
+     * the mass gate passes, the window is not smeared, and the bimodal walk
+     * runs for the last glyph exactly as on device.
+     */
+    @Test
+    fun `last glyph window reaching the line end does not throw`() {
+        val cropW = 80
+        val cropH = 40
+        val pixels = IntArray(cropW * cropH) { -1 }  // white background
+        fun ink(x0: Int, x1: Int) {
+            for (y in 4 until 36) for (x in x0 until x1) pixels[y * cropW + x] = 0xFF202020.toInt()
+        }
+        ink(24, 36)   // glyph 0 (centre ~30t * 20px/t = 30)
+        ink(64, 76)   // glyph 1, the LAST one (centre ~70; window clips to L=80)
+
+        val boxes = CharPlacement.place(
+            text = "あい",
+            charCols = floatArrayOf(1f, 3f),
+            seqLenTotal = 4,
+            cropW = cropW,
+            cropH = cropH,
+            isVertical = false,
+            pixels = pixels,
+            steps = null,
+        )
+        assertEquals("both glyphs get a box", 2, boxes.size)
+        val last = boxes[1]
+        assertTrue(
+            "last box must cover its ink centre (x=70): $last",
+            last.left <= 70f && last.right >= 70f
+        )
+    }
+}

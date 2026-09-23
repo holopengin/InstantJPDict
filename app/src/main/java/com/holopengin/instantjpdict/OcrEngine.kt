@@ -1442,7 +1442,15 @@ class OcrEngine(
                 val final = res ?: PPOcrResult("", emptyList(), floatArrayOf(), 0)
                 ordered[ci] = final
                 if (res != null) {
-                    try { onEach?.invoke(ci, res) } catch (_: Exception) {}
+                    // NEVER silent: an exception here (in emitLine: placement,
+                    // LineResult build, vertical punctuation…) used to vanish
+                    // and the line rendered blank on device with no trace in
+                    // logcat — the "detecting all lines, recognizing half" bug.
+                    try {
+                        onEach?.invoke(ci, res)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "emit failed for crop $ci", e)
+                    }
                 }
             }
             } // end wave scope
