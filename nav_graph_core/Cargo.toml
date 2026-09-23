@@ -13,16 +13,14 @@ path = "uniffi-bindgen.rs"
 
 [dependencies]
 uniffi = { version = "0.28", features = ["cli"] }
-# PC upstream `jpdict_core` lives in the InstantJPDictDecky repo, which is
-# unpublished (no git remote), so a git dependency cannot be pinned and
-# copying nav_graph.rs back is forbidden (that recreates the fork). This
-# relative path assumes the two checkouts sit side by side as
-# `<...>/AndroidStudioProjects/InstantJPDict` and `<...>/repos/InstantJPDictDecky`;
-# it breaks on other layouts. Once the PC repo is published, switch this to
-# a git dependency pinned to a rev.
-# Nav-only surface (ticket pipeline-sharing/05, merged on the PC side):
-# no native inference stack, no C++ toolchain, no install prefix.
-jpdict_core = { path = "../../../repos/InstantJPDictDecky/accessibility_daemon/core", default-features = false }
+# PC upstream jpdict_core lives in the public InstantJPDictPC repo
+# (github.com/holopengin/InstantJPDictPC). Pinned to a master rev so the
+# Android build is self-contained and reproducible — no side-by-side PC
+# checkout required. Bump the rev when the PC side lands a change this shim
+# consumes (the shim's tests fail first if the pinned rev drifts).
+# Nav-only surface: no native inference stack, no C++ toolchain, no install
+# prefix.
+jpdict_core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "1082676962fdde28244c5971dcf352bb434b4874", default-features = false }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
