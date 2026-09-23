@@ -425,7 +425,9 @@ Metrics per character (decoded→true mapping from the generator): reading-axis
 centre error, IoU against the cross-extended ink box, axis-IoU against the
 advance cell, tap-at-centre hit (does the box contain the true ink centre),
 and tap-jitter hit (4 samples, σ=0.12em, simulating a finger tap and the
-first-rect-wins hit test).
+first-rect-wins hit test).  These metrics — exact formulas, eligibility, and
+the corpus quality gates they feed — are specified normatively in
+`docs/char-placement-conformance.md` (the PC handoff).
 
 **Clean set, 190 lines / 3556 characters** (`current` = shipped chain with
 snap+uniform; `current_nosnap` = uniform only; `legacy` = neither):
@@ -650,7 +652,8 @@ catch silently.
 | `tools/char_placement/jpfmt.py` | font-metric classes, HarfBuzz shaping, FreeType raster |
 | `tools/char_placement/synthesize.py` | generator + documented CTC simulation + presets |
 | `tools/char_placement/place.py` | shipped-chain port, proposed algorithm, metrics |
-| `tools/char_placement/eval.py` | synthetic evaluation harness |
+| `tools/char_placement/eval.py` | synthetic evaluation harness; `--boxes-from` scores an external port as the `imported` row |
+| `docs/char-placement-conformance.md` | conformance spec for the PC handoff: metric formulas, parity vectors, corpus gates |
 | `tools/char_placement/real_eval.py` | real-dump evaluation / ink arbitration |
 | `tools/char_placement/export_kotlin_fixture.py` | fixture export for the JVM test |
 | `tools/char_placement/real_dump/` | scratch Rust harness that dumps real inference evidence |

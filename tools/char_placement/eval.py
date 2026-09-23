@@ -74,9 +74,26 @@ def main() -> None:
     ap.add_argument("--only", choices=["all", "clean", "errors"], default="all")
     ap.add_argument("--json", type=Path, default=None)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument(
+        "--boxes-from",
+        type=Path,
+        default=None,
+        help='JSONL of {"id": ..., "boxes": [[l,t,r,b], ...]} — score an '
+        "external implementation (e.g. the PC port) in the `imported` row. "
+        "Every case must be present and box counts must equal the decoded "
+        "char count; partial dumps fail loudly. See "
+        "docs/char-placement-conformance.md.",
+    )
     args = ap.parse_args()
+    algos = ALGOS + ("imported",) if args.boxes_from else ALGOS
+    imported: dict[str, list] = {}
+    if args.boxes_from:
+        for ln in args.boxes_from.read_text(encoding="utf-8").splitlines():
+            if ln.strip():
+                rec = json.loads(ln)
+                imported[rec["id"]] = rec["boxes"]
 
-    scores: dict[str, CaseScore] = {a: CaseScore() for a in ALGOS}
+    scores: dict[str, CaseScore] = {a: CaseScore() for a in algos}
     scores_orient: dict[tuple[str, str], CaseScore] = {}
     scores_preset: dict[tuple[str, str], CaseScore] = {}
     counts = {"cases": 0, "clean": 0, "lines": 0, "chars": 0}
@@ -99,8 +116,21 @@ def main() -> None:
             counts["lines"] += 1
             n_used = 0
             row = {"id": case["id"], "preset": case["preset"], "clean": case["clean"]}
-            for algo in ALGOS:
-                boxes = run_algo(algo, case, img)
+            for algo in algos:
+                if algo == "imported":
+                    if case["id"] not in imported:
+                        raise SystemExit(
+                            f"--boxes-from: missing case {case['id']} "
+                            "(a partial dump must not score a partial corpus)"
+                        )
+                    boxes = [tuple(float(v) for v in b) for b in imported[case["id"]]]
+                    if len(boxes) != len(case["char_cols"]):
+                        raise SystemExit(
+                            f"--boxes-from {case['id']}: {len(boxes)} boxes for "
+                            f"{len(case['char_cols'])} decoded characters"
+                        )
+                else:
+                    boxes = run_algo(algo, case, img)
                 sc = score_boxes(
                     boxes,
                     case["ink_boxes"],
@@ -134,7 +164,7 @@ def main() -> None:
         f"{'inkIoU':>8}{'cover':>7}{'xcap':>7}{'cellIoU':>9}{'wErr em':>9}"
     )
     print(header)
-    for algo in ALGOS:
+    for algo in algos:
         s = scores[algo].summary()
         print(
             f"{algo:<16}{s['center_err_mean_px']:>9.2f}{s['center_err_median_px']:>9.2f}"
@@ -146,7 +176,7 @@ def main() -> None:
         )
     print("\nby orientation:")
     for orient in ("h", "v"):
-        for algo in ALGOS:
+        for algo in algos:
             s = scores_orient.get((orient, algo))
             if not s or s.n == 0:
                 continue
@@ -177,7 +207,7 @@ def main() -> None:
     if args.json:
         out = {
             "counts": counts,
-            "summary": {a: scores[a].summary() for a in ALGOS},
+            "summary": {a: scores[a].summary() for a in algos},
             "by_preset": {
                 f"{p}/{a}": s.summary() for (p, a), s in sorted(scores_preset.items())
             },
