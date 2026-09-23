@@ -868,6 +868,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -997,6 +1001,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_deinflector_from_json_str(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_furigana_filter(`raw`: RustBuffer.ByValue,`uncl`: RustBuffer.ByValue,`imgW`: Int,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_horizontal(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgW`: Int,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -1029,6 +1035,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_japanese_vertical_punctuation_char(`c`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    fun uniffi_nav_graph_core_fn_func_japanese_vertical_punctuation_chars(`chars`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_base_index_of(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_base_order(uniffi_out_err: UniffiRustCallStatus, 
@@ -1175,6 +1183,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_deinflector_from_json_str(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_furigana_filter(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_horizontal(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical(
@@ -1206,6 +1216,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_japanese_vertical_punctuation(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_japanese_vertical_punctuation_char(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_japanese_vertical_punctuation_chars(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_base_index_of(
     ): Short
@@ -1337,6 +1349,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_deinflector_from_json_str() != 27511.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_furigana_filter() != 35628.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_furigana_is_ruby_horizontal() != 24118.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1383,6 +1398,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_japanese_vertical_punctuation_char() != 4908.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_japanese_vertical_punctuation_chars() != 22305.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_base_index_of() != 11984.toShort()) {
@@ -5404,6 +5422,22 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     
 
         /**
+         * Page-level keep-flags for likely-furigana boxes (mobile `filterFurigana`).
+         *
+         * `raw`/`uncl` are index-aligned (raw contour geometry vs unclipped boxes).
+         * Delegates the whole O(n²) pair walk to `jpdict_core::furigana::filter_furigana`
+         * in one crossing — per-pair calls are what made a dense page take seconds.
+         */ fun `furiganaFilter`(`raw`: List<BoundingBox>, `uncl`: List<BoundingBox>, `imgW`: kotlin.Int, `imgH`: kotlin.Int): List<kotlin.Boolean> {
+            return FfiConverterSequenceBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_furigana_filter(
+        FfiConverterSequenceTypeBoundingBox.lower(`raw`),FfiConverterSequenceTypeBoundingBox.lower(`uncl`),FfiConverterInt.lower(`imgW`),FfiConverterInt.lower(`imgH`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Tiny horizontal box right above a much larger horizontal box (#28, #99).
          *
          * The candidate must be smaller in BOTH dimensions: thinness alone let a
@@ -5642,6 +5676,20 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_japanese_vertical_punctuation_char(
         FfiConverterInt.lower(`c`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Batched [`japanese_vertical_punctuation_char`]: one crossing for a whole
+         * line's alternatives. Raw-alternative lists hold every CTC timestep × top-K,
+         * so per-character calls crossed the boundary thousands of times per line.
+         */ fun `japaneseVerticalPunctuationChars`(`chars`: List<kotlin.Int>): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_japanese_vertical_punctuation_chars(
+        FfiConverterSequenceInt.lower(`chars`),_status)
 }
     )
     }

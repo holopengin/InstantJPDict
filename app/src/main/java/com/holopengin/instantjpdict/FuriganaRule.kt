@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict
 
 import uniffi.nav_graph_core.BoundingBox
+import uniffi.nav_graph_core.furiganaFilter
 import uniffi.nav_graph_core.furiganaIsRubyHorizontal
 import uniffi.nav_graph_core.furiganaIsRubyVertical
 
@@ -18,8 +19,8 @@ import uniffi.nav_graph_core.furiganaIsRubyVertical
  * overlap for stacked fragments); only the gap and short-side tests use
  * UNCLIPPED boxes (raw gutters are real pixels, unclip closes them to ruby
  * distance). Orientation gating (vertical vs horizontal, near-square counts as
- * both) stays with the caller; [OcrEngine]'s `filterFurigana` owns the
- * index-aligned pass.
+ * both) and the index-aligned page pass live in the Rust filter ([filter]), so
+ * a page crosses the FFI once instead of once per box pair.
  *
  * Both rules require a significant size difference in BOTH dimensions:
  * vertical needs a much shorter height AND a narrower width; horizontal
@@ -51,6 +52,20 @@ internal object FuriganaRule {
     ): Boolean = furiganaIsRubyHorizontal(
         sRaw.toBoundingBox(), bRaw.toBoundingBox(), sUn.toBoundingBox(), bUn.toBoundingBox(), imgW, imgH,
     )
+
+    /**
+     * Keep-flags for likely-furigana boxes, one per index of [raw] (index-aligned
+     * with [uncl]): the whole page in **one** FFI call. The per-pair predicates
+     * above are kept for tests, but calling them from a page loop crosses the
+     * boundary O(n²) times — seconds on a dense page.
+     */
+    fun filter(raw: List<JpDictRect>, uncl: List<JpDictRect>, imgW: Int, imgH: Int): BooleanArray =
+        furiganaFilter(
+            raw.map { it.toBoundingBox() },
+            uncl.map { it.toBoundingBox() },
+            imgW,
+            imgH,
+        ).toBooleanArray()
 
     /** [JpDictRect] is `left`/`top`/`right`/`bottom`; the shared UniFFI record is
      * origin + extents, so `w`/`h` are the edge differences. */

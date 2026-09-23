@@ -1,7 +1,7 @@
 //! UniFFI shim over `jpdict_core::furigana` (#28/#99) — WP-05.
 //!
 //! Mobile `FuriganaRule`: the furigana (ruby) geometry rules, pure so they are
-//! host-tested. Both exported free functions delegate to the PC crate's
+//! host-tested. Both exported predicates delegate to the PC crate's
 //! `is_ruby_vertical` / `is_ruby_horizontal` — the Kotlin fork is deleted, so
 //! the rule has one source of truth. Nothing here implements an algorithm; the
 //! file only converts the already-exported [`BoundingBox`] record (`x`, `y`,
@@ -9,21 +9,24 @@
 //! geometry-only, exactly what `build_nav_graph` does) and forwards the image
 //! dimensions.
 //!
+//! [`furigana_filter`] is the page-level pass: the O(n²) pair walk lives in
+//! `jpdict_core::furigana`, so a binding crosses the FFI **once per page**
+//! instead of once per box pair. (The per-pair predicates are kept for the
+//! tests and for callers that genuinely need one pair.)
+//!
 //! Boundary notes: the PC rule consumes RAW and UNCLIPPED boxes; the
-//! orientation gate (vertical vs horizontal, near-square counts as both) stays
-//! with the caller on both sides (`OcrEngine.filterFurigana` /
-//! `ocr_engine::filter_furigana`). The rule reads integer geometry only, so
-//! `i32` crosses 1:1 and the boundary loses nothing.
+//! orientation gate (vertical vs horizontal, near-square counts as both) is
+//! part of the filter on both sides now. The rule reads integer geometry only,
+//! so `i32` crosses 1:1 and the boundary loses nothing.
 //!
 //! ## Kotlin facade contract
 //!
 //! The generated Kotlin surface (`uniffi.nav_graph_core.BoundingBox` plus
-//! `furiganaIsRubyVertical` / `furiganaIsRubyHorizontal`) is wrapped by the
-//! hand-written `com.holopengin.instantjpdict.FuriganaRule` object, which
-//! keeps the pre-conversion API byte-for-byte (`isRubyVertical` /
-//! `isRubyHorizontal`, `JpDictRect` parameters) so `OcrEngine.filterFurigana`
-//! (call sites at lines 914/916) and `FuriganaRuleTest` compile unchanged. The
-//! facade maps `JpDictRect(left, top, right, bottom)` →
+//! `furiganaIsRubyVertical` / `furiganaIsRubyHorizontal` / `furiganaFilter`) is
+//! wrapped by the hand-written `com.holopengin.instantjpdict.FuriganaRule`
+//! object, which keeps the pre-conversion API byte-for-byte (`isRubyVertical` /
+//! `isRubyHorizontal` / `filter`, `JpDictRect` parameters) so `OcrEngine`
+//! compiles unchanged. The facade maps `JpDictRect(left, top, right, bottom)` →
 //! `BoundingBox(x = left, y = top, w = right - left, h = bottom - top)` on
 //! every call.
 
@@ -82,6 +85,23 @@ pub fn furigana_is_ruby_horizontal(
         img_w,
         img_h,
     )
+}
+
+/// Page-level keep-flags for likely-furigana boxes (mobile `filterFurigana`).
+///
+/// `raw`/`uncl` are index-aligned (raw contour geometry vs unclipped boxes).
+/// Delegates the whole O(n²) pair walk to `jpdict_core::furigana::filter_furigana`
+/// in one crossing — per-pair calls are what made a dense page take seconds.
+#[uniffi::export]
+pub fn furigana_filter(
+    raw: Vec<BoundingBox>,
+    uncl: Vec<BoundingBox>,
+    img_w: i32,
+    img_h: i32,
+) -> Vec<bool> {
+    let raw: Vec<jpdict_core::models::BoundingBox> = raw.iter().map(core_box).collect();
+    let uncl: Vec<jpdict_core::models::BoundingBox> = uncl.iter().map(core_box).collect();
+    jpdict_core::furigana::filter_furigana(&raw, &uncl, img_w, img_h)
 }
 
 #[cfg(test)]
@@ -217,5 +237,46 @@ mod tests {
             IMG,
             IMG
         ));
+    }
+
+    /// The page-level filter (mirrors the desktop
+    /// `furigana_filter_drops_ruby_keeps_stacked_fragments`): vertical ruby is
+    /// dropped, a stacked column fragment and a merely-short real line survive,
+    /// and a page under two boxes is all-keep.
+    #[test]
+    fn filter_keeps_real_boxes_and_drops_ruby() {
+        // Vertical: ruby to the right of a big column; stacked fragment shares
+        // the big box's x-range and is never ruby.
+        let raw = vec![
+            rect(100, 100, 150, 400),
+            rect(170, 150, 200, 230),
+            rect(110, 150, 140, 230),
+        ];
+        let uncl = vec![
+            rect(90, 90, 160, 420),
+            rect(165, 145, 205, 235),
+            rect(100, 145, 150, 235),
+        ];
+        assert_eq!(furigana_filter(raw, uncl, IMG, IMG), vec![true, false, true]);
+
+        // Horizontal: thin ruby above a big line is dropped; a taller short
+        // line above it is not.
+        let raw = vec![
+            rect(100, 100, 500, 160),
+            rect(150, 60, 350, 80),
+            rect(600, 60, 800, 110),
+        ];
+        let uncl = vec![
+            rect(90, 90, 510, 170),
+            rect(140, 55, 360, 85),
+            rect(590, 55, 810, 115),
+        ];
+        assert_eq!(furigana_filter(raw, uncl, IMG, IMG), vec![true, false, true]);
+
+        // Fewer than two boxes: nothing can be ruby.
+        assert_eq!(
+            furigana_filter(vec![rect(100, 100, 150, 400)], vec![rect(90, 90, 160, 420)], IMG, IMG),
+            vec![true]
+        );
     }
 }

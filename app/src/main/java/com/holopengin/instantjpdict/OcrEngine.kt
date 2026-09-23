@@ -894,30 +894,14 @@ class OcrEngine(
         return yDiff <= avgH
     }
 
-    /** Near-square (single-kanji-like) box: checked against both furigana rules. #28 */
-    private fun isSquareBox(box: JpDictRect): Boolean {
-        val w = box.width(); val h = box.height()
-        return minOf(w, h).toFloat() >= maxOf(w, h) / VERTICAL_MIN_ASPECT
-    }
-
     /** Keep-flags for likely-furigana boxes. raw/uncl are index-aligned (raw contours
-     * vs unclipped detect boxes). #28 */
-    private fun filterFurigana(raw: List<JpDictRect>, uncl: List<JpDictRect>, imgW: Int, imgH: Int): BooleanArray {
-        if (raw.size < 2) return BooleanArray(raw.size) { true }
-        return BooleanArray(raw.size) { i ->
-            val small = raw[i]
-            val checkVert = isVerticalBox(small) || isSquareBox(small)
-            val checkHoriz = !isVerticalBox(small) || isSquareBox(small)
-            !(raw.indices.any { j ->
-                j != i && (
-                    (checkVert && isVerticalBox(raw[j]) &&
-                        FuriganaRule.isRubyVertical(raw[i], raw[j], uncl[i], uncl[j], imgH)) ||
-                    (checkHoriz && !isVerticalBox(raw[j]) &&
-                        FuriganaRule.isRubyHorizontal(raw[i], raw[j], uncl[i], uncl[j], imgW, imgH))
-                )
-            })
-        }
-    }
+     * vs unclipped detect boxes). #28
+     *
+     * The pair walk and the orientation gates run in the Rust core in one FFI
+     * call ([FuriganaRule.filter]); calling the per-pair predicates from here
+     * crossed the boundary O(n²) times and made dense pages take seconds. */
+    private fun filterFurigana(raw: List<JpDictRect>, uncl: List<JpDictRect>, imgW: Int, imgH: Int): BooleanArray =
+        FuriganaRule.filter(raw, uncl, imgW, imgH)
 
     /** Ruby-gutter trim for vertical lines (#48): detector boxes that swallowed
      * the furigana strip come out ~2x normal column width (measured 127px vs
@@ -1234,16 +1218,13 @@ class OcrEngine(
                 // Covers single-pass and long-line stitch paths (both emit here).
                 val recText = if (job.isVertical) JapaneseUtil.verticalPunctuation(result.text) else result.text
                 val recAlts = if (job.isVertical) {
-                    result.alternatives.map { alts ->
-                        alts.map { (c, s) -> JapaneseUtil.verticalPunctuationChar(c) to s }.toMutableList()
-                    }
+                    JapaneseUtil.verticalPunctuationAlternatives(result.alternatives)
+                        .map { it.toMutableList() }
                 } else {
                     result.alternatives.map { it.toMutableList() }
                 }
                 val recRaw = if (job.isVertical) {
-                    result.rawAlternatives.map { alts ->
-                        alts.map { (c, s) -> JapaneseUtil.verticalPunctuationChar(c) to s }
-                    }
+                    JapaneseUtil.verticalPunctuationAlternatives(result.rawAlternatives)
                 } else {
                     result.rawAlternatives.map { it.toList() }
                 }
@@ -2514,12 +2495,10 @@ class OcrEngine(
         val decodedText = text.toString()
         val vertText = if (oldLine.isVertical) JapaneseUtil.verticalPunctuation(decodedText) else decodedText
         if (oldLine.isVertical) {
-            for (alts in newAlts) {
-                for (i in alts.indices) {
-                    val (c, s) = alts[i]
-                    val n = JapaneseUtil.verticalPunctuationChar(c)
-                    if (n != c) alts[i] = n to s
-                }
+            val normalized = JapaneseUtil.verticalPunctuationAlternatives(newAlts)
+            for (i in newAlts.indices) {
+                val out = newAlts[i]
+                for (j in out.indices) out[j] = normalized[i][j]
             }
         }
 
@@ -2528,11 +2507,7 @@ class OcrEngine(
             // here, normalized like the emit path (no crop pixels survive, so
             // CAP runs its template without ink refinement).
             val steps = if (oldLine.isVertical) {
-                oldLine.rawAlternatives.map { alts ->
-                    alts.map { (c, s) ->
-                        JapaneseUtil.verticalPunctuationChar(c) to s
-                    }
-                }
+                JapaneseUtil.verticalPunctuationAlternatives(oldLine.rawAlternatives)
             } else {
                 oldLine.rawAlternatives
             }

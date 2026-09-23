@@ -121,6 +121,17 @@ pub fn japanese_vertical_punctuation_char(c: i32) -> i32 {
     pc::vertical_punctuation_char(char_from_codepoint(c)) as i32
 }
 
+/// Batched [`japanese_vertical_punctuation_char`]: one crossing for a whole
+/// line's alternatives. Raw-alternative lists hold every CTC timestep × top-K,
+/// so per-character calls crossed the boundary thousands of times per line.
+#[uniffi::export]
+pub fn japanese_vertical_punctuation_chars(chars: Vec<i32>) -> Vec<i32> {
+    chars
+        .iter()
+        .map(|&c| pc::vertical_punctuation_char(char_from_codepoint(c)) as i32)
+        .collect()
+}
+
 /// Split a KANJIDIC kana list ("きみ -ぎみ", "クン キン") into readings: entries
 /// are whitespace-separated, a leading ASCII hyphen marks an okurigana-less
 /// stem and is stripped, empty entries are dropped.
@@ -672,6 +683,26 @@ mod tests {
     }
 
     // ── Boundary (not expressible in the JVM suites) ───────────────────────
+
+    /// The batched map is exactly the per-character map (same order, same
+    /// degradation), so the recognition path can normalise a whole line in one
+    /// crossing without changing the result.
+    #[test]
+    fn vertical_punctuation_batch_matches_the_single_char_map() {
+        let chars: Vec<i32> = "あ?…‥A。︙︰？、".chars().map(|c| c as i32).collect();
+        let batched = japanese_vertical_punctuation_chars(chars.clone());
+        let per_char: Vec<i32> = chars
+            .iter()
+            .map(|&c| japanese_vertical_punctuation_char(c))
+            .collect();
+        assert_eq!(batched, per_char);
+        assert!(japanese_vertical_punctuation_chars(Vec::new()).is_empty());
+        // Invalid code points degrade per entry, not for the whole batch.
+        assert_eq!(
+            char_from_codepoint(japanese_vertical_punctuation_chars(vec![-1, '?' as i32])[0]),
+            '\u{FFFD}'
+        );
+    }
 
     /// Invalid code points degrade to U+FFFD at the boundary rather than
     /// panicking, and a supplementary-plane character crosses as one scalar.

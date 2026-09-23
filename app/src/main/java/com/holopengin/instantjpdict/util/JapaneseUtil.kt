@@ -7,6 +7,7 @@ import uniffi.nav_graph_core.japaneseNormalize
 import uniffi.nav_graph_core.japaneseSplitKanaList
 import uniffi.nav_graph_core.japaneseVerticalPunctuation
 import uniffi.nav_graph_core.japaneseVerticalPunctuationChar
+import uniffi.nav_graph_core.japaneseVerticalPunctuationChars
 
 /**
  * OCR-line text normalisation (#44, #55, #56, #63).
@@ -52,6 +53,30 @@ object JapaneseUtil {
      * sites only pass characters from recognised text.
      */
     fun verticalPunctuationChar(c: Char): Char = Char(japaneseVerticalPunctuationChar(c.code))
+
+    /**
+     * Batched [verticalPunctuationChar] over a line's alternatives: one FFI call
+     * per list instead of one per character. Raw-alternative lists hold every CTC
+     * timestep × top-K, so the per-character form crossed the boundary thousands
+     * of times per line and made recognition visibly slower.
+     */
+    fun verticalPunctuationAlternatives(
+        alternatives: List<List<Pair<Char, Float>>>,
+    ): List<List<Pair<Char, Float>>> {
+        var size = 0
+        for (alts in alternatives) size += alts.size
+        if (size == 0) return alternatives
+        val flat = ArrayList<Int>(size)
+        for (alts in alternatives) for ((c, _) in alts) flat.add(c.code)
+        val mapped = japaneseVerticalPunctuationChars(flat)
+        var k = 0
+        return alternatives.map { alts ->
+            alts.map { (c, s) ->
+                val n = Char(mapped[k++])
+                if (n == c) c to s else n to s
+            }
+        }
+    }
 
     /**
      * Split a KANJIDIC kana list ("きみ -ぎみ", "クン キン") into readings.
