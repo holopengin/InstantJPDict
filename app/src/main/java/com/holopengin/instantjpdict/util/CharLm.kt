@@ -15,7 +15,7 @@ import uniffi.nav_graph_core.charLmFromBytes
  * documented there; this class only adapts types (`Char` ↔ `Int` code points, `UInt` →
  * `Int`) and keeps the API call sites already use.
  */
-class CharLm private constructor(private val inner: RustCharLm) {
+class CharLm private constructor(internal val inner: RustCharLm) {
     /** Occurrences of [ngram], or 0 when it is unknown (or longer than the model's order). */
     fun count(ngram: CharSequence): Int = inner.count(ngram.toCodePoints()).toInt()
 
