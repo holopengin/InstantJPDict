@@ -87,7 +87,19 @@ def runtime_closure(meta: dict) -> list[dict]:
     the shared object. (uniffi's `cli` feature does pull its bindgen chain in as
     normal deps for the crate's own `uniffi-bindgen` binary; those are listed too,
     which errs towards attributing more rather than less.)
+
+    First-party crates are walked through but not listed: this project's own
+    `jpdict_core` is a path dependency in a side-by-side checkout and a git
+    dependency pinned to the public InstantJPDictPC repo, and its licence is the
+    repository's own (the app ships LICENSE), not a third-party notice. Without
+    the filter, regeneration fails on it as an UNKNOWN licence.
     """
+    def is_first_party(pkg: dict) -> bool:
+        source = pkg.get("source") or ""
+        return not source or source.startswith(
+            "git+https://github.com/holopengin/InstantJPDictPC"
+        )
+
     by_id = {p["id"]: p for p in meta["packages"]}
     nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
     roots = [i for i in nodes if "nav_graph_core" in i]
@@ -105,7 +117,7 @@ def runtime_closure(meta: dict) -> list[dict]:
                 walk(dep["pkg"])
 
     walk(roots[0])
-    crates = [by_id[i] for i in seen]
+    crates = [by_id[i] for i in seen if not is_first_party(by_id[i])]
     crates.sort(key=lambda p: p["name"])
     return crates
 

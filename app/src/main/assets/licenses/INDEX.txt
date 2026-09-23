@@ -148,6 +148,7 @@ goblin	MIT	0.8.2	licenses/texts/rust/goblin-LICENSE	-	cargo metadata --locked --
 heck	MIT OR Apache-2.0	0.5.0	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/heck-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 is_terminal_polyfill	MIT OR Apache-2.0	1.70.2	licenses/texts/rust/anstream-LICENSE-APACHE,licenses/texts/rust/anstream-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 itoa	MIT OR Apache-2.0	1.0.18	licenses/texts/rust/anyhow-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
+lazy_static	MIT OR Apache-2.0	1.5.0	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/lazy_static-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 log	MIT OR Apache-2.0	0.4.33	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/glob-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 memchr	Unlicense OR MIT	2.8.3	licenses/texts/rust/memchr-COPYING,licenses/texts/rust/memchr-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 mime	MIT OR Apache-2.0	0.3.17	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/mime-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
