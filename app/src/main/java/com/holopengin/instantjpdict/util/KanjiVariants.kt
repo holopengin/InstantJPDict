@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict.util
 
 import android.content.Context
+import uniffi.nav_graph_core.KanjiVariantTable as RustKanjiVariantTable
 
 /**
  * Kanji variant table (#44): the vendored Unihan `kSemanticVariant`/`kZVariant`
@@ -20,6 +21,13 @@ import android.content.Context
  * these pairs whose variant side was measured to occur in real Japanese text. This
  * loader exposes the whole table, in both directions, for callers that want it —
  * e.g. offering the obsolete forms of a character as alternatives.
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core`
+ * implementation (`core/src/util/kanji_variants.rs`, exposed through
+ * `nav_graph_core`'s UniFFI surface), so the algorithm has one source of truth.
+ * The parse rules, the direction rule and the both-directions indexes are
+ * documented there; this class only adapts types (`Char` ↔ `Int` code points,
+ * `Long` → `Int`) and keeps the API call sites already use.
  *
  * The table is plain committed text, parsed once. [install] is the entry point;
  * until it is called every lookup is the identity function (a missing entry is not
@@ -63,6 +71,13 @@ object KanjiVariants {
     fun canonicalsOf(ch: Char): List<Char> = table.canonicalsOf(ch)
 
     /**
+     * The currently installed table ([Table.EMPTY] until [install]). `internal` so a
+     * later shim in this module that takes the table across the boundary (WP-10
+     * `oov_suggestions`) can reach the installed handle; nothing public changes.
+     */
+    internal val installed: Table get() = table
+
+    /**
      * An immutable parsed table: one `variant<TAB>canonical` pair per line, `#`
      * comments and blank lines ignored, malformed lines skipped. Every pair in the
      * file is kept — Unihan gives 59 of the variants more than one canonical
@@ -70,25 +85,17 @@ object KanjiVariants {
      * **first** line for that variant (the generator sorts by variant then canonical,
      * so first is the lowest codepoint: deterministic, but arbitrary, which is why the
      * measured fold in [JapaneseUtil.MEASURED_VARIANT_FOLD] makes its own choice).
+     *
+     * Wraps the Rust handle [inner] (`uniffi.nav_graph_core.KanjiVariantTable`); the
+     * parse and index rules live in `jpdict_core`. [inner] is `internal` so a later
+     * shim in this module (WP-10 `oov_suggestions`) can pass the table across the
+     * boundary — the `variant_forms` closure is then built in Rust.
      */
-    class Table internal constructor(pairs: List<Pair<Char, Char>>) {
-        private val canonicalByVariant: Map<Char, Char> =
-            LinkedHashMap<Char, Char>().apply {
-                for ((variant, canonical) in pairs) putIfAbsent(variant, canonical)
-            }
-
-        private val canonicalsByVariant: Map<Char, List<Char>> =
-            pairs.groupBy({ it.first }, { it.second })
-                .mapValues { (_, canonicals) -> canonicals.distinct().sorted() }
-
-        private val variantsByCanonical: Map<Char, List<Char>> =
-            pairs.groupBy({ it.second }, { it.first })
-                .mapValues { (_, variants) -> variants.distinct().sorted() }
-
+    class Table private constructor(internal val inner: RustKanjiVariantTable) {
         /** Number of distinct variants in this table. */
-        val size: Int get() = canonicalByVariant.size
+        val size: Int get() = inner.entryCount().toInt()
 
-        fun canonical(ch: Char): Char = canonicalByVariant[ch] ?: ch
+        fun canonical(ch: Char): Char = Char(inner.canonical(ch.code))
 
         /**
          * Every canonical candidate Unihan lists for [ch], sorted; empty when the
@@ -96,29 +103,17 @@ object KanjiVariants {
          * — [canonical] then returns the first by codepoint, which is arbitrary, so a
          * caller that cares picks from this list instead.
          */
-        fun canonicalsOf(ch: Char): List<Char> = canonicalsByVariant[ch] ?: emptyList()
+        fun canonicalsOf(ch: Char): List<Char> = inner.canonicalsOf(ch.code).map { Char(it) }
 
-        fun obsoleteFormsOf(ch: Char): List<Char> = variantsByCanonical[ch] ?: emptyList()
+        fun obsoleteFormsOf(ch: Char): List<Char> = inner.obsoleteFormsOf(ch.code).map { Char(it) }
 
         override fun toString(): String = "KanjiVariants.Table($size variants)"
 
         companion object {
-            val EMPTY = Table(emptyList())
+            /** The identity table: every lookup returns its input. */
+            val EMPTY = Table(RustKanjiVariantTable.empty())
 
-            fun parse(text: String): Table {
-                val pairs = mutableListOf<Pair<Char, Char>>()
-                for (raw in text.lineSequence()) {
-                    val line = raw.trim()
-                    if (line.isEmpty() || line.startsWith("#")) continue
-                    val parts = line.split('\t')
-                    if (parts.size != 2) continue
-                    val variant = parts[0].singleOrNull() ?: continue
-                    val canonical = parts[1].singleOrNull() ?: continue
-                    if (variant == canonical) continue
-                    pairs.add(variant to canonical)
-                }
-                return Table(pairs)
-            }
+            fun parse(text: String): Table = Table(RustKanjiVariantTable.parse(text))
         }
     }
 }
