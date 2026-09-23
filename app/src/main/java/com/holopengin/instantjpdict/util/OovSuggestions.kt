@@ -1,5 +1,8 @@
 package com.holopengin.instantjpdict.util
 
+import uniffi.nav_graph_core.SuggestionSource as RustSuggestionSource
+import uniffi.nav_graph_core.oovSuggestionsAssemble
+
 /**
  * Component-derived alternatives for a recognised character (#44, step 1).
  *
@@ -19,10 +22,21 @@ package com.holopengin.instantjpdict.util
  * no preference read and no gate: a stored `oov_suggestions_enabled=false` from an install
  * that predates this is inert, and nothing consults it. The measured in-list behaviour is the
  * feature, so there is nothing left to toggle between.
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core` implementation
+ * (`core/src/util/oov_suggestions.rs`, exposed through `nav_graph_core`'s UniFFI surface),
+ * so the assembly rules have one source of truth. [assemble]'s `variantForms` stays a
+ * lambda — its default is the single-sourced [KanjiVariants.obsoleteFormsOf] and the tests
+ * pass custom lambdas — but a closure cannot cross the UniFFI boundary, so the facade
+ * resolves it to the form list before the call and the Rust shim rebuilds the constant
+ * closure internally.
  */
 object OovSuggestions {
     /**
      * IDF mass a candidate must share with the emitted character (measured tier).
+     *
+     * Mirrors `jpdict_core::util::oov_suggestions::MIN_IDF_FRACTION`; UniFFI cannot export
+     * consts, so this is a documented mirror and the Rust crate test pins the value.
      */
     const val MIN_IDF_FRACTION = 0.7f
 
@@ -31,6 +45,9 @@ object OovSuggestions {
      * (#44): tapping a generated entry rebuilds the list around it, so a longer list is
      * what makes the kanji form space walkable, and the popup scrolls. The measured
      * ranking still decides the order, so the useful entries stay at the front.
+     *
+     * Mirrors the Rust consts; UniFFI cannot export consts, so these are documented
+     * mirrors and the Rust crate test pins the values.
      */
     const val MAX_COMPONENT_CANDIDATES = 15
     const val MAX_VARIANT_CANDIDATES = 15
@@ -48,45 +65,31 @@ object OovSuggestions {
      *
      * Duplicates are dropped across groups, the current character is always present so the
      * panel can mark it, and each generated group is capped.
+     *
+     * The list is assembled by `jpdict_core` through `oovSuggestionsAssemble`; this facade
+     * only converts `Char` ↔ `Int` code points and maps the Rust source enum back to
+     * [Source]. [variantForms] is resolved here for [current] because a closure cannot
+     * cross the boundary — the default still resolves through the UniFFI-backed
+     * [KanjiVariants.obsoleteFormsOf].
      */
     fun assemble(
         current: Char,
         headAlternatives: List<Char>,
         oov: OovCandidates?,
         variantForms: (Char) -> List<Char> = { KanjiVariants.obsoleteFormsOf(it) },
-    ): List<Suggestion> {
-        val out = ArrayList<Suggestion>(headAlternatives.size + MAX_COMPONENT_CANDIDATES + 1)
-        val seen = HashSet<Char>(headAlternatives.size * 2 + 8)
+    ): List<Suggestion> =
+        oovSuggestionsAssemble(
+            current.code,
+            headAlternatives.map { it.code },
+            oov?.inner,
+            variantForms(current).map { it.code },
+        ).map { Suggestion(Char(it.ch), sourceOf(it.source)) }
 
-        for (c in headAlternatives) {
-            if (seen.add(c)) out.add(Suggestion(c, Source.HEAD))
-        }
-        // An override can put a character in the text that the head never ranked here, and
-        // the panel needs it present to show which entry is current.
-        if (seen.add(current)) out.add(Suggestion(current, Source.HEAD))
-
-        if (oov != null && oov.hasDiscriminatingComponents(current)) {
-            var added = 0
-            for (candidate in oov.neighboursOf(current)) {
-                if (added >= MAX_COMPONENT_CANDIDATES) break
-                // neighboursOf is ordered by descending IDF mass, so the first candidate
-                // below the tier ends the group.
-                if (candidate.idfFraction < MIN_IDF_FRACTION) break
-                if (seen.add(candidate.char)) {
-                    out.add(Suggestion(candidate.char, Source.COMPONENTS))
-                    added++
-                }
-            }
-        }
-
-        var variants = 0
-        for (form in variantForms(current)) {
-            if (variants >= MAX_VARIANT_CANDIDATES) break
-            if (seen.add(form)) {
-                out.add(Suggestion(form, Source.VARIANT))
-                variants++
-            }
-        }
-        return out
+    /** Map the Rust provenance back onto the Kotlin enum the panel tints by. */
+    private fun sourceOf(source: RustSuggestionSource): Source = when (source) {
+        RustSuggestionSource.HEAD -> Source.HEAD
+        RustSuggestionSource.COMPONENTS -> Source.COMPONENTS
+        RustSuggestionSource.VARIANT -> Source.VARIANT
+        RustSuggestionSource.LM -> Source.LM
     }
 }
