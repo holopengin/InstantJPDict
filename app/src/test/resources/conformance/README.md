@@ -4,7 +4,7 @@ Byte-identical copies of the PC corpus cases, run from JVM host tests by
 `ConformanceCorpusTest` (same package, `app/src/test/...`).
 
 - Source: `accessibility_daemon/tests/conformance/cases/*.json` in the
-  InstantJPDictDecky (PC) repo, at PC commit
+  InstantJPDictPC (PC) repo, at PC commit
   `c7dc78bcdd302822a6c9efe19d6941878fa268f4` (33 cases: +4 `deinflection`,
   +1 `ruby_style` graduating tickets 07/06; needs no new `images/`).
 - The `deinflection` cases run against the Android-side copy of the shipped

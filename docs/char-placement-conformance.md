@@ -1,6 +1,6 @@
 # Character-positioning conformance spec
 
-**Audience:** the PC build agent (InstantJPDictDecky, `accessibility_daemon`
+**Audience:** the PC build agent (InstantJPDictPC, `accessibility_daemon`
 conformance corpus, harness `core/src/conformance.rs`, `cargo test`).
 
 **Purpose:** defines *conforming* for the character-box placement stage — the
