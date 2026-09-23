@@ -728,6 +728,64 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -759,11 +817,75 @@ internal interface UniffiLib : Library {
     ): Float
     fun uniffi_nav_graph_core_fn_method_charlm_rank(`ptr`: Pointer,`context`: RustBuffer.ByValue,`candidates`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_clone_componenttable(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_componenttable(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_componenttable_parse(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_componenttable_components_of(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_componenttable_entry_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_method_componenttable_has_components(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_method_componenttable_idf_of(`ptr`: Pointer,`component`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_method_componenttable_kanji_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_method_componenttable_kanji_with(`ptr`: Pointer,`all`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_clone_deinflector(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_deinflector(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_deinflector_empty(uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_deinflector_deinflect(`ptr`: Pointer,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_deinflector_rule_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_clone_kanjivarianttable(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_kanjivarianttable(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_kanjivarianttable_empty(uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_constructor_kanjivarianttable_parse(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_kanjivarianttable_canonical(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_nav_graph_core_fn_method_kanjivarianttable_canonicals_of(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_kanjivarianttable_entry_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_method_kanjivarianttable_obsolete_forms_of(`ptr`: Pointer,`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_build_nav_graph(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_from_bytes(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_deinflector_from_json_str(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_horizontal(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgW`: Int,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_kana_size_base_index_of(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_base_order(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_big_form_of(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_is_small(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_kana_size_small_to_big(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_window(`text`: RustBuffer.ByValue,`index`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ruby_style_for_mini(`isMini`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_nav_graph_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -881,7 +1003,27 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_from_bytes(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_deinflector_from_json_str(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_horizontal(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_base_index_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_base_order(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_big_form_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_is_small(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_small_to_big(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_window(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ruby_style_for_mini(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_charlm_count(
     ): Short
@@ -890,6 +1032,38 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_method_charlm_log_prob(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_charlm_rank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_components_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_entry_count(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_has_components(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_idf_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_kanji_count(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_componenttable_kanji_with(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_deinflector_deinflect(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_deinflector_rule_count(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_kanjivarianttable_canonical(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_kanjivarianttable_canonicals_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_kanjivarianttable_entry_count(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_kanjivarianttable_obsolete_forms_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_componenttable_parse(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_deinflector_empty(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_empty(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_parse(
     ): Short
     fun ffi_nav_graph_core_uniffi_contract_version(
     ): Int
@@ -914,7 +1088,37 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_char_lm_from_bytes() != 6307.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_deinflector_from_json_str() != 27511.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_furigana_is_ruby_horizontal() != 24118.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical() != 15884.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_base_index_of() != 11984.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_base_order() != 27154.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_big_form_of() != 2497.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_is_small() != 38521.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_small_to_big() != 53189.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window() != 10540.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ruby_style_for_mini() != 58587.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_charlm_count() != 65008.toShort()) {
@@ -927,6 +1131,54 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_charlm_rank() != 55058.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_components_of() != 26705.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_entry_count() != 49779.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_has_components() != 46581.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_idf_of() != 56719.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_kanji_count() != 46998.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_componenttable_kanji_with() != 32789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_deinflector_deinflect() != 19328.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_deinflector_rule_count() != 62122.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_kanjivarianttable_canonical() != 27213.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_kanjivarianttable_canonicals_of() != 6682.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_kanjivarianttable_entry_count() != 52881.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_kanjivarianttable_obsolete_forms_of() != 24546.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_componenttable_parse() != 18278.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_deinflector_empty() != 60206.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_empty() != 17952.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_parse() != 16583.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1065,6 +1317,29 @@ public object FfiConverterFloat: FfiConverter<Float, Float> {
 
     override fun write(value: Float, buf: ByteBuffer) {
         buf.putFloat(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1UL
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -1535,6 +1810,1032 @@ public object FfiConverterTypeCharLm: FfiConverter<CharLm, Pointer> {
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Kanji component table (KRADFILE): decomposition, the inverted index and the
+ * IDF weights the OOV candidate policy reads.
+ *
+ * Wraps `jpdict_core::util::component_table::ComponentTable`; the asset format
+ * and the parse/IDF rules are documented upstream. The Kotlin host reads the
+ * shipped asset bytes and hands them to [`ComponentTable::parse`].
+ */
+public interface ComponentTableInterface {
+    
+    /**
+     * The components of `ch`, in the asset's order, or an empty list for a
+     * character the table has no entry for. Never fails.
+     */
+    fun `componentsOf`(`ch`: kotlin.Int): List<kotlin.Int>
+    
+    /**
+     * Number of entries parsed — every key in the asset.
+     */
+    fun `entryCount`(): kotlin.Long
+    
+    /**
+     * Whether the table has an entry for `ch`.
+     */
+    fun `hasComponents`(`ch`: kotlin.Int): kotlin.Boolean
+    
+    /**
+     * `ln(kanji_count / kanji_count_containing(component))` — nats, not bits.
+     * An unknown component returns `0.0`.
+     */
+    fun `idfOf`(`component`: kotlin.Int): kotlin.Float
+    
+    /**
+     * Number of kanji in the table — the population the IDF is computed over.
+     */
+    fun `kanjiCount`(): kotlin.Long
+    
+    /**
+     * Every kanji carrying **all** of `all`, ascending by codepoint. An empty
+     * requirement, or a component no kanji carries, returns nothing.
+     */
+    fun `kanjiWith`(`all`: List<kotlin.Int>): List<kotlin.Int>
+    
+    companion object
+}
+
+/**
+ * Kanji component table (KRADFILE): decomposition, the inverted index and the
+ * IDF weights the OOV candidate policy reads.
+ *
+ * Wraps `jpdict_core::util::component_table::ComponentTable`; the asset format
+ * and the parse/IDF rules are documented upstream. The Kotlin host reads the
+ * shipped asset bytes and hands them to [`ComponentTable::parse`].
+ */
+open class ComponentTable: Disposable, AutoCloseable, ComponentTableInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_componenttable(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_componenttable(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * The components of `ch`, in the asset's order, or an empty list for a
+     * character the table has no entry for. Never fails.
+     */override fun `componentsOf`(`ch`: kotlin.Int): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_components_of(
+        it, FfiConverterInt.lower(`ch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Number of entries parsed — every key in the asset.
+     */override fun `entryCount`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_entry_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Whether the table has an entry for `ch`.
+     */override fun `hasComponents`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_has_components(
+        it, FfiConverterInt.lower(`ch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `ln(kanji_count / kanji_count_containing(component))` — nats, not bits.
+     * An unknown component returns `0.0`.
+     */override fun `idfOf`(`component`: kotlin.Int): kotlin.Float {
+            return FfiConverterFloat.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_idf_of(
+        it, FfiConverterInt.lower(`component`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Number of kanji in the table — the population the IDF is computed over.
+     */override fun `kanjiCount`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_kanji_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every kanji carrying **all** of `all`, ascending by codepoint. An empty
+     * requirement, or a component no kanji carries, returns nothing.
+     */override fun `kanjiWith`(`all`: List<kotlin.Int>): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_componenttable_kanji_with(
+        it, FfiConverterSequenceInt.lower(`all`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    companion object {
+        
+    /**
+     * Parse the table from its text form. Infallible and tolerant upstream: a
+     * malformed line is skipped rather than failing.
+     */ fun `parse`(`text`: kotlin.String): ComponentTable {
+            return FfiConverterTypeComponentTable.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_componenttable_parse(
+        FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeComponentTable: FfiConverter<ComponentTable, Pointer> {
+
+    override fun lower(value: ComponentTable): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): ComponentTable {
+        return ComponentTable(value)
+    }
+
+    override fun read(buf: ByteBuffer): ComponentTable {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: ComponentTable) = 8UL
+
+    override fun write(value: ComponentTable, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Deinflects Japanese text by applying known conjugation rules.
+ *
+ * Wraps `jpdict_core::util::deinflector::Deinflector`. Built empty, or from
+ * the host's `deinflect.json` text via [`deinflector_from_json_str`].
+ */
+public interface DeinflectorInterface {
+    
+    /**
+     * Deinflect `text`, returning all reachable base forms. The first result
+     * is always the input text with no reasons.
+     */
+    fun `deinflect`(`text`: kotlin.String): List<DeinflectionResult>
+    
+    /**
+     * Number of loaded rules (0 for [`Deinflector::empty`]).
+     */
+    fun `ruleCount`(): kotlin.Long
+    
+    companion object
+}
+
+/**
+ * Deinflects Japanese text by applying known conjugation rules.
+ *
+ * Wraps `jpdict_core::util::deinflector::Deinflector`. Built empty, or from
+ * the host's `deinflect.json` text via [`deinflector_from_json_str`].
+ */
+open class Deinflector: Disposable, AutoCloseable, DeinflectorInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_deinflector(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_deinflector(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Deinflect `text`, returning all reachable base forms. The first result
+     * is always the input text with no reasons.
+     */override fun `deinflect`(`text`: kotlin.String): List<DeinflectionResult> {
+            return FfiConverterSequenceTypeDeinflectionResult.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_deinflector_deinflect(
+        it, FfiConverterString.lower(`text`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Number of loaded rules (0 for [`Deinflector::empty`]).
+     */override fun `ruleCount`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_deinflector_rule_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    companion object {
+        
+    /**
+     * An engine with no rules: every [`Deinflector::deinflect`] call returns
+     * just the identity result.
+     */ fun `empty`(): Deinflector {
+            return FfiConverterTypeDeinflector.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_deinflector_empty(
+        _status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDeinflector: FfiConverter<Deinflector, Pointer> {
+
+    override fun lower(value: Deinflector): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): Deinflector {
+        return Deinflector(value)
+    }
+
+    override fun read(buf: ByteBuffer): Deinflector {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: Deinflector) = 8UL
+
+    override fun write(value: Deinflector, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Kanji variant table (#44): the vendored Unihan pairs plus the JMdict
+ * old-orthography half, indexed in both directions.
+ *
+ * Wraps `jpdict_core::util::kanji_variants::KanjiVariantTable`; the asset
+ * format, the `variant -> canonical` direction rule and the first-canonical
+ * rule are documented upstream. Built by [`KanjiVariantTable::parse`] from the
+ * host's `variants/kanji_variants.txt` text (APK assets are not filesystem
+ * paths, so the host reads the file and passes the text), or empty by
+ * [`KanjiVariantTable::empty`].
+ */
+public interface KanjiVariantTableInterface {
+    
+    /**
+     * The canonical form of `ch`, or `ch` itself when the table has no entry
+     * for it. Never fails, including on an empty table.
+     */
+    fun `canonical`(`ch`: kotlin.Int): kotlin.Int
+    
+    /**
+     * Every canonical candidate the table lists for `ch`, sorted; empty when
+     * there are none.
+     */
+    fun `canonicalsOf`(`ch`: kotlin.Int): List<kotlin.Int>
+    
+    /**
+     * Number of distinct variants parsed; 0 when nothing is loaded.
+     */
+    fun `entryCount`(): kotlin.Long
+    
+    /**
+     * The variant forms that fold to `ch`, sorted; empty when there are none.
+     */
+    fun `obsoleteFormsOf`(`ch`: kotlin.Int): List<kotlin.Int>
+    
+    companion object
+}
+
+/**
+ * Kanji variant table (#44): the vendored Unihan pairs plus the JMdict
+ * old-orthography half, indexed in both directions.
+ *
+ * Wraps `jpdict_core::util::kanji_variants::KanjiVariantTable`; the asset
+ * format, the `variant -> canonical` direction rule and the first-canonical
+ * rule are documented upstream. Built by [`KanjiVariantTable::parse`] from the
+ * host's `variants/kanji_variants.txt` text (APK assets are not filesystem
+ * paths, so the host reads the file and passes the text), or empty by
+ * [`KanjiVariantTable::empty`].
+ */
+open class KanjiVariantTable: Disposable, AutoCloseable, KanjiVariantTableInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_kanjivarianttable(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_kanjivarianttable(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * The canonical form of `ch`, or `ch` itself when the table has no entry
+     * for it. Never fails, including on an empty table.
+     */override fun `canonical`(`ch`: kotlin.Int): kotlin.Int {
+            return FfiConverterInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_kanjivarianttable_canonical(
+        it, FfiConverterInt.lower(`ch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Every canonical candidate the table lists for `ch`, sorted; empty when
+     * there are none.
+     */override fun `canonicalsOf`(`ch`: kotlin.Int): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_kanjivarianttable_canonicals_of(
+        it, FfiConverterInt.lower(`ch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Number of distinct variants parsed; 0 when nothing is loaded.
+     */override fun `entryCount`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_kanjivarianttable_entry_count(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The variant forms that fold to `ch`, sorted; empty when there are none.
+     */override fun `obsoleteFormsOf`(`ch`: kotlin.Int): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_kanjivarianttable_obsolete_forms_of(
+        it, FfiConverterInt.lower(`ch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    companion object {
+        
+    /**
+     * An empty table: every lookup is the identity function. The Kotlin
+     * facade's `Table.EMPTY` wraps this.
+     */ fun `empty`(): KanjiVariantTable {
+            return FfiConverterTypeKanjiVariantTable.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_kanjivarianttable_empty(
+        _status)
+}
+    )
+    }
+    
+
+        
+    /**
+     * Parse the committed asset's text: one `variant<TAB>canonical` pair per
+     * line, `#` comments and blank lines ignored, malformed lines skipped.
+     * Infallible and tolerant upstream: an empty input parses to an empty
+     * table (every lookup the identity), never an error.
+     */ fun `parse`(`text`: kotlin.String): KanjiVariantTable {
+            return FfiConverterTypeKanjiVariantTable.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_kanjivarianttable_parse(
+        FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
+        
+    }
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeKanjiVariantTable: FfiConverter<KanjiVariantTable, Pointer> {
+
+    override fun lower(value: KanjiVariantTable): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): KanjiVariantTable {
+        return KanjiVariantTable(value)
+    }
+
+    override fun read(buf: ByteBuffer): KanjiVariantTable {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: KanjiVariantTable) = 8UL
+
+    override fun write(value: KanjiVariantTable, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 /**
  * Bounding box for a detected character.
@@ -1580,6 +2881,98 @@ public object FfiConverterTypeBoundingBox: FfiConverterRustBuffer<BoundingBox> {
 
 
 /**
+ * A deinflection candidate: the base-form term plus the chain that produced
+ * it.
+ */
+data class DeinflectionResult (
+    /**
+     * The deinflected term (the identity result carries the input text).
+     */
+    var `term`: kotlin.String, 
+    /**
+     * Human-readable reason labels, outermost step first (e.g. `["past"]`).
+     */
+    var `reasons`: List<kotlin.String>, 
+    /**
+     * Grammatical types of the last rule applied (e.g. `["v1"]`); empty on
+     * the identity result.
+     */
+    var `ruleTypes`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDeinflectionResult: FfiConverterRustBuffer<DeinflectionResult> {
+    override fun read(buf: ByteBuffer): DeinflectionResult {
+        return DeinflectionResult(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DeinflectionResult) = (
+            FfiConverterString.allocationSize(value.`term`) +
+            FfiConverterSequenceString.allocationSize(value.`reasons`) +
+            FfiConverterSequenceString.allocationSize(value.`ruleTypes`)
+    )
+
+    override fun write(value: DeinflectionResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`term`, buf)
+            FfiConverterSequenceString.write(value.`reasons`, buf)
+            FfiConverterSequenceString.write(value.`ruleTypes`, buf)
+    }
+}
+
+
+
+/**
+ * One small/big kana pair: the `SMALL_TO_BIG` table as a record list, because
+ * UniFFI cannot carry a `Map`. The Kotlin facade rebuilds the map from these.
+ */
+data class KanaSizePair (
+    /**
+     * Small member of the pair, e.g. っ.
+     */
+    var `small`: kotlin.Int, 
+    /**
+     * Its canonical big form, e.g. つ.
+     */
+    var `big`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeKanaSizePair: FfiConverterRustBuffer<KanaSizePair> {
+    override fun read(buf: ByteBuffer): KanaSizePair {
+        return KanaSizePair(
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: KanaSizePair) = (
+            FfiConverterInt.allocationSize(value.`small`) +
+            FfiConverterInt.allocationSize(value.`big`)
+    )
+
+    override fun write(value: KanaSizePair, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`small`, buf)
+            FfiConverterInt.write(value.`big`, buf)
+    }
+}
+
+
+
+/**
  * Navigation graph with one outgoing edge per cardinal direction per node.
  */
 data class NavGraph (
@@ -1614,6 +3007,74 @@ public object FfiConverterTypeNavGraph: FfiConverterRustBuffer<NavGraph> {
 
 
 
+/**
+ * Resolved ruby treatment for one renderer input, field-for-field the PC
+ * `jpdict_core::ruby_style::RubyStyle`.
+ *
+ * `base`/`ruby` are **linear RGB** (the PC paint space), not sRGB; the
+ * Kotlin facade applies the sRGB transfer function before handing Android an
+ * ARGB integer. `base_size`/`ruby_size` are display points unused on Android
+ * (see the module note).
+ */
+data class RubyStyle (
+    /**
+     * Base-text size in display points (dropped by the Kotlin facade).
+     */
+    var `baseSize`: kotlin.Float, 
+    /**
+     * Ruby-text size in display points (dropped by the Kotlin facade).
+     */
+    var `rubySize`: kotlin.Float, 
+    /**
+     * Base-text colour as linear RGB.
+     */
+    var `base`: List<kotlin.Float>, 
+    /**
+     * Ruby-text colour as linear RGB.
+     */
+    var `ruby`: List<kotlin.Float>, 
+    /**
+     * Whether the base renders bold.
+     */
+    var `bold`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRubyStyle: FfiConverterRustBuffer<RubyStyle> {
+    override fun read(buf: ByteBuffer): RubyStyle {
+        return RubyStyle(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RubyStyle) = (
+            FfiConverterFloat.allocationSize(value.`baseSize`) +
+            FfiConverterFloat.allocationSize(value.`rubySize`) +
+            FfiConverterSequenceFloat.allocationSize(value.`base`) +
+            FfiConverterSequenceFloat.allocationSize(value.`ruby`) +
+            FfiConverterBoolean.allocationSize(value.`bold`)
+    )
+
+    override fun write(value: RubyStyle, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`baseSize`, buf)
+            FfiConverterFloat.write(value.`rubySize`, buf)
+            FfiConverterSequenceFloat.write(value.`base`, buf)
+            FfiConverterSequenceFloat.write(value.`ruby`, buf)
+            FfiConverterBoolean.write(value.`bold`, buf)
+    }
+}
+
+
+
 
 /**
  * @suppress
@@ -1640,6 +3101,38 @@ public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
         } else {
             buf.put(1)
             FfiConverterInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
         }
     }
 }
@@ -1682,6 +3175,38 @@ public object FfiConverterOptionalTypeCharLm: FfiConverterRustBuffer<CharLm?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeDeinflector: FfiConverterRustBuffer<Deinflector?> {
+    override fun read(buf: ByteBuffer): Deinflector? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeDeinflector.read(buf)
+    }
+
+    override fun allocationSize(value: Deinflector?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeDeinflector.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Deinflector?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeDeinflector.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>> {
     override fun read(buf: ByteBuffer): List<kotlin.Int> {
         val len = buf.getInt()
@@ -1710,6 +3235,62 @@ public object FfiConverterSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>> 
 /**
  * @suppress
  */
+public object FfiConverterSequenceFloat: FfiConverterRustBuffer<List<kotlin.Float>> {
+    override fun read(buf: ByteBuffer): List<kotlin.Float> {
+        val len = buf.getInt()
+        return List<kotlin.Float>(len) {
+            FfiConverterFloat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.Float>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterFloat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.Float>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterFloat.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<BoundingBox>> {
     override fun read(buf: ByteBuffer): List<BoundingBox> {
         val len = buf.getInt()
@@ -1728,6 +3309,62 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeBoundingBox.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDeinflectionResult: FfiConverterRustBuffer<List<DeinflectionResult>> {
+    override fun read(buf: ByteBuffer): List<DeinflectionResult> {
+        val len = buf.getInt()
+        return List<DeinflectionResult>(len) {
+            FfiConverterTypeDeinflectionResult.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DeinflectionResult>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDeinflectionResult.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DeinflectionResult>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDeinflectionResult.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<KanaSizePair>> {
+    override fun read(buf: ByteBuffer): List<KanaSizePair> {
+        val len = buf.getInt()
+        return List<KanaSizePair>(len) {
+            FfiConverterTypeKanaSizePair.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<KanaSizePair>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeKanaSizePair.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<KanaSizePair>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeKanaSizePair.write(it, buf)
         }
     }
 }
@@ -1764,6 +3401,141 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
     
 
         /**
+         * Parse deinflection rules from JSON text. `None` when the text is not a
+         * valid rule file; the Kotlin facade then keeps its empty fallback.
+         *
+         * A free function, not a constructor: uniffi_bindgen requires constructor
+         * return types to be `Self`/`Arc<Self>` (no `Option`) and rejects associated
+         * functions, the same constraint `char_lm_from_bytes` documents.
+         */ fun `deinflectorFromJsonStr`(`text`: kotlin.String): Deinflector? {
+            return FfiConverterOptionalTypeDeinflector.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_deinflector_from_json_str(
+        FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Tiny horizontal box right above a much larger horizontal box (#28, #99).
+         *
+         * The candidate must be smaller in BOTH dimensions: thinness alone let a
+         * short receipt line — detail text under a heading, same-ish width — be
+         * dropped as if it were ruby. Delegates to
+         * `jpdict_core::furigana::is_ruby_horizontal`.
+         */ fun `furiganaIsRubyHorizontal`(`sRaw`: BoundingBox, `bRaw`: BoundingBox, `sUn`: BoundingBox, `bUn`: BoundingBox, `imgW`: kotlin.Int, `imgH`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_furigana_is_ruby_horizontal(
+        FfiConverterTypeBoundingBox.lower(`sRaw`),FfiConverterTypeBoundingBox.lower(`bRaw`),FfiConverterTypeBoundingBox.lower(`sUn`),FfiConverterTypeBoundingBox.lower(`bUn`),FfiConverterInt.lower(`imgW`),FfiConverterInt.lower(`imgH`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Tiny vertical box hugging a much larger vertical box (either side) (#28).
+         *
+         * `s_*`/`b_*` is the small/big candidate and `*_raw`/`*_un` its RAW /
+         * unclipped contour geometry. The center must lie OUTSIDE the big box:
+         * stacked column fragments (tail of the column above/below, overlapping only
+         * via unclip padding) share its x-range. Delegates to
+         * `jpdict_core::furigana::is_ruby_vertical`.
+         */ fun `furiganaIsRubyVertical`(`sRaw`: BoundingBox, `bRaw`: BoundingBox, `sUn`: BoundingBox, `bUn`: BoundingBox, `imgH`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(
+        FfiConverterTypeBoundingBox.lower(`sRaw`),FfiConverterTypeBoundingBox.lower(`bRaw`),FfiConverterTypeBoundingBox.lower(`sUn`),FfiConverterTypeBoundingBox.lower(`bUn`),FfiConverterInt.lower(`imgH`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Pair index for the position holding `ch`, or `None` when `ch` is not part of
+         * a size pair. Both っ and つ map to the same index: the pair is the class, the
+         * size is the decision.
+         */ fun `kanaSizeBaseIndexOf`(`ch`: kotlin.Int): kotlin.Long? {
+            return FfiConverterOptionalLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_base_index_of(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Pair index. The BIG form is the base, hiragana then katakana.
+         */ fun `kanaSizeBaseOrder`(): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_base_order(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The canonical big form for either member of a pair, or `None` if `ch` is not
+         * part of one.
+         */ fun `kanaSizeBigFormOf`(`ch`: kotlin.Int): kotlin.Int? {
+            return FfiConverterOptionalInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_big_form_of(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether `ch` is the small member of a pair, i.e. what the model corrects.
+         */ fun `kanaSizeIsSmall`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_is_small(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Small form -> big form, as pairs.
+         *
+         * The small→big pair table, in PC table order. Direct re-export of
+         * `jpdict_core::kana_size::SMALL_TO_BIG_PAIRS` (UniFFI cannot carry a map,
+         * hence the record list).
+         */ fun `kanaSizeSmallToBig`(): List<KanaSizePair> {
+            return FfiConverterSequenceTypeKanaSizePair.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_small_to_big(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The 40-byte window for the position at `index` in `text`, with the character
+         * at `index` excluded. Context stops at a boundary character (。 or newline)
+         * and runs off the ends as zero padding; see `jpdict_core::kana_size::window`
+         * for the layout. The Kotlin facade mirrors the 40-byte length as
+         * `KanaSizeEncoder.WINDOW_BYTES` because UniFFI cannot export consts.
+         */ fun `kanaSizeWindow`(`text`: kotlin.String, `index`: kotlin.Long): List<kotlin.Int> {
+            return FfiConverterSequenceInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_window(
+        FfiConverterString.lower(`text`),FfiConverterLong.lower(`index`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if the slot
          * is empty or the inputs are out of range.
          */ fun `navigate`(`graph`: NavGraph, `idx`: kotlin.Int, `dir`: kotlin.Int): kotlin.Int? {
@@ -1771,6 +3543,23 @@ public object FfiConverterSequenceTypeBoundingBox: FfiConverterRustBuffer<List<B
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_navigate(
         FfiConverterTypeNavGraph.lower(`graph`),FfiConverterInt.lower(`idx`),FfiConverterInt.lower(`dir`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Resolve the ruby treatment: `is_mini = true` is the definition/example
+         * body build (white regular base), `false` the headword/term display (bold
+         * cyan). The ruby row is the same gray either way.
+         *
+         * Delegates to `jpdict_core::ruby_style::ruby_style`; the Kotlin facade wraps
+         * this back into `RubyBaseStyle.forMini(isMini)`.
+         */ fun `rubyStyleForMini`(`isMini`: kotlin.Boolean): RubyStyle {
+            return FfiConverterTypeRubyStyle.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ruby_style_for_mini(
+        FfiConverterBoolean.lower(`isMini`),_status)
 }
     )
     }
