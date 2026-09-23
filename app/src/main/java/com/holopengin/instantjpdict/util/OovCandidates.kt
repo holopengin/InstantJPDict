@@ -1,5 +1,7 @@
 package com.holopengin.instantjpdict.util
 
+import uniffi.nav_graph_core.OovCandidates as RustOovCandidates
+
 /**
  * Component-level candidate policy for out-of-vocabulary characters (#44).
  *
@@ -20,8 +22,22 @@ package com.holopengin.instantjpdict.util
  * the caller adds whatever LM it has. Do not quote a rank from this list without the
  * pool size beside it: the neighbour pool is large (median ~2.5 k when only one
  * component is shared), which is exactly why the IDF weighting exists.
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core`
+ * implementation (`core/src/util/oov_candidates.rs`, exposed through `nav_graph_core`'s
+ * UniFFI surface), so the algorithm has one source of truth. Both measured rules — the
+ * intersected IDF fraction and the majority vote — are documented there; this class only
+ * adapts types (`Char` ↔ `Int` code points) and keeps the API call sites already use.
+ * The [ComponentTable] is shared with the Rust policy, not cloned.
  */
-class OovCandidates(private val table: ComponentTable) {
+class OovCandidates(table: ComponentTable) {
+
+    /**
+     * The UniFFI handle this facade delegates to (`uniffi.nav_graph_core.OovCandidates`).
+     * `internal` so a later shim in this module that takes it across the boundary (WP-10
+     * `oov_suggestions`) can reach the installed policy; nothing public changes.
+     */
+    internal val inner: RustOovCandidates = RustOovCandidates(table.inner)
 
     /**
      * A character that could stand where [char] was emitted, with the strength of the
@@ -68,34 +84,14 @@ class OovCandidates(private val table: ComponentTable) {
      * An unknown character, or one whose components carry no IDF mass, yields an
      * empty list rather than an exception.
      */
-    fun neighboursOf(emitted: Char): List<Candidate> {
-        val emittedComponents = table.componentsOf(emitted)
-        if (emittedComponents.isEmpty()) return emptyList()
-        val emittedSet = emittedComponents.toSet()
-        val denominator = idfMassOf(emittedComponents)
-        if (denominator <= 0.0) return emptyList()
-
-        // Component -> kanji is a precomputed posting list, so the pool is the union
-        // of a handful of lists, not a scan of the 12,156-entry table.
-        val pool = LinkedHashSet<Char>()
-        for (component in emittedSet) pool.addAll(table.kanjiWith(listOf(component)))
-
-        val out = ArrayList<Candidate>(pool.size)
-        for (k in pool) {
-            if (k == emitted) continue
-            val comps = table.componentsOf(k).toSet()
-            val shared = sharedIdf(comps, emittedSet)
-            out.add(
-                Candidate(
-                    char = k,
-                    idfFraction = (shared / denominator).toFloat(),
-                    sharesAllComponents = emittedSet.all { it in comps },
-                )
+    fun neighboursOf(emitted: Char): List<Candidate> =
+        inner.neighboursOf(emitted.code).map {
+            Candidate(
+                char = Char(it.char),
+                idfFraction = it.idfFraction,
+                sharesAllComponents = it.sharesAllComponents,
             )
         }
-        out.sortWith(compareByDescending<Candidate> { it.idfFraction }.thenBy { it.char })
-        return out
-    }
 
     /**
      * Whether component evidence can discriminate at all for this character.
@@ -108,7 +104,7 @@ class OovCandidates(private val table: ComponentTable) {
      * (`仲` = 化+中 shares only `中` at 0.22, and `中` plus a rare component at 0.41).
      */
     fun hasDiscriminatingComponents(emitted: Char): Boolean =
-        table.componentsOf(emitted).size >= 2
+        inner.hasDiscriminatingComponents(emitted.code)
 
     /**
      * The components a top-K of characters **agree on**, by majority vote: a component
@@ -133,39 +129,6 @@ class OovCandidates(private val table: ComponentTable) {
      * @param needFraction share of [topK] that must carry a component; the default 0.5
      *   is the measured threshold.
      */
-    fun majorityComponents(topK: List<Char>, needFraction: Double = 0.5): List<Char> {
-        if (topK.isEmpty()) return emptyList()
-        val counts = LinkedHashMap<Char, Int>()
-        for (ch in topK) {
-            for (component in table.componentsOf(ch).toSet()) {
-                counts[component] = (counts[component] ?: 0) + 1
-            }
-        }
-        if (counts.isEmpty()) return emptyList()
-        // `int(len(chars) * need_frac + 0.9999)` in the reference: ceil for the usual
-        // fractional thresholds (5 * 0.5 -> 3), truncation for exact integers.
-        val need = maxOf(1, (topK.size * needFraction + 0.9999).toInt())
-        var picked = counts.filterValues { it >= need }.keys.toList()
-        if (picked.isEmpty()) {
-            // Unreachable for needFraction <= 1 (every component has at least one
-            // vote and need >= 1) but kept because the reference falls back here.
-            val strongest = counts.maxByOrNull { it.value } ?: return emptyList()
-            picked = listOf(strongest.key)
-        }
-        return picked.sortedWith(compareByDescending<Char> { counts[it] ?: 0 }.thenBy { it })
-    }
-
-    /** Sum of the IDF of [comps] as stored — duplicates counted, like the reference sum. */
-    private fun idfMassOf(comps: List<Char>): Double {
-        var total = 0.0
-        for (c in comps) total += table.idfOf(c).toDouble()
-        return total
-    }
-
-    /** IDF mass of the components in [a] that also appear in [b] — the intersection. */
-    private fun sharedIdf(a: Set<Char>, b: Set<Char>): Double {
-        var total = 0.0
-        for (c in a) if (c in b) total += table.idfOf(c).toDouble()
-        return total
-    }
+    fun majorityComponents(topK: List<Char>, needFraction: Double = 0.5): List<Char> =
+        inner.majorityComponents(topK.map { it.code }, needFraction).map { Char(it) }
 }
