@@ -22,3 +22,4 @@ release-keystore.properties
 *.p12
 # local scratch: raw books used for OCR bench work (copyrighted, never commit)
 tmp/
+tools/char_placement/real_dump/target/

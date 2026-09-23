@@ -42,11 +42,12 @@ import kotlin.math.min
  *    mid-quartile of the profile inside its Voronoi window (clipped to
  *    +/- `windowEm * em` around the anchor).  Quartiles are used instead of a
  *    centroid so a neighbour's stroke leaking into the window cannot drag the
- *    centre.  A window whose mid-quartile spread exceeds `maxSpreadEm` is
- *    retried around the CTC run centre (which sits on the glyph) for
- *    punctuation and small kana -- their ink is small enough for a neighbour's
- *    stroke to dominate the wide window -- and the retry is taken only when it
- *    is a compact blob near the anchor.
+ *    centre.  A contaminated window is retried around the CTC run centre
+ *    (which sits on the glyph), taken only when it measures a compact blob
+ *    near the anchor: smeared punctuation/small-kana windows (spread gate)
+ *    and `CENTER` windows split by a real ink valley (bimodal gate -- で's
+ *    dakuten crossing the Voronoi bound put の 9.5px high on device; with the
+ *    retry, -1.5px).
  * 5. **Boxes.**  Width = advance class x em, grown (only when the centre sits
  *    on its own ink, and only within that character's Voronoi window) to cover
  *    a measured ink span up to `extentGrowFrac` past the cell.
@@ -90,6 +91,13 @@ internal object CharPlacement {
         val minHalfPx: Float = 2f,
         // Punctuation/small-kana window fallback (see the ink pass).
         val punctSpreadFallback: Boolean = true,
+        // Neighbour-blob retry for CENTER-class glyphs (the で/の dakuten case):
+        // a window split by a real ink valley has its mid-quartile straddling
+        // the valley, which is how a neighbour's stroke biases the pull.  See
+        // [windowIsBimodal].
+        val bimodalRetry: Boolean = true,
+        val bimodalValleyEm: Float = 0.20f,
+        val bimodalMinFrac: Float = 0.12f,
         val punctFallbackWindowEm: Float = 0.5f,
         val punctFallbackMaxEm: Float = 0.6f,
         // Translate-before-split: push overlapping pairs apart into their
@@ -287,6 +295,62 @@ internal object CharPlacement {
             if (cost < bestCost) { bestCost = cost; best = i }
         }
         return best.toFloat()
+    }
+
+    /**
+     * True when a window holds two ink blobs separated by a real valley: the
+     * mid-quartile then straddles the valley and lands between the glyphs
+     * instead of on either.  This is how a neighbour's stroke biases the pull
+     * — で's dakuten crosses the Voronoi bound into の's window and landed の
+     * ~0.12em high on device.  Fires only when the valley is long enough
+     * (bimodalValleyEm) and the off-anchor side holds a real share of the
+     * window's mass (bimodalMinFrac).
+     */
+    private fun windowIsBimodal(
+        prof: FloatArray,
+        lo: Float,
+        hi: Float,
+        em: Float,
+        options: Options,
+    ): Boolean {
+        val a = ceil(lo.coerceIn(0f, prof.size.toFloat())).toInt()
+        val b = floor(hi.coerceIn(0f, prof.size.toFloat())).toInt() + 1
+        if (b - a <= 0) return false
+        var total = 0f
+        var peak = 0f
+        for (i in a until b) {
+            total += prof[i]
+            if (prof[i] > peak) peak = prof[i]
+        }
+        if (total <= 0f) return false
+        val thr = max(options.extentFloor, 0.15f * peak)
+        val valleyLen = max(2, (options.bimodalValleyEm * em).toInt())
+        var run = 0
+        var best = 0
+        var start = 0
+        var bestStart = 0
+        for (k in a until b) {
+            if (prof[k] <= thr) {
+                if (run == 0) start = k
+                run++
+                if (run > best) {
+                    best = run
+                    bestStart = start
+                }
+            } else {
+                run = 0
+            }
+        }
+        if (best < valleyLen) return false
+        var left = 0f
+        var right = 0f
+        for (i in a until b) {
+            when {
+                i < bestStart -> left += prof[i]
+                i >= bestStart + best -> right += prof[i]
+            }
+        }
+        return min(left, right) / total >= options.bimodalMinFrac
     }
 
     /**
@@ -540,37 +604,48 @@ internal object CharPlacement {
                     if (hi <= lo) continue
                     val (mass, inkC, spread) = midQuartile(prof.profile, lo, hi)
                     if (mass < max(6f, options.minMassFrac * medMass)) continue
+                    val smeared = spread > options.maxSpreadEm * tmpl.em
                     var ink = inkC
-                    if (spread > options.maxSpreadEm * tmpl.em &&
-                        classes[i] != OpticalClass.CENTER
+                    var retry = false
+                    if (smeared) {
+                        if (classes[i] != OpticalClass.CENTER) {
+                            // Punctuation/small kana: a neighbour's stroke can
+                            // dominate their small ink window; retry around the
+                            // CTC run centre (which sits on the glyph), or keep
+                            // the primary measurement when the retry is off.
+                            retry = options.punctSpreadFallback
+                        } else {
+                            continue  // smeared centre-class window: old behaviour
+                        }
+                    } else if (
+                        classes[i] == OpticalClass.CENTER && options.bimodalRetry &&
+                        windowIsBimodal(prof.profile, lo, hi, tmpl.em, options)
                     ) {
-                        // A smeared window: for punctuation and small kana a
-                        // neighbour's stroke can dominate it (a `、` pulled
-                        // 0.44em onto the following kanji).  Retry around the
-                        // CTC run centre -- it sits on the glyph -- and take
-                        // the retry only when it is a compact blob near the
-                        // anchor; otherwise keep the primary measurement.
-                        if (options.punctSpreadFallback) {
-                            val winFb = max(
-                                options.punctFallbackWindowEm * tmpl.em,
-                                options.windowStride * pxPerT,
-                            )
-                            val lo2 = max(lo0, ctcCenters[i] - winFb)
-                            val hi2 = min(hi0, ctcCenters[i] + winFb)
-                            if (hi2 > lo2) {
-                                val (mass2, inkC2, spread2) =
-                                    midQuartile(prof.profile, lo2, hi2)
-                                if (mass2 >= max(6f, options.minMassFrac * medMass) &&
-                                    spread2 <= options.maxSpreadEm * tmpl.em &&
-                                    abs(inkC2 - anchors[i]) <=
-                                    options.punctFallbackMaxEm * tmpl.em
-                                ) {
-                                    ink = inkC2
-                                }
+                        // Two blobs with a real valley between them: the
+                        // mid-quartile straddles the valley and lands between
+                        // the glyphs.  Retry around the CTC run centre, taking
+                        // it only when it measures a compact blob near the
+                        // anchor.
+                        retry = true
+                    }
+                    if (retry) {
+                        val winFb = max(
+                            options.punctFallbackWindowEm * tmpl.em,
+                            options.windowStride * pxPerT,
+                        )
+                        val lo2 = max(lo0, ctcCenters[i] - winFb)
+                        val hi2 = min(hi0, ctcCenters[i] + winFb)
+                        if (hi2 > lo2) {
+                            val (mass2, inkC2, spread2) =
+                                midQuartile(prof.profile, lo2, hi2)
+                            if (mass2 >= max(6f, options.minMassFrac * medMass) &&
+                                spread2 <= options.maxSpreadEm * tmpl.em &&
+                                abs(inkC2 - anchors[i]) <=
+                                options.punctFallbackMaxEm * tmpl.em
+                            ) {
+                                ink = inkC2
                             }
                         }
-                    } else if (spread > options.maxSpreadEm * tmpl.em) {
-                        continue
                     }
                     val pull = (ink - centers[i])
                         .coerceIn(-options.inkMaxPullEm * tmpl.em, options.inkMaxPullEm * tmpl.em)

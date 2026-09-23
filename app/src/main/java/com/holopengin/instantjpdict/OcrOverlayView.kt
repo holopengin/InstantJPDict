@@ -987,6 +987,11 @@ class OcrOverlayView(
         val line = BlankGaps.applyIfEnabled(context, lineIn)
         controller.activeLineResults[lineIdx] = line
         controller.updateGlobalData()
+        // What the overlay actually renders (post-BlankGaps): text, columns and
+        // boxes per line, so placement can be diagnosed from logcat.
+        Log.d("LineBoxes", "v=${line.isVertical} crop=${line.cropX},${line.cropY},${line.cropW},${line.cropH} seq=${line.seqLenTotal} text=${line.text}")
+        Log.d("LineBoxes", "cols=${line.charCols.joinToString(",")}")
+        Log.d("LineBoxes", "boxes=${line.charBoxes.joinToString(";")}")
 
         val lineContainer = clicksLayer.findViewWithTag<FrameLayout>("line_clicks_$lineIdx") ?: clicksLayer
         lineContainer.removeAllViews() // Clear existing character views for refresh

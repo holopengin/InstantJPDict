@@ -37,7 +37,9 @@ $ ./gradlew :app:testDebugUnitTest --tests "*CharPlacement*"
   **JP advance-class layout template** to the run centres, then refines each
   character with a **robust ink measurement** (mid-quartile of the
   reading-axis ink profile inside a template-bounded window, retried around
-  the CTC run for punctuation whose window picks up a neighbour's stroke) and
+  the CTC run when a window is contaminated — punctuation picking up a
+  neighbour's stroke, or a bimodal window whose mid-quartile straddles a real
+  ink valley (a dakuten crossing the Voronoi bound)) and
   ends with a **final boundary pass**: adjacent boxes share a boundary placed
   in the empty ink space between the glyphs — and an overlapping pair first
   translates apart into that empty space; only the residue is split.  The template averages the
@@ -47,10 +49,10 @@ $ ./gradlew :app:testDebugUnitTest --tests "*CharPlacement*"
   strokes.
 * Synthetic evaluation, 190 clean lines / 3556 characters (horizontal,
   vertical, rotated, degraded, ruby, tracking, long; real corpus):
-  mean centre error **4.07px → 1.46px** (0.131em → 0.047em), p90 **9.60px →
-  3.00px**, >0.5em errors **2.0% → 0.0%**, tap-at-centre hit **97.5% →
-  99.5%**, jittered-tap hit **94.4% → 98.8%**, and the share of a glyph's own
-  ink interval its box covers **0.919 → 0.970**.  Every preset improves.
+  mean centre error **4.07px → 1.50px** (0.131em → 0.048em), p90 **9.60px →
+  3.00px**, >0.5em errors **2.0% → 0.1%**, tap-at-centre hit **97.5% →
+  99.4%**, jittered-tap hit **94.4% → 98.7%**, and the share of a glyph's own
+  ink interval its box covers **0.919 → 0.967**.  Every preset improves.
 * Real inference spot check (290 lines / 3075 characters from the vendored
   recognition fixtures): where the two algorithms disagree by ≥2px on an
   unambiguous ink component, the proposed centre is closer **1184 times vs
@@ -294,11 +296,12 @@ as the renderer and hit-tester expect.  Vertical lines are the same on the y
 axis; rotated lines are unchanged (they are computed in the upright local
 frame and mapped through the quad).
 
-**Measured effect, boundaries only (clean set, 3556 characters).**
-Coverage 0.949 → 0.955, tap-at-centre 99.2% (unchanged), jittered tap
-98.2% → 98.3%, cell IoU 0.558 → 0.562, width error -0.086em → -0.066em;
-ink IoU 0.771 → 0.765 (boxes slightly wider than the ink, which is what buys
-the coverage).
+**Measured effect, the full stack (clean set, 3556 characters).**
+Midpoint-cap lineage (no final pass): coverage 0.946, cell IoU 0.556, width
+error -0.088em.  Adding the boundary pass: coverage 0.952, cell IoU 0.561,
+width error -0.068em.  Adding translation: **coverage 0.967, cell IoU 0.570,
+width error -0.037em, tap 99.4%, mean centre error 1.50px** (vs 1.65px
+without).  On all 210 cases: 1.73px → 1.57px, coverage 0.949 → 0.965.
 
 **Translation is where the win is.**  Diagnosis first: 51.9% of pairs fail
 the requirement test `need_i + need_{i+1} > gap`, but only **17 pairs have
@@ -348,21 +351,36 @@ stays for a device comparison of the tiling look; the default remains
 translate.  Reproduce as `proposed_sweep` in eval.py; not ported to Kotlin
 while it is not the default.
 
-**Punctuation windows.**  The boundary pass only moves box edges; the one
-measured *centre* failure it cannot touch is a punctuation window that has
-picked up a neighbour's stroke: the mid-quartile spread then exceeds
-`maxSpreadEm` (0.8em), and a `、` was measured pulled 0.44em onto the following
-kanji.  That gate used to apply to `CENTER` glyphs only; it now applies to
-punctuation and small kana too, and on firing it retries the measurement around
-the **CTC run centre** (which sits on the glyph) in a 0.5em window, accepting
-the retry only when it is a compact blob (`spread <= 0.8em`) within `0.6em` of
-the anchor.  A rejected retry keeps the primary measurement rather than
-dropping the pull.  Measured on the clean synthetic set (339 corner-punctuation
-characters): mean error 0.098em → **0.086em**, p90 0.273em → **0.250em**,
->0.3em 8.0% → **5.0%**, and the line-wide >0.5em miss rate 0.1% → **0.0%**.
-On the real fixtures the fallback never fires (0 of 3075 boxes change): their
-punctuation windows are clean, and the fix is a safety net for dense, small
-text.
+**Contaminated windows (punctuation and cross-boundary strokes).**  The
+boundary pass only moves box edges; the measured *centre* failures come from
+windows whose mid-quartile straddles a neighbour's ink.  Two gates feed one
+retry — the CTC run centre in a 0.5em window, accepted when it measures a
+compact blob within `0.6em` of the anchor; a rejected retry keeps the primary
+measurement rather than dropping the pull:
+
+* **spread gate** — a smeared window (`spread > 0.8em`), for
+  punctuation/small kana whose small ink lets a neighbour dominate it (a `、`
+  was measured pulled 0.44em onto the following kanji; corner-punctuation
+  error 0.098em → 0.086em, >0.3em 8.0% → 5.0% on the clean set).
+* **bimodal gate** (`bimodal_retry`) — `CENTER`-class windows split by a real
+  ink valley (`>= 0.20em` long, off-side mass `>= 0.12` of the window): the
+  mid-quartile lands *between* the blobs.  The device case it was found with:
+  **の sat 9.5px too high** because で's dakuten crosses the Voronoi bound into
+  の's window; with the retry the same device line measures **-1.5px**.  Gate
+  sweep (clean): valley 0.10/0.15em misses the device case (its valley is
+  0.26em), 0.25em costs clean accuracy, 0.20em/0.12 holds comfortable margins
+  on both sides — cost **1.46 → 1.50px**, tap 0.995 → 0.994, coverage 0.970 →
+  0.967.
+
+**Anchor tolerance (measured, not shipped).**  A dropped character skews the
+template grid mid-line, and where `|ctc - template|` stays under
+`max(0.4em, 1.2*stride)` the skewed template beats the quantised-but-correct
+CTC (the の case: 21px < 30px).  Tightening to stride-only tolerance fixes
+such cases and *helps* the CTC-error subset (2.45 → 2.35px) but costs the
+clean set (1.46 → 1.53px), because on clean lines the averaged template
+genuinely beats the quantised CTC.  Residual-step and fit-RMS detectors were
+both tested and neither separates skewed lines from clean ones — a per-line
+template-validity signal is the open problem.
 
 **What the pass cannot fix.**  On the real fixtures the ink-run arbitration
 (which measures *centres*) is unchanged by the pass (2 vs 3 of 3530 components
@@ -417,9 +435,9 @@ snap+uniform; `current_nosnap` = uniform only; `legacy` = neither):
 | legacy | 6.09px | 5.07px | 12.20px | 0.190em | 2.9% | 98.3% | 82.0% | 0.957 | 0.486 | 0.568 |
 | current_nosnap | 5.78px | 4.96px | 11.66px | 0.181em | 1.5% | 97.7% | 93.8% | 0.880 | 0.612 | 0.641 |
 | **current** | 4.07px | 2.62px | 9.60px | 0.131em | 2.0% | 97.5% | 94.4% | 0.919 | 0.661 | 0.605 |
-| proposed (midpoint cap) | 1.61px | 1.00px | 3.50px | 0.052em | 0.0% | 99.2% | 98.2% | 0.949 | 0.771 | 0.558 |
-| proposed (final pass, no translation) | 1.61px | 1.00px | 3.50px | 0.052em | 0.0% | 99.2% | 98.3% | 0.955 | 0.765 | 0.562 |
-| **proposed (+ translation)** | **1.46px** | **1.00px** | **3.00px** | **0.047em** | **0.0%** | **99.5%** | **98.8%** | **0.970** | 0.762 | **0.571** |
+| proposed (midpoint cap) | 1.65px | 1.00px | 3.50px | 0.053em | 0.1% | 98.9% | 98.0% | 0.946 | 0.768 | 0.556 |
+| proposed (final pass, no translation) | 1.65px | 1.00px | 3.50px | 0.053em | 0.1% | 99.0% | 98.1% | 0.952 | 0.763 | 0.561 |
+| **proposed (+ translation)** | **1.50px** | **1.00px** | **3.00px** | **0.048em** | **0.1%** | **99.4%** | **98.7%** | **0.967** | 0.760 | **0.570** |
 
 `cover` = mean share of a glyph's own ink interval (reading axis) the box
 covers; it is the metric the final pass moves, and it moves monotonically
@@ -552,6 +570,12 @@ default).  The algorithm only needs metrics that are stable across JP fonts:
   CTC retry fixes the measured cases (corner-punctuation mean 0.098em →
   0.086em, >0.3em 8.0% → 5.0%) but never fires on the real fixtures, so it is
   a synthetic-tuned safety net, not a real-data win.
+* **The renderer's box-fit shrink now floors at 0.85** (`BOX_FIT_SCALE_FLOOR`
+  in LineOverlayView): a genuinely jammed source pair (boxes floored at 0.49
+  of a 0.77em pitch) rendered ~30% small ("まで renders small").  The floor
+  halves that size gap at the cost of a few px of drawn-ink overlap in the
+  worst pair; the clean fix for those pairs is full-width placement (the
+  sweep), which trades position accuracy for size instead.
 * **Translation spends centredness for fit by design**, and the real proxy
   mildly prefers the split (above).  The default rests on synthetic ground
   truth; a contrary device report is the trigger to revisit the cap.

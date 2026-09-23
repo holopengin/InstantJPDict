@@ -60,6 +60,11 @@ class LineOverlayView(
          * number re-invented here. Applied as a center-scale so centering is
          * untouched — and it also shrinks edge overflow. */
         const val ASCII_GLYPH_SCALE = 0.9f
+
+        /** Lower bound for the box-fit shrink (see onDraw): never draw a
+         *  glyph below 85% of the line's paint size, so a too-narrow box
+         *  cannot make one character visibly smaller than its neighbours. */
+        const val BOX_FIT_SCALE_FLOOR = 0.85f
         fun marginFor(fixedSize: Int): Int =
             (fixedSize * INK_MARGIN_RATIO).roundToInt().coerceAtLeast(1)
     }
@@ -173,6 +178,15 @@ class LineOverlayView(
                 val wLimit = if (isHalf) maxW * 2f else maxW
                 if (glyphW > wLimit) scale = wLimit / glyphW.coerceAtLeast(1f)
             }
+            // Never draw a glyph dramatically smaller than its neighbours: a
+            // genuinely jammed source pair (boxes floored at 0.49 of a pitch
+            // measured at 0.77em, i.e. 0.75em boxes) used to render ~30% small
+            // ("まで renders small").  0.85 halves that size gap in the worst
+            // case while keeping the drawn ink's overlap with the neighbour
+            // to a few px (the source's own gap there is ~19px).  The clean
+            // fix for those pairs is placement — full boxes via the sweep —
+            // which trades position accuracy for size instead.
+            scale = scale.coerceAtLeast(BOX_FIT_SCALE_FLOOR)
 
             val isHighlighted = highlightedIndices.contains(i)
             paint.color = if (isHighlighted) Color.YELLOW else Color.parseColor("#FF7777")

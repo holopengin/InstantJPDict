@@ -542,6 +542,17 @@ class ProposedOptions:
     # glyph -- and the retry is taken only when it is a compact blob close to
     # the anchor; otherwise the primary measurement is kept.
     punct_spread_fallback: bool = True
+    # Neighbour-blob retry for CENTER-class glyphs: a window split by a real
+    # ink valley has its mid-quartile straddling the valley, which is how a
+    # neighbour's stroke biases the pull (の with で's dakuten crossing the
+    # Voronoi bound landed ~0.12em high).  Fires only when the valley is long
+    # enough and the off-anchor side holds a real share of the window's mass.
+    bimodal_retry: bool = True
+    # Swept: 0.10/0.15 too tight for the device case (valley 0.26em), 0.25
+    # costs clean-set accuracy for no gain; 0.20 keeps comfortable margins on
+    # both sides (clean 1.46 -> 1.50px).
+    bimodal_valley_em: float = 0.20   # minimum valley length, in em
+    bimodal_min_frac: float = 0.12    # off-side mass share that must be present
     punct_fallback_window_em: float = 0.5
     punct_fallback_max_em: float = 0.6
     # Template fit
@@ -974,6 +985,41 @@ def _sweep_pull_back(
             break
 
 
+def _window_is_bimodal(
+    prof: np.ndarray, lo: float, hi: float, em: float, opts
+) -> bool:
+    """True when a window holds two ink blobs separated by a real valley.
+
+    The mid-quartile then straddles the valley and lands between the glyphs
+    instead of on either — the contamination the punctuation retry exists for.
+    """
+    a = int(np.ceil(_clamp(lo, 0, len(prof))))
+    b = int(np.floor(_clamp(hi, 0, len(prof)))) + 1
+    if b - a <= 0:
+        return False
+    seg = prof[a:b].astype(np.float64)
+    total = float(seg.sum())
+    if total <= 0:
+        return False
+    thr = max(opts.extent_floor, 0.15 * float(seg.max()))
+    valley_len = max(2, int(opts.bimodal_valley_em * em))
+    run = best = start = best_start = 0
+    for k, v in enumerate(seg):
+        if v <= thr:
+            if run == 0:
+                start = k
+            run += 1
+            if run > best:
+                best, best_start = run, start
+        else:
+            run = 0
+    if best < valley_len:
+        return False
+    left = float(seg[:best_start].sum())
+    right = float(seg[best_start + best:].sum())
+    return min(left, right) / total >= opts.bimodal_min_frac
+
+
 def proposed_char_boxes(
     text: str,
     char_cols,
@@ -1088,32 +1134,46 @@ def proposed_char_boxes(
                 mass, ink_c, spread = _mid_quartile(prof, lo, hi)
                 if mass < max(6.0, opts.min_mass_frac * med_mass):
                     continue
-                if spread > opts.max_spread_em * em and classes[i] != "center":
-                    # A smeared/ambiguous window: punctuation and small kana are
-                    # small enough that a neighbour's stroke can dominate the
-                    # wide window (measured: a `、` pulled 0.44em onto the
-                    # following kanji).  Retry around the CTC run centre -- it
-                    # sits on the glyph -- and take the retry only when it is a
-                    # compact blob near the anchor; otherwise keep the primary
-                    # measurement rather than dropping the pull.
-                    if opts.punct_spread_fallback:
-                        win_fb = max(
-                            opts.punct_fallback_window_em * em,
-                            opts.window_stride * stride,
-                        )
-                        lo2 = max(lo0, ctc_centers[i] - win_fb)
-                        hi2 = min(hi0, ctc_centers[i] + win_fb)
-                        if hi2 > lo2:
-                            mass2, ink_c2, spread2 = _mid_quartile(prof, lo2, hi2)
-                            if (
-                                mass2 >= max(6.0, opts.min_mass_frac * med_mass)
-                                and spread2 <= opts.max_spread_em * em
-                                and abs(ink_c2 - anchors[i])
-                                <= opts.punct_fallback_max_em * em
-                            ):
-                                mass, ink_c, spread = mass2, ink_c2, spread2
-                elif spread > opts.max_spread_em * em:
-                    continue
+                smeared = spread > opts.max_spread_em * em
+                retry = False
+                if smeared:
+                    if classes[i] != "center":
+                        # Punctuation/small kana: a neighbour's stroke can
+                        # dominate their small ink window; retry around the CTC
+                        # run centre (which sits on the glyph), or keep the
+                        # primary measurement when the retry is switched off.
+                        retry = opts.punct_spread_fallback
+                    else:
+                        # Centre-class window that is simply smeared: the old
+                        # behaviour is to drop the pull.
+                        continue
+                elif (
+                    classes[i] == "center"
+                    and opts.bimodal_retry
+                    and _window_is_bimodal(prof, lo, hi, em, opts)
+                ):
+                    # Two blobs with a real valley between them: the mid-quartile
+                    # straddles the valley and lands between the glyphs (の with
+                    # で's dakuten crossing the Voronoi bound sat ~0.12em high).
+                    # Retry around the CTC run centre, taking the retry only
+                    # when it measures a compact blob near the anchor.
+                    retry = True
+                if retry:
+                    win_fb = max(
+                        opts.punct_fallback_window_em * em,
+                        opts.window_stride * stride,
+                    )
+                    lo2 = max(lo0, ctc_centers[i] - win_fb)
+                    hi2 = min(hi0, ctc_centers[i] + win_fb)
+                    if hi2 > lo2:
+                        mass2, ink_c2, spread2 = _mid_quartile(prof, lo2, hi2)
+                        if (
+                            mass2 >= max(6.0, opts.min_mass_frac * med_mass)
+                            and spread2 <= opts.max_spread_em * em
+                            and abs(ink_c2 - anchors[i])
+                            <= opts.punct_fallback_max_em * em
+                        ):
+                            mass, ink_c, spread = mass2, ink_c2, spread2
                 pull = _clamp(
                     ink_c - centers[i],
                     -opts.ink_max_pull_em * em,
