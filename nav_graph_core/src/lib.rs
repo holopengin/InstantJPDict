@@ -23,7 +23,12 @@
 uniffi::setup_scaffolding!();
 
 mod char_lm;
-pub use char_lm::CharLm;
+mod component_table;
+mod deinflector;
+mod furigana;
+mod kana_size;
+mod kanji_variants;
+mod ruby_style;
 
 /// Bounding box for a detected character.
 #[derive(Clone, Debug, uniffi::Record)]
