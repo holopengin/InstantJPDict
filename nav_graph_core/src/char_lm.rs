@@ -59,7 +59,17 @@ fn chars_from_codepoints(codepoints: &[i32]) -> Vec<char> {
 /// reads the file and passes the bytes).
 #[derive(uniffi::Object)]
 pub struct CharLm {
-    inner: jpdict_core::util::char_lm::CharLm,
+    /// The delegated PC model. `pub(crate)` only so a later shim in this crate
+    /// (WP-08 `gap_candidates`) can borrow it; it never crosses the FFI
+    /// boundary itself.
+    pub(crate) inner: jpdict_core::util::char_lm::CharLm,
+}
+
+impl CharLm {
+    /// Borrow the delegated model (crate-internal; not exported).
+    pub(crate) fn inner(&self) -> &jpdict_core::util::char_lm::CharLm {
+        &self.inner
+    }
 }
 
 /// Wrap packed bytes. `None` when the header or length does not describe a
