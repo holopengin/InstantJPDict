@@ -545,12 +545,21 @@ class ConformanceCorpusTest {
             val expectReasons = body.getAsJsonArray("expect_reasons").map { it.asString }
             // Terms are unique per surface (first derivation wins, both
             // sides), so find-by-term plus an exact reason match is complete.
-            val hit = deinflector.deinflect(surface).firstOrNull { it.term == expectTerm }
+            val derivations = deinflector.deinflect(surface)
+            val hit = derivations.firstOrNull { it.term == expectTerm }
                 ?: error("${c.id}: no derivation of $surface reaches $expectTerm")
             assertEquals(
                 "${c.id}: reason labels drifted for $surface → $expectTerm",
                 expectReasons, hit.reasons,
             )
+            // Optional negative pin: derivations that must not exist (a guard a
+            // find-by-term assertion cannot see, e.g. single-character terms).
+            body.getAsJsonArray("expect_absent")?.forEach { term ->
+                val absent = term.asString
+                check(derivations.none { it.term == absent }) {
+                    "${c.id}: $surface must not derive $absent"
+                }
+            }
         }
     }
 
