@@ -1,31 +1,40 @@
 package com.holopengin.instantjpdict.util
 
-import com.holopengin.instantjpdict.OcrEngine
+import uniffi.nav_graph_core.GapAlternative
+import uniffi.nav_graph_core.gapContextBefore
+import uniffi.nav_graph_core.gapFallback
+import uniffi.nav_graph_core.gapGenerate
+import uniffi.nav_graph_core.gapIsOfferable
+import uniffi.nav_graph_core.gapKanaDefaults
+import uniffi.nav_graph_core.gapPunctDefaults
 
 /**
  * What to offer for a blank (#44, Feature 2).
  *
  * A gap is only worth filling when there is evidence for what went there, so the pool is
  * the set of characters the recogniser itself offered along the line — its per-character
- * top-K — restricted to kanji, and the language model then ranks that pool in the line's
- * own context. Shape evidence proposes, the text prior disposes: the component ordering
- * over an unrestricted pool is degenerate, which is why the LM earns its asset here.
+ * top-K — restricted to what a real character can be, and the language model then ranks
+ * that pool in the line's own context. Shape evidence proposes, the text prior disposes:
+ * the component ordering over an unrestricted pool is degenerate, which is why the LM earns
+ * its asset here.
  *
  * Deliberately narrow: the pool is the line's own character space, not the whole component
  * closure. Widening it to `ComponentTable` carriers is a later step, and it needs its own
  * measurement before it ships.
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core` implementation
+ * (`core/src/util/gap_candidates.rs`, exposed through `nav_graph_core`'s UniFFI surface), so
+ * the algorithm has one source of truth. The pool filter, the class order and the back-off
+ * cap are documented there; this object only adapts types (`Char` ↔ `Int` code points,
+ * `Pair<Char, Float>` ↔ the `GapAlternative` record) and keeps the API call sites use.
  */
 object GapCandidates {
+    /**
+     * Mirrors `jpdict_core::util::gap_candidates::MAX`; UniFFI cannot export consts, so the
+     * literal stays here and the crate tests pin the same value. A `const` because it is a
+     * default parameter value.
+     */
     const val MAX = 15
-
-    private const val CJK_UNIFIED_START = 0x4E00
-    private const val CJK_UNIFIED_END = 0x9FFF
-    private const val CJK_EXT_A_START = 0x3400
-    private const val CJK_EXT_A_END = 0x4DBF
-
-    /** True for the kanji blocks the app's dictionary and component table cover. */
-    fun isKanji(ch: Char): Boolean =
-        ch.code in CJK_UNIFIED_START..CJK_UNIFIED_END || ch.code in CJK_EXT_A_START..CJK_EXT_A_END
 
     /**
      * Whether a character the recogniser proposed is worth offering. Kanji, kana and
@@ -33,8 +42,7 @@ object GapCandidates {
      * (a line's own evidence for it is punctuation), so a kanji-only pool comes back empty
      * exactly where the evidence was there.
      */
-    fun isOfferable(ch: Char): Boolean =
-        ch != OcrEngine.GAP_CHAR && !ch.isWhitespace() && !ch.isISOControl()
+    fun isOfferable(ch: Char): Boolean = gapIsOfferable(ch.code)
 
     /**
      * Candidates for the blank at [index], best first. [alternatives] is the line's
@@ -47,23 +55,18 @@ object GapCandidates {
         index: Int,
         lm: CharLm?,
         limit: Int = MAX,
-    ): List<Char> {
-        val pool = LinkedHashSet<Char>()
-        for (alts in alternatives) {
-            for ((ch, _) in alts) {
-                if (isOfferable(ch)) pool.add(ch)
-            }
-        }
-        if (pool.isEmpty()) return emptyList()
-        val ordered = lm?.rank(contextBefore(text, index), pool.toList()) ?: pool.toList()
-        return ordered.take(limit)
-    }
+    ): List<Char> = gapGenerate(
+        alternatives.map { step -> step.map { (ch, score) -> GapAlternative(ch.code, score) } },
+        limit.toLong(),
+        lm?.inner,
+        contextCodepoints(text, index),
+    ).map { Char(it) }
 
     /** Punctuation a gap most often holds. Class order is fixed; see [fallback]. */
-    val PUNCT_DEFAULTS = listOf('、', '。', '「', '」', '…', 'ー')
+    val PUNCT_DEFAULTS: List<Char> = gapPunctDefaults().map { Char(it) }
 
     /** The kana it most often holds when it is not punctuation. */
-    val KANA_DEFAULTS = listOf('は', 'の', 'を', 'に', 'と')
+    val KANA_DEFAULTS: List<Char> = gapKanaDefaults().map { Char(it) }
 
     /**
      * The fallback list, punctuation first. Never empty.
@@ -75,22 +78,22 @@ object GapCandidates {
      * margin and puts kana like の above 、 at a gap. The model orders *within* a class,
      * where the candidates are the same kind of thing and the comparison means something.
      */
-    fun fallback(text: String, index: Int, lm: CharLm?, limit: Int = MAX): List<Char> {
-        val ctx = contextBefore(text, index)
-        val punct = lm?.rank(ctx, PUNCT_DEFAULTS) ?: PUNCT_DEFAULTS
-        val kana = lm?.rank(ctx, KANA_DEFAULTS) ?: KANA_DEFAULTS
-        return (punct + kana).take(limit)
-    }
+    fun fallback(text: String, index: Int, lm: CharLm?, limit: Int = MAX): List<Char> =
+        gapFallback(limit.toLong(), lm?.inner, contextCodepoints(text, index)).map { Char(it) }
 
     /**
      * The characters before the gap, which is the context the back-off chain can use: the
      * model is order 4, so anything longer is ignored and the placeholder itself is dropped
      * rather than read as a real character.
      */
-    fun contextBefore(text: String, index: Int): CharSequence {
-        val end = index.coerceIn(0, text.length)
-        var start = end
-        while (start > 0 && text[start - 1] != OcrEngine.GAP_CHAR && end - start < CharLm.MAX_ORDER - 1) start--
-        return text.substring(start, end)
-    }
+    fun contextBefore(text: String, index: Int): CharSequence =
+        buildString { for (cp in gapContextBefore(text, index.toLong())) appendCodePoint(cp) }
+
+    /**
+     * The context as the code points the Rust boundary takes; [generate] and [fallback]
+     * hand it straight back so the code-point round trip never goes through a Kotlin
+     * `String` (a supplementary-plane character stays one code point, not a surrogate pair).
+     */
+    private fun contextCodepoints(text: String, index: Int): List<Int> =
+        gapContextBefore(text, index.toLong())
 }
