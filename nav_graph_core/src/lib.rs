@@ -22,6 +22,9 @@
 
 uniffi::setup_scaffolding!();
 
+mod char_lm;
+pub use char_lm::CharLm;
+
 /// Bounding box for a detected character.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct BoundingBox {
