@@ -1,18 +1,8 @@
 package com.holopengin.instantjpdict.util
 
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import java.io.Reader
-
-data class DeinflectionRule(
-    val kanaIn: String,
-    val kanaOut: String,
-    val rulesIn: List<String>,
-    val rulesOut: List<String>,
-    /** Top-level deinflect.json group key (e.g. "past", "causative passive").
-     *  Not in the JSON payloads — filled in at load time from the map key. */
-    val reason: String = ""
-)
+import uniffi.nav_graph_core.Deinflector as RustDeinflector
+import uniffi.nav_graph_core.deinflectorFromJsonStr
 
 data class DeinflectionResult(
     val term: String,
@@ -34,55 +24,29 @@ data class DeinflectionChain(
         else "$surface → $term · " + steps.joinToString(" · ")
 }
 
-class Deinflector(reader: Reader) {
-    private val rules: List<DeinflectionRule>
+/**
+ * Deinflects Japanese text by applying known conjugation rules.
+ *
+ * Since the util-core swap this is a thin facade over the PC `jpdict_core`
+ * implementation (`core/src/util/deinflector.rs`, exposed through
+ * `nav_graph_core`'s UniFFI surface), so the algorithm has one source of truth.
+ * Rules are parsed in Rust; this class only reads the rule text and maps the
+ * returned record's `ruleTypes` field onto [DeinflectionResult.type], keeping
+ * the API call sites already use.
+ */
+class Deinflector private constructor(private val inner: RustDeinflector) {
+    /** Parse the rule JSON behind [reader]. Malformed or unreadable rules yield
+     *  an empty deinflector — the pre-swap swallow-to-empty behaviour. */
+    constructor(reader: Reader) : this(load(reader))
 
-    init {
-        val loadedRules = mutableListOf<DeinflectionRule>()
-        try {
-            val type = object : TypeToken<Map<String, List<DeinflectionRule>>>() {}.type
-            val rawRules: Map<String, List<DeinflectionRule>> = Gson().fromJson(reader, type)
+    fun deinflect(text: String): List<DeinflectionResult> =
+        inner.deinflect(text).map { DeinflectionResult(it.term, it.reasons, it.ruleTypes) }
 
-            rawRules.forEach { (reason, ruleList) ->
-                loadedRules.addAll(ruleList.map { it.copy(reason = reason) })
-            }
+    companion object {
+        private fun load(reader: Reader): RustDeinflector = try {
+            deinflectorFromJsonStr(reader.readText()) ?: RustDeinflector.empty()
         } catch (e: Exception) {
-            // Simplified logging or pass a logger
+            RustDeinflector.empty()
         }
-        rules = loadedRules
-    }
-
-    fun deinflect(text: String): List<DeinflectionResult> {
-        val results = mutableListOf<DeinflectionResult>()
-        results.add(DeinflectionResult(text, emptyList(), emptyList()))
-
-        var i = 0
-        while (i < results.size) {
-            val current = results[i]
-            if (current.term.length < 2) {
-                i++
-                continue
-            }
-
-            for (rule in rules) {
-                if (current.term.endsWith(rule.kanaIn)) {
-                    val root = current.term.substring(0, current.term.length - rule.kanaIn.length) + rule.kanaOut
-
-                    if (root.isNotEmpty()) {
-                        val newResult = DeinflectionResult(
-                            term = root,
-                            reasons = current.reasons + rule.reason,
-                            type = rule.rulesOut
-                        )
-
-                        if (!results.any { it.term == newResult.term }) {
-                            results.add(newResult)
-                        }
-                    }
-                }
-            }
-            i++
-        }
-        return results
     }
 }
