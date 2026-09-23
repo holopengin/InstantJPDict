@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict.util
 import uniffi.nav_graph_core.japaneseCollapseEmphatic
 import uniffi.nav_graph_core.japaneseFoldLookupVariants
 import uniffi.nav_graph_core.japaneseKatakanaToHiragana
+import uniffi.nav_graph_core.japaneseMeasuredVariantFold
 import uniffi.nav_graph_core.japaneseNormalize
 import uniffi.nav_graph_core.japaneseSplitKanaList
 import uniffi.nav_graph_core.japaneseVerticalPunctuation
@@ -18,11 +19,11 @@ import uniffi.nav_graph_core.japaneseVerticalPunctuationChars
  * the vertical-punctuation rules have one source of truth. This object only adapts
  * types (`Char` ↔ `Int` code points) and keeps the API call sites already use.
  *
- * [MEASURED_VARIANT_FOLD] is the one table still written out here: upstream keeps it
- * private (a `lazy_static` with no `pub` accessor), so it cannot cross the boundary.
- * It is a mirror read **only by the drift-guard test**
- * `JapaneseUtilVariantFoldTest.measured_variant_fold_matches_the_committed_asset`;
- * production code never reads it, and [foldLookupVariants] is Rust's.
+ * [MEASURED_VARIANT_FOLD] is no longer a Kotlin table: it is rebuilt from the
+ * exported `jpdict_core` data (`japaneseMeasuredVariantFold`) and exists for the
+ * drift-guard test `JapaneseUtilVariantFoldTest.measured_variant_fold_matches_the_
+ * committed_asset`, which checks it against the committed asset. Production code
+ * never reads it, and [foldLookupVariants] is Rust's.
  */
 object JapaneseUtil {
     /**
@@ -179,49 +180,7 @@ object JapaneseUtil {
      * Regenerate both halves with tools/build_kanji_variants.py and
      * tools/build_variant_fold.py.
      */
-    internal val MEASURED_VARIANT_FOLD: Map<Char, String> = mapOf(
-        '㕞' to "刷", '㘅' to "啣", '㝵' to "碍", '䖟' to "蝱",
-        '䙝' to "褻", '䬒' to "颼", '䯻' to "髻", '䰗' to "鬮",
-        '乾' to "干", '亻' to "人", '來' to "来", '俠' to "侠",
-        '册' to "冊", '冩' to "写", '冫' to "氷", '准' to "準",
-        '凉' to "涼", '凴' to "憑", '凾' to "函", '刋' to "刊",
-        '剝' to "剥", '劒' to "劍", '勹' to "包", '匳' to "奩",
-        '匵' to "櫝", '卭' to "卬", '厶' to "某", '后' to "後",
-        '噐' to "器", '噓' to "嘘", '嚮' to "向", '囑' to "嘱",
-        '囘' to "回", '國' to "国", '堭' to "隍", '壽' to "寿",
-        '娬' to "嫵", '學' to "学", '寫' to "写", '寶' to "宝",
-        '將' to "将", '尸' to "屍", '屆' to "届", '屬' to "属",
-        '峽' to "峡", '巤' to "鬣", '帋' to "紙", '帒' to "袋",
-        '并' to "併", '彌' to "弥", '悋' to "吝", '慙' to "慚",
-        '懜' to "懵", '戀' to "恋", '挾' to "挟", '捬' to "撫",
-        '摑' to "掴", '无' to "無", '晝' to "昼", '會' to "会",
-        '朙' to "明", '栖' to "棲", '樓' to "楼", '樷' to "叢",
-        '樸' to "朴", '欝' to "鬱", '氵' to "水", '涶' to "唾",
-        '渊' to "淵", '潛' to "潜", '濵' to "濱", '灑' to "洒",
-        '灣' to "湾", '烟' to "煙", '燈' to "灯", '犭' to "犬",
-        '甎' to "磚", '甤' to "蕤", '畄' to "留", '畆' to "畝",
-        '當' to "当", '癢' to "痒", '皃' to "貌", '眎' to "視",
-        '瞹' to "曖", '碯' to "瑙", '礟' to "礮", '祿' to "禄",
-        '禀' to "稟", '禦' to "御", '禪' to "禅", '禮' to "礼",
-        '禱' to "祷", '秇' to "藝", '秌' to "秋", '穪' to "稱",
-        '竆' to "窮", '竒' to "奇", '笋' to "筍", '簞' to "箪",
-        '粮' to "糧", '糓' to "穀", '纎' to "纖", '缻' to "缶",
-        '网' to "網", '羮' to "羹", '耻' to "恥", '耼' to "聃",
-        '聲' to "声", '脉' to "脈", '膓' to "腸", '舊' to "旧",
-        '艪' to "櫓", '苢' to "苡", '莖' to "茎", '萬' to "万",
-        '著' to "着", '葢' to "蓋", '薑' to "姜", '蘯' to "蕩",
-        '號' to "号", '蚦' to "蚺", '蜹' to "蚋", '蟬' to "蝉",
-        '蟲' to "虫", '蠶' to "蚕", '襍' to "雜", '覔' to "覓",
-        '觧' to "解", '註' to "注", '誐' to "哦", '賍' to "贓",
-        '賷' to "齎", '軆' to "体", '輓' to "挽", '辶' to "辵",
-        '迯' to "逃", '迹' to "跡", '遉' to "偵", '遙' to "遥",
-        '釐' to "厘", '鍫' to "鍬", '鏁' to "鎖", '閙' to "鬧",
-        '隂' to "陰", '隖' to "塢", '雙' to "双", '頣' to "頤",
-        '颱' to "台", '飃' to "飄", '餘' to "余", '駞' to "駝",
-        '髗' to "顱", '髩' to "鬢", '鬂' to "鬢", '鮧' to "鯷",
-        '鵶' to "鴉", '鶽' to "隼", '鸎' to "鶯", '麄' to "粗",
-        '麴' to "麹", '麸' to "麩", '點' to "点", '齅' to "嗅",
-        '﨑' to "崎",
-
-    )
+    internal val MEASURED_VARIANT_FOLD: Map<Char, String> by lazy {
+        japaneseMeasuredVariantFold().associate { Char(it.variant) to it.canonical }
+    }
 }

@@ -92,6 +92,32 @@ pub fn japanese_fold_lookup_variants(text: String) -> String {
     pc::fold_lookup_variants(&text)
 }
 
+/// One pair of the Unihan-derived fold table.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct VariantPair {
+    /// The variant the fold replaces.
+    pub variant: i32,
+    /// Its canonical (single-character) target.
+    pub canonical: String,
+}
+
+/// The Unihan-derived half of the lookup-variant fold, as data.
+///
+/// The mobile drift guard checks this table against the committed
+/// `variants/kanji_variants.txt` asset; it used to carry its own 165-entry copy
+/// for that check. UniFFI cannot carry a map, so the pairs cross as a record
+/// list (ordered by variant for a stable boundary).
+#[uniffi::export]
+pub fn japanese_measured_variant_fold() -> Vec<VariantPair> {
+    pc::measured_variant_fold()
+        .into_iter()
+        .map(|(variant, canonical)| VariantPair {
+            variant: variant as i32,
+            canonical: canonical.to_string(),
+        })
+        .collect()
+}
+
 /// Convert katakana to hiragana, resolving a prolonged sound mark `ー` against
 /// the character it follows (`カード` → `かあど`).
 #[uniffi::export]
@@ -704,11 +730,38 @@ mod tests {
         );
     }
 
+    /// The exported measured-fold table is the exact data the fold reads: 165
+    /// single-character pairs, in stable variant order. The mobile drift guard
+    /// compares this against the committed asset instead of carrying its own
+    /// copy.
+    #[test]
+    fn measured_variant_fold_matches_the_rust_table() {
+        let pairs = japanese_measured_variant_fold();
+        assert_eq!(pairs.len(), 165);
+        let map: HashMap<i32, String> = pairs
+            .iter()
+            .map(|p| (p.variant, p.canonical.clone()))
+            .collect();
+        for (variant, canonical) in pc::measured_variant_fold().iter() {
+            assert_eq!(
+                map.get(&(*variant as i32)).map(String::as_str),
+                Some(*canonical),
+                "{variant}"
+            );
+        }
+        // Stable order and single-character targets.
+        let mut variants: Vec<i32> = pairs.iter().map(|p| p.variant).collect();
+        let sorted = variants.clone();
+        variants.sort_unstable();
+        assert_eq!(variants, sorted);
+        assert!(pairs.iter().all(|p| p.canonical.chars().count() == 1));
+        assert_eq!(map.get(&('囘' as i32)).map(String::as_str), Some("回"));
+    }
+
     /// Invalid code points degrade to U+FFFD at the boundary rather than
     /// panicking, and a supplementary-plane character crosses as one scalar.
     #[test]
-    fn invalid_code_points_degrade_to_the_replacement_character() {
-        for cp in [-1, 0xD800, 0x11_0000] {
+    fn invalid_code_points_degrade_to_the_replacement_character() {        for cp in [-1, 0xD800, 0x11_0000] {
             assert_eq!(
                 char_from_codepoint(japanese_vertical_punctuation_char(cp)),
                 '\u{FFFD}',
