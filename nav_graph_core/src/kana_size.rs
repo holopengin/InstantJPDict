@@ -45,6 +45,7 @@
 //! conversion.
 
 use jpdict_core::kana_size as pc;
+use std::sync::Arc;
 
 /// One small/big kana pair: the `SMALL_TO_BIG` table as a record list, because
 /// UniFFI cannot carry a `Map`. The Kotlin facade rebuilds the map from these.
@@ -120,6 +121,108 @@ pub fn kana_size_is_small(ch: i32) -> bool {
 pub fn kana_size_window(text: String, index: i64) -> Vec<i32> {
     let index = usize::try_from(index).expect("kana_size_window: index must be non-negative");
     pc::window(&text, index).to_vec()
+}
+
+// ---------------------------------------------------------------------------
+// The ε policy (WP-14): the scorer is injected through a foreign callback
+// ---------------------------------------------------------------------------
+
+/// The scorer the host injects into [`kana_size_correct_lines`].
+///
+/// `windows` is `n * 40` window bytes and `bases` the `n` pair indices, in text
+/// order; the implementation returns `n` logits, or `None` to leave the page
+/// untouched (a wrong-length result does the same). Android implements this
+/// over the JNI `KanaSizeNcnn`; the JVM tests implement it as a lambda.
+#[uniffi::export(with_foreign)]
+pub trait KanaSizeScorer: Send + Sync {
+    fn score(&self, windows: Vec<i32>, bases: Vec<i32>) -> Option<Vec<f32>>;
+}
+
+/// One position the policy flipped.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct KanaSizeFlip {
+    /// Line index in the corrected page.
+    pub line: i32,
+    /// Character index in the line's text.
+    pub index: i32,
+    pub from: i32,
+    pub to: i32,
+    pub p_big: f32,
+}
+
+/// One position left in the middle band, lowest confidence first.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct KanaSizeDeclined {
+    pub line: i32,
+    pub index: i32,
+    pub ch: i32,
+    /// Distance to the threshold that would have fired: `1 - p` for a small
+    /// member, `p` for a big one.
+    pub confidence: f32,
+}
+
+/// Result of one correction pass.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct KanaSizeCorrection {
+    /// Corrected text per line, index-aligned with the input.
+    pub texts: Vec<String>,
+    pub flips: Vec<KanaSizeFlip>,
+    /// Declined positions, lowest confidence first.
+    pub declined: Vec<KanaSizeDeclined>,
+    /// `L<line>@<index> <char> p=<p>`, lowest confidence first, first five
+    /// (mobile `KanaSizeFix.lastDeclined`), formatted upstream so both sides
+    /// agree on the exact string.
+    pub declined_summary: String,
+}
+
+/// Mobile `KanaSizeFix.apply`: the ε policy over a page, with the host's
+/// scorer. Only the text is needed from each line — the policy never reads
+/// geometry, and the caller keeps its own overrides.
+#[uniffi::export]
+pub fn kana_size_correct_lines(
+    texts: Vec<String>,
+    scorer: Arc<dyn KanaSizeScorer>,
+    epsilon: f32,
+) -> KanaSizeCorrection {
+    let lines: Vec<jpdict_core::models::LineResult> = texts
+        .iter()
+        .map(|text| jpdict_core::models::LineResult {
+            text: text.clone(),
+            char_boxes: Vec::new(),
+            alternatives: Vec::new(),
+            raw_alternatives: Vec::new(),
+            sample_txt: None,
+            is_vertical: false,
+            chunk_boxes: Vec::new(),
+        })
+        .collect();
+    let correction =
+        pc::correct_lines(&lines, |wins, bases| scorer.score(wins.to_vec(), bases.to_vec()), epsilon);
+    KanaSizeCorrection {
+        texts: correction.lines.iter().map(|l| l.text.clone()).collect(),
+        flips: correction
+            .flips
+            .iter()
+            .map(|f| KanaSizeFlip {
+                line: f.line as i32,
+                index: f.index as i32,
+                from: f.from as i32,
+                to: f.to as i32,
+                p_big: f.p_big,
+            })
+            .collect(),
+        declined: correction
+            .declined
+            .iter()
+            .map(|d| KanaSizeDeclined {
+                line: d.line as i32,
+                index: d.index as i32,
+                ch: d.ch as i32,
+                confidence: d.confidence,
+            })
+            .collect(),
+        declined_summary: correction.declined_summary(),
+    }
 }
 
 #[cfg(test)]
@@ -372,5 +475,98 @@ mod tests {
             assert_eq!(kana_size_base_index_of(cp), None, "base_index_of({cp})");
             assert!(!kana_size_is_small(cp), "is_small({cp})");
         }
+    }
+
+    // ── The ε policy through the callback interface (WP-14) ────────────────
+
+    /// A scorer that always answers with the same logits (the shim-side twin of
+    /// the JVM tests' injected lambda).
+    struct FixedLogits(Vec<f32>);
+    impl KanaSizeScorer for FixedLogits {
+        fn score(&self, _windows: Vec<i32>, _bases: Vec<i32>) -> Option<Vec<f32>> {
+            Some(self.0.clone())
+        }
+    }
+
+    /// A scorer that fails (mobile `KanaSizeFix`'s null result).
+    struct NoLogits;
+    impl KanaSizeScorer for NoLogits {
+        fn score(&self, _windows: Vec<i32>, _bases: Vec<i32>) -> Option<Vec<f32>> {
+            None
+        }
+    }
+
+    fn texts(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The measured policy: a confident small member flips to big and a
+    /// confident big member to small (mirrors `kana-02-policy-flips` and
+    /// `KanaSizeFixTest`).
+    #[test]
+    fn policy_flips_small_and_big_and_carries_p() {
+        let got = kana_size_correct_lines(
+            texts(&["かっき", "かつき"]),
+            Arc::new(FixedLogits(vec![8.0, -8.0])),
+            0.01,
+        );
+        assert_eq!(got.texts, texts(&["かつき", "かっき"]));
+        assert_eq!(got.flips.len(), 2);
+        assert_eq!((got.flips[0].line, got.flips[0].index), (0, 1));
+        assert_eq!(
+            (got.flips[0].from, got.flips[0].to),
+            ('っ' as i32, 'つ' as i32)
+        );
+        assert!(got.flips[0].p_big > 0.99);
+        assert_eq!((got.flips[1].line, got.flips[1].index), (1, 1));
+        assert_eq!(
+            (got.flips[1].from, got.flips[1].to),
+            ('つ' as i32, 'っ' as i32)
+        );
+        assert!(got.flips[1].p_big < 0.01);
+        assert!(got.declined.is_empty());
+        assert_eq!(got.declined_summary, "");
+    }
+
+    /// The middle band is left alone and reported with its distance to the
+    /// threshold, lowest confidence first, in the mobile summary format.
+    #[test]
+    fn middle_band_is_declined_with_the_mobile_summary_format() {
+        let got = kana_size_correct_lines(
+            texts(&["かつき"]),
+            Arc::new(FixedLogits(vec![0.0])),
+            0.01,
+        );
+        assert_eq!(got.texts, texts(&["かつき"]), "no flip");
+        assert!(got.flips.is_empty());
+        assert_eq!(got.declined.len(), 1);
+        let d = &got.declined[0];
+        assert_eq!((d.line, d.index, d.ch), (0, 1, 'つ' as i32));
+        assert!((d.confidence - 0.5).abs() < 1e-6);
+        assert_eq!(got.declined_summary, "L0@1 つ p=0.500");
+    }
+
+    /// A missing or wrong-length scorer result leaves the page untouched
+    /// (mobile `KanaSizeFix.apply`).
+    #[test]
+    fn failed_or_short_scorer_leaves_the_page_untouched() {
+        let input = texts(&["かっき"]);
+        let failed = kana_size_correct_lines(input.clone(), Arc::new(NoLogits), 0.01);
+        assert_eq!(failed.texts, input);
+        assert!(failed.flips.is_empty() && failed.declined.is_empty());
+        let short = kana_size_correct_lines(input.clone(), Arc::new(FixedLogits(vec![8.0, -8.0])), 0.01);
+        assert_eq!(short.texts, input);
+        assert!(short.flips.is_empty() && short.declined.is_empty());
+    }
+
+    /// Positions that are not size-pair members are never scored; an empty page
+    /// short-circuits before the scorer is consulted.
+    #[test]
+    fn non_pair_texts_are_never_scored() {
+        let got = kana_size_correct_lines(texts(&["かきくけこ"]), Arc::new(FixedLogits(vec![])), 0.01);
+        assert_eq!(got.texts, texts(&["かきくけこ"]));
+        assert!(got.flips.is_empty() && got.declined.is_empty());
+        let empty = kana_size_correct_lines(Vec::new(), Arc::new(FixedLogits(vec![])), 0.01);
+        assert!(empty.texts.is_empty());
     }
 }

@@ -5,6 +5,8 @@ import android.util.Log
 import com.holopengin.instantjpdict.KanaSizeNcnn
 import com.holopengin.instantjpdict.LineResult
 import com.holopengin.instantjpdict.OcrEngine
+import uniffi.nav_graph_core.KanaSizeScorer
+import uniffi.nav_graph_core.kanaSizeCorrectLines
 
 /**
  * Kana size correction (#44): let the byte-CNN decide the small/big form of a confusable
@@ -21,6 +23,12 @@ import com.holopengin.instantjpdict.OcrEngine
  * - flip small -> big when `p > 1 - ε`
  * - flip big -> small when `p < ε`
  * - leave the middle band alone
+ *
+ * Since the util-core swap the policy itself lives in `jpdict_core::kana_size`
+ * (`correct_lines`), which owns the candidate enumeration, the window batching, the
+ * sigmoid and the ε bands; this object is the host side. The scorer is the JNI
+ * [KanaSizeNcnn] (or a test lambda) and crosses into Rust as a
+ * `KanaSizeScorer` callback — call-and-return, never stored.
  *
  * ε is [EPSILON] = 0.01. The measurement behind it (7,620 confusable bench positions, the
  * grounded rule applied at three epsilon bands) reproduced the app's original +8/+10/+5 on the
@@ -45,7 +53,8 @@ import com.holopengin.instantjpdict.OcrEngine
  * ## Reversibility
  *
  * A flip writes the same `overrides[i]` entry a manual correction writes, so it is visible in
- * the text and undoable exactly like any other correction.
+ * the text and undoable exactly like any other correction. The core returns the flip list; this
+ * facade projects it onto the app's `LineResult.overrides` (the core has no such field).
  */
 object KanaSizeFix {
     /** Certainty required to flip; the middle band is deliberately left untouched. */
@@ -60,10 +69,6 @@ object KanaSizeFix {
             .getFloat(PREF_EPSILON, DEF_EPSILON)
 
     private const val TAG = "KanaSizeFix"
-
-    /** Big form -> small form, inverted from the encoder's map. */
-    private val SMALL_OF: Map<Char, Char> =
-        KanaSizeEncoder.SMALL_TO_BIG.entries.associate { (small, big) -> big to small }
 
     /**
      * The positions the model declined to change, lowest confidence first, as
@@ -98,7 +103,9 @@ object KanaSizeFix {
 
     /**
      * The policy, with scoring injected so it is testable on the JVM without the native layer.
-     * [score] takes `n * 40` window bytes and `n` pair indices and returns `n` logits.
+     * [score] takes `n * 40` window bytes and `n` pair indices and returns `n` logits; it is
+     * wrapped as the Rust policy's `KanaSizeScorer` callback. A null or wrong-length result
+     * leaves the page untouched, exactly as before.
      */
     internal fun apply(
         lines: List<LineResult>,
@@ -106,75 +113,26 @@ object KanaSizeFix {
         /** Certainty required to flip; the ε tunable, or the measured default. */
         epsilon: Float = EPSILON,
     ): List<LineResult> {
-        data class Cand(val line: Int, val index: Int, val char: Char, val base: Int)
-
-        val cands = ArrayList<Cand>()
-        for ((li, line) in lines.withIndex()) {
-            for (i in line.text.indices) {
-                val ch = line.text[i]
-                val base = KanaSizeEncoder.baseIndexOf(ch) ?: continue
-                cands.add(Cand(li, i, ch, base))
-            }
+        if (lines.isEmpty()) return lines
+        val scorer = object : KanaSizeScorer {
+            override fun score(windows: List<Int>, bases: List<Int>): List<Float>? =
+                score(windows.toIntArray(), bases.toIntArray())?.toList()
         }
-        if (cands.isEmpty()) {
-            return lines
-        }
-
-        val wins = IntArray(cands.size * KanaSizeNcnn.WINDOW_BYTES)
-        val bases = IntArray(cands.size)
-        for ((k, c) in cands.withIndex()) {
-            KanaSizeEncoder.window(lines[c.line].text, c.index)
-                .copyInto(wins, k * KanaSizeNcnn.WINDOW_BYTES)
-            bases[k] = c.base
-        }
-
-        val logits = score(wins, bases)
-        if (logits == null || logits.size != cands.size) {
-            // No Android logging here: `apply` stays dependency-free so the policy is testable
-            // on a plain JVM.
-            return lines
-        }
-
-        val flips = HashMap<Int, MutableList<Pair<Int, Pair<Char, Float>>>>()
-        val declined = ArrayList<Pair<Triple<Int, Int, Char>, Float>>()
-        for ((k, c) in cands.withIndex()) {
-            // C1/#86: one sigmoid in the project — [KanaSizeNcnn.probBig]. This used to
-            // duplicate the formula privately, so a model-side change (a temperature)
-            // would have had to land in two places.
-            val p = KanaSizeNcnn.probBig(logits[k])
-            val isSmall = KanaSizeEncoder.isSmall(c.char)
-            val target = (if (isSmall) KanaSizeEncoder.bigFormOf(c.char) else SMALL_OF[c.char]) ?: continue
-            val flipsIt = if (isSmall) p > 1f - epsilon else p < epsilon
-            if (!flipsIt) {
-                // The closest few by name: this tells a threshold problem apart from the model
-                // simply agreeing with the recogniser. The p values here say it better than a
-                // near-threshold count.
-                declined.add(Triple(c.line, c.index, c.char) to (if (isSmall) 1f - p else p))
-                continue
-            }
-            flips.getOrPut(c.line) { mutableListOf() }.add(c.index to (target to p))
-        }
-        lastDeclined = declined.sortedBy { it.second }.take(5).joinToString(" / ") {
-            "L%d@%d %s p=%.3f".format(it.first.first, it.first.second, it.first.third, it.second)
-        }
-
-        if (flips.isEmpty()) {
-            return lines
-        }
+        val correction = kanaSizeCorrectLines(lines.map { it.text }, scorer, epsilon)
+        lastDeclined = correction.declinedSummary
+        if (correction.flips.isEmpty()) return lines
 
         val out = lines.toMutableList()
-        for ((li, edits) in flips) {
+        for ((li, flips) in correction.flips.groupBy { it.line }) {
             val line = lines[li]
-            val chars = line.text.toCharArray()
             val overrides = LinkedHashMap(line.overrides)
-            // Each entry is (character index, the override to record) — the same
-            // `overrides[i] = char to p` shape a manual correction writes.
-            for ((index, override) in edits) {
-                if (index !in chars.indices) continue
-                chars[index] = override.first
-                overrides[index] = override
+            // Each flip is the same `overrides[i] = char to p` entry a manual
+            // correction writes; the corrected text comes from the core.
+            for (f in flips) {
+                if (f.index !in line.text.indices) continue
+                overrides[f.index] = Char(f.to) to f.pBig
             }
-            out[li] = line.copy(text = String(chars), overrides = overrides)
+            out[li] = line.copy(text = correction.texts[li], overrides = overrides)
         }
         return out
     }
