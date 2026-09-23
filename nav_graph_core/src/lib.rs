@@ -26,8 +26,11 @@ mod char_lm;
 mod component_table;
 mod deinflector;
 mod furigana;
+mod gap_candidates;
 mod kana_size;
 mod kanji_variants;
+mod oov_candidates;
+mod oov_suggestions;
 mod ruby_style;
 
 /// Bounding box for a detected character.
