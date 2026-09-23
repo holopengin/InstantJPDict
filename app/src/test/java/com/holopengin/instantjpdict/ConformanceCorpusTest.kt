@@ -8,6 +8,7 @@ import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.GapCandidates
+import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.KanaSizeEncoder
 import com.holopengin.instantjpdict.util.KanaSizeFix
 import org.junit.Assert.assertEquals
@@ -90,7 +91,7 @@ class ConformanceCorpusTest {
     /** Kinds executed by a runner below. */
     private val EXECUTED_KINDS = setOf(
         "furigana", "geometry", "reading_order", "gap", "char_lm", "kana", "dictionary",
-        "deinflection", "ruby_style",
+        "deinflection", "ruby_style", "normalize",
     )
 
     /**
@@ -594,6 +595,29 @@ class ConformanceCorpusTest {
                     o.stringField("base"), rubyBaseLabel(style.baseColor),
                 )
                 assertEquals("${c.id} $mode: weight drifted", o.get("bold").asBoolean, style.bold)
+            }
+        }
+    }
+
+    // ── normalize ─────────────────────────────────────────────────────
+
+    /**
+     * The lookup-normalization pipeline, composed: width conversion, variant
+     * fold, combining-character normalization. One case file carries many
+     * input/expect pairs; expectations are the Android behaviour the Kotlin
+     * test pins, so the runner works before and after the WP-11 swap.
+     */
+    @Test
+    fun normalizeCases() {
+        for (c in kindCases("normalize")) {
+            for (pair in c.root.getAsJsonObject("case").getAsJsonArray("cases")) {
+                val o = pair.asJsonObject
+                val input = o.stringField("input")
+                assertEquals(
+                    "${c.id}: normalize drifted for ${input.take(20)}",
+                    o.stringField("expect"),
+                    JapaneseUtil.normalize(input),
+                )
             }
         }
     }
