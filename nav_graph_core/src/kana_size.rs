@@ -208,6 +208,13 @@ pub fn kana_size_correct_lines(
             sample_txt: None,
             is_vertical: false,
             chunk_boxes: Vec::new(),
+            char_cols: Vec::new(),
+            overrides: std::collections::BTreeMap::new(),
+            crop_w: 0,
+            crop_h: 0,
+            crop_x: 0,
+            crop_y: 0,
+            seq_len_total: 0,
         })
         .collect();
     let correction =

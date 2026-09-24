@@ -912,6 +912,28 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1043,6 +1065,28 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_method_oovcandidates_majority_components(`ptr`: Pointer,`topK`: RustBuffer.ByValue,`needFraction`: Double,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_oovcandidates_neighbours_of(`ptr`: Pointer,`emitted`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gap_default_horizontal_ratio(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_blank_gap_default_timestep_stride_px(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_blank_gap_default_vertical_ratio(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_blank_gap_detect(`line`: RustBuffer.ByValue,`verticalThreshold`: Float,`horizontalThreshold`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gap_detect_with(`line`: RustBuffer.ByValue,`threshold`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gap_median(`values`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_blank_gap_min_emitted_chars(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_func_blank_gap_timestep_blank_char(uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_nav_graph_core_fn_func_blank_gap_timestep_columns(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gaps_apply(`line`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gaps_with_gap_char_at(`line`: RustBuffer.ByValue,`index`: Long,`column`: Float,`gapAlternatives`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_build_nav_graph(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1242,6 +1286,28 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_nav_graph_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_default_horizontal_ratio(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_default_timestep_stride_px(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_default_vertical_ratio(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_detect(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_detect_with(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_median(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_min_emitted_chars(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_timestep_blank_char(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gap_timestep_columns(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gaps_apply(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gaps_with_gap_char_at(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_build_nav_graph(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_from_bytes(
@@ -1423,6 +1489,39 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_default_horizontal_ratio() != 16164.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_default_timestep_stride_px() != 28521.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_default_vertical_ratio() != 6444.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_detect() != 13035.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_detect_with() != 5238.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_median() != 26497.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_min_emitted_chars() != 13999.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_timestep_blank_char() != 24844.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_timestep_columns() != 60292.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_apply() != 50662.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_with_gap_char_at() != 26886.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_build_nav_graph() != 17870.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -4936,6 +5035,207 @@ public object FfiConverterTypeGapAlternative: FfiConverterRustBuffer<GapAlternat
 
 
 /**
+ * One `(char, score)` cell of an alternatives list.
+ */
+data class GapCell (
+    var `ch`: kotlin.Int, 
+    var `score`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapCell: FfiConverterRustBuffer<GapCell> {
+    override fun read(buf: ByteBuffer): GapCell {
+        return GapCell(
+            FfiConverterInt.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapCell) = (
+            FfiConverterInt.allocationSize(value.`ch`) +
+            FfiConverterFloat.allocationSize(value.`score`)
+    )
+
+    override fun write(value: GapCell, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`ch`, buf)
+            FfiConverterFloat.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
+ * The mobile `LineResult` subset the gap pipeline reads and writes.
+ */
+data class GapLine (
+    var `text`: kotlin.String, 
+    var `isVertical`: kotlin.Boolean, 
+    /**
+     * Raw/unclipped character boxes, `x`/`y`/`w`/`h`.
+     */
+    var `charBoxes`: List<BoundingBox>, 
+    /**
+     * Per-emitted-character alternatives (grown by the materialiser).
+     */
+    var `alternatives`: List<List<GapCell>>, 
+    /**
+     * Per-timestep top-K, the detector's last geometry resort.
+     */
+    var `rawAlternatives`: List<List<GapCell>>, 
+    /**
+     * CTC timestep column per emitted character, the second geometry source.
+     */
+    var `charCols`: List<kotlin.Float>, 
+    var `overrides`: List<GapOverride>, 
+    var `cropW`: kotlin.Int, 
+    var `cropH`: kotlin.Int, 
+    var `cropX`: kotlin.Int, 
+    var `cropY`: kotlin.Int, 
+    var `seqLenTotal`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapLine: FfiConverterRustBuffer<GapLine> {
+    override fun read(buf: ByteBuffer): GapLine {
+        return GapLine(
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeBoundingBox.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterSequenceTypeGapOverride.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapLine) = (
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterBoolean.allocationSize(value.`isVertical`) +
+            FfiConverterSequenceTypeBoundingBox.allocationSize(value.`charBoxes`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`rawAlternatives`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterSequenceTypeGapOverride.allocationSize(value.`overrides`) +
+            FfiConverterInt.allocationSize(value.`cropW`) +
+            FfiConverterInt.allocationSize(value.`cropH`) +
+            FfiConverterInt.allocationSize(value.`cropX`) +
+            FfiConverterInt.allocationSize(value.`cropY`) +
+            FfiConverterInt.allocationSize(value.`seqLenTotal`)
+    )
+
+    override fun write(value: GapLine, buf: ByteBuffer) {
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterBoolean.write(value.`isVertical`, buf)
+            FfiConverterSequenceTypeBoundingBox.write(value.`charBoxes`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterSequenceTypeGapOverride.write(value.`overrides`, buf)
+            FfiConverterInt.write(value.`cropW`, buf)
+            FfiConverterInt.write(value.`cropH`, buf)
+            FfiConverterInt.write(value.`cropX`, buf)
+            FfiConverterInt.write(value.`cropY`, buf)
+            FfiConverterInt.write(value.`seqLenTotal`, buf)
+    }
+}
+
+
+
+/**
+ * One manual override on a line: `index -> (char, score)`.
+ */
+data class GapOverride (
+    var `index`: kotlin.Int, 
+    var `ch`: kotlin.Int, 
+    var `score`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapOverride: FfiConverterRustBuffer<GapOverride> {
+    override fun read(buf: ByteBuffer): GapOverride {
+        return GapOverride(
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapOverride) = (
+            FfiConverterInt.allocationSize(value.`index`) +
+            FfiConverterInt.allocationSize(value.`ch`) +
+            FfiConverterFloat.allocationSize(value.`score`)
+    )
+
+    override fun write(value: GapOverride, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`index`, buf)
+            FfiConverterInt.write(value.`ch`, buf)
+            FfiConverterFloat.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
+ * One detected gap: the character index the placeholder belongs at, this
+ * pair's spacing over the line's median spacing, and the spacing in pixels.
+ */
+data class GapResult (
+    var `insertAt`: kotlin.Long, 
+    var `ratio`: kotlin.Float, 
+    var `spanPx`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapResult: FfiConverterRustBuffer<GapResult> {
+    override fun read(buf: ByteBuffer): GapResult {
+        return GapResult(
+            FfiConverterLong.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapResult) = (
+            FfiConverterLong.allocationSize(value.`insertAt`) +
+            FfiConverterFloat.allocationSize(value.`ratio`) +
+            FfiConverterFloat.allocationSize(value.`spanPx`)
+    )
+
+    override fun write(value: GapResult, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`insertAt`, buf)
+            FfiConverterFloat.write(value.`ratio`, buf)
+            FfiConverterFloat.write(value.`spanPx`, buf)
+    }
+}
+
+
+
+/**
  * Result of one correction pass.
  */
 data class KanaSizeCorrection (
@@ -5666,6 +5966,38 @@ public object FfiConverterOptionalSequenceFloat: FfiConverterRustBuffer<List<kot
 /**
  * @suppress
  */
+public object FfiConverterOptionalSequenceTypeGapCell: FfiConverterRustBuffer<List<GapCell>?> {
+    override fun read(buf: ByteBuffer): List<GapCell>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceTypeGapCell.read(buf)
+    }
+
+    override fun allocationSize(value: List<GapCell>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceTypeGapCell.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<GapCell>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceTypeGapCell.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalSequenceTypeRubySegment: FfiConverterRustBuffer<List<RubySegment>?> {
     override fun read(buf: ByteBuffer): List<RubySegment>? {
         if (buf.get().toInt() == 0) {
@@ -5922,6 +6254,90 @@ public object FfiConverterSequenceTypeGapAlternative: FfiConverterRustBuffer<Lis
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeGapCell: FfiConverterRustBuffer<List<GapCell>> {
+    override fun read(buf: ByteBuffer): List<GapCell> {
+        val len = buf.getInt()
+        return List<GapCell>(len) {
+            FfiConverterTypeGapCell.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GapCell>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGapCell.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GapCell>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGapCell.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeGapOverride: FfiConverterRustBuffer<List<GapOverride>> {
+    override fun read(buf: ByteBuffer): List<GapOverride> {
+        val len = buf.getInt()
+        return List<GapOverride>(len) {
+            FfiConverterTypeGapOverride.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GapOverride>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGapOverride.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GapOverride>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGapOverride.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeGapResult: FfiConverterRustBuffer<List<GapResult>> {
+    override fun read(buf: ByteBuffer): List<GapResult> {
+        val len = buf.getInt()
+        return List<GapResult>(len) {
+            FfiConverterTypeGapResult.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GapResult>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGapResult.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GapResult>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGapResult.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeKanaSizeDeclined: FfiConverterRustBuffer<List<KanaSizeDeclined>> {
     override fun read(buf: ByteBuffer): List<KanaSizeDeclined> {
         val len = buf.getInt()
@@ -6111,6 +6527,173 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
         }
     }
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<List<List<GapCell>>> {
+    override fun read(buf: ByteBuffer): List<List<GapCell>> {
+        val len = buf.getInt()
+        return List<List<GapCell>>(len) {
+            FfiConverterSequenceTypeGapCell.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<List<GapCell>>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterSequenceTypeGapCell.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<List<GapCell>>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterSequenceTypeGapCell.write(it, buf)
+        }
+    }
+}
+        /**
+         * Horizontal trigger default (mobile `GapDetector.DEFAULT_HORIZONTAL_RATIO`).
+         */ fun `blankGapDefaultHorizontalRatio`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_default_horizontal_ratio(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Model stride fallback (mobile `GapDetector.DEFAULT_TIMESTEP_STRIDE_PX`).
+         */ fun `blankGapDefaultTimestepStridePx`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_default_timestep_stride_px(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Vertical trigger default (mobile `GapDetector.DEFAULT_VERTICAL_RATIO`).
+         */ fun `blankGapDefaultVerticalRatio`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_default_vertical_ratio(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Detect gaps using the line's own orientation threshold (mobile
+         * `GapDetector.detect(line)`).
+         */ fun `blankGapDetect`(`line`: GapLine, `verticalThreshold`: kotlin.Float, `horizontalThreshold`: kotlin.Float): List<GapResult> {
+            return FfiConverterSequenceTypeGapResult.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_detect(
+        FfiConverterTypeGapLine.lower(`line`),FfiConverterFloat.lower(`verticalThreshold`),FfiConverterFloat.lower(`horizontalThreshold`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Detect gaps using an explicit `threshold` (mobile `detect(line, threshold)`),
+         * so a caller can sweep the curve without rebuilding the detector.
+         */ fun `blankGapDetectWith`(`line`: GapLine, `threshold`: kotlin.Float): List<GapResult> {
+            return FfiConverterSequenceTypeGapResult.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_detect_with(
+        FfiConverterTypeGapLine.lower(`line`),FfiConverterFloat.lower(`threshold`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Median of a float list; 0 for an empty list (mobile `medianOf`).
+         */ fun `blankGapMedian`(`values`: List<kotlin.Float>): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_median(
+        FfiConverterSequenceFloat.lower(`values`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Minimum emitted characters (mobile `GapDetector.MIN_EMITTED_CHARS`).
+         */ fun `blankGapMinEmittedChars`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_min_emitted_chars(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The blank marker inside `raw_alternatives` (mobile `TIMESTEP_BLANK_CHAR`).
+         */ fun `blankGapTimestepBlankChar`(): kotlin.Int {
+            return FfiConverterInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_timestep_blank_char(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The CTC timestep column per emitted character recovered from the raw
+         * alternatives (mobile `timestepColumns`).
+         */ fun `blankGapTimestepColumns`(`raw`: List<List<GapCell>>): List<kotlin.Float> {
+            return FfiConverterSequenceFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_timestep_columns(
+        FfiConverterSequenceSequenceTypeGapCell.lower(`raw`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Materialise every measured gap as a placeholder (mobile `BlankGaps.apply`):
+         * vertical lines only, idempotent, insertions right-to-left. The facade keeps
+         * the identity short-circuits (horizontal, already gapped, no gaps).
+         */ fun `blankGapsApply`(`line`: GapLine): GapLine {
+            return FfiConverterTypeGapLine.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gaps_apply(
+        FfiConverterTypeGapLine.lower(`line`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Insert one placeholder (mobile `LineResult.withGapCharAt`), growing every
+         * parallel list together. `gap_alternatives` is the synthetic alternatives
+         * entry; `None` uses the placeholder convention.
+         */ fun `blankGapsWithGapCharAt`(`line`: GapLine, `index`: kotlin.Long, `column`: kotlin.Float, `gapAlternatives`: List<GapCell>?): GapLine {
+            return FfiConverterTypeGapLine.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gaps_with_gap_char_at(
+        FfiConverterTypeGapLine.lower(`line`),FfiConverterLong.lower(`index`),FfiConverterFloat.lower(`column`),FfiConverterOptionalSequenceTypeGapCell.lower(`gapAlternatives`),_status)
+}
+    )
+    }
+    
+
         /**
          * Build a nav graph from detected character bounding boxes.
          *
