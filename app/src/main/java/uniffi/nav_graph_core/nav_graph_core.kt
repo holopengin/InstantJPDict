@@ -938,6 +938,44 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1164,6 +1202,16 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropX`: Int,`cropY`: Int,`cropW`: Int,`cropH`: Int,`isVertical`: Byte,`pixels`: RustBuffer.ByValue,`pixW`: Int,`pixH`: Int,`snap`: Byte,`uniform`: Byte,`inkHalfWidths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_closing_punct(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_opening_punct(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_re_decode(`raw`: RustBuffer.ByValue,`isVertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_sort_order(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_oov_suggestions_assemble(`current`: Int,`headAlternatives`: RustBuffer.ByValue,`oov`: RustBuffer.ByValue,`variants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_oov_suggestions_max_component_candidates(uniffi_out_err: UniffiRustCallStatus, 
@@ -1180,6 +1228,34 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_pitch_reading_of(`definitionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_aabb(`quad`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_bound_deg(`longSide`: Float,`tolDeg`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_quant_tol_px(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_tol_deg(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_filter_enclosing_blobs(`quads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_filter_enclosing_blobs_indices(`quads`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_fit_quad(`points`: RustBuffer.ByValue,`count`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_inset(`quad`: RustBuffer.ByValue,`xInset`: Float,`yInset`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_is_axis_aligned(`quad`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_is_vertical(`quad`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_map_local_rect(`quad`: RustBuffer.ByValue,`local`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_tilt_deg(`quad`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_unclip(`quad`: RustBuffer.ByValue,`ratio`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_rotated_geometry_vertical_min_aspect(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
     fun uniffi_nav_graph_core_fn_func_ruby_style_for_mini(`isMini`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_nav_graph_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1388,6 +1464,16 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_closing_punct(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_opening_punct(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_re_decode(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_sort_order(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_oov_suggestions_max_component_candidates(
@@ -1403,6 +1489,34 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_pitch_positions_of(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_pitch_reading_of(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_aabb(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_bound_deg(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_quant_tol_px(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_tol_deg(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_filter_enclosing_blobs(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_filter_enclosing_blobs_indices(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_fit_quad(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_inset(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_is_axis_aligned(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_is_vertical(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_map_local_rect(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_tilt_deg(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_unclip(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_rotated_geometry_vertical_min_aspect(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ruby_style_for_mini(
     ): Short
@@ -1642,6 +1756,21 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes() != 18671.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_closing_punct() != 750.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_opening_punct() != 16719.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_re_decode() != 57610.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_sort_order() != 21483.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble() != 12834.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1664,6 +1793,48 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_pitch_reading_of() != 21976.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_aabb() != 6218.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_bound_deg() != 46402.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_quant_tol_px() != 59567.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_axis_aligned_tol_deg() != 32276.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_filter_enclosing_blobs() != 43453.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_filter_enclosing_blobs_indices() != 30243.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_fit_quad() != 16879.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_inset() != 25407.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_is_axis_aligned() != 22491.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_is_vertical() != 43291.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_map_local_rect() != 24014.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_tilt_deg() != 18185.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_unclip() != 35253.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_vertical_min_aspect() != 31467.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_ruby_style_for_mini() != 58587.toShort()) {
@@ -5668,6 +5839,170 @@ public object FfiConverterTypePlaceOptions: FfiConverterRustBuffer<PlaceOptions>
 
 
 /**
+ * Model-free re-decode output: text, fractional CTC columns and
+ * per-emitted-character alternatives, ready to rebuild a `LineResult`.
+ */
+data class ReDecodedLine (
+    var `text`: kotlin.String, 
+    var `charCols`: List<kotlin.Float>, 
+    var `alternatives`: List<List<GapCell>>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeReDecodedLine: FfiConverterRustBuffer<ReDecodedLine> {
+    override fun read(buf: ByteBuffer): ReDecodedLine {
+        return ReDecodedLine(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ReDecodedLine) = (
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`)
+    )
+
+    override fun write(value: ReDecodedLine, buf: ByteBuffer) {
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
+    }
+}
+
+
+
+/**
+ * One source-space corner of a mobile `JpDictQuad`.
+ */
+data class RotatedGeometryPoint (
+    var `x`: kotlin.Float, 
+    var `y`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRotatedGeometryPoint: FfiConverterRustBuffer<RotatedGeometryPoint> {
+    override fun read(buf: ByteBuffer): RotatedGeometryPoint {
+        return RotatedGeometryPoint(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RotatedGeometryPoint) = (
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`)
+    )
+
+    override fun write(value: RotatedGeometryPoint, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+    }
+}
+
+
+
+/**
+ * The four-corner wire form of the mobile `JpDictQuad`.
+ *
+ * The declaration order is the public Kotlin corner order: local
+ * `(0,0)`, `(w,0)`, `(w,h)`, `(0,h)`.
+ */
+data class RotatedGeometryQuad (
+    var `c0`: RotatedGeometryPoint, 
+    var `c1`: RotatedGeometryPoint, 
+    var `c2`: RotatedGeometryPoint, 
+    var `c3`: RotatedGeometryPoint
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRotatedGeometryQuad: FfiConverterRustBuffer<RotatedGeometryQuad> {
+    override fun read(buf: ByteBuffer): RotatedGeometryQuad {
+        return RotatedGeometryQuad(
+            FfiConverterTypeRotatedGeometryPoint.read(buf),
+            FfiConverterTypeRotatedGeometryPoint.read(buf),
+            FfiConverterTypeRotatedGeometryPoint.read(buf),
+            FfiConverterTypeRotatedGeometryPoint.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RotatedGeometryQuad) = (
+            FfiConverterTypeRotatedGeometryPoint.allocationSize(value.`c0`) +
+            FfiConverterTypeRotatedGeometryPoint.allocationSize(value.`c1`) +
+            FfiConverterTypeRotatedGeometryPoint.allocationSize(value.`c2`) +
+            FfiConverterTypeRotatedGeometryPoint.allocationSize(value.`c3`)
+    )
+
+    override fun write(value: RotatedGeometryQuad, buf: ByteBuffer) {
+            FfiConverterTypeRotatedGeometryPoint.write(value.`c0`, buf)
+            FfiConverterTypeRotatedGeometryPoint.write(value.`c1`, buf)
+            FfiConverterTypeRotatedGeometryPoint.write(value.`c2`, buf)
+            FfiConverterTypeRotatedGeometryPoint.write(value.`c3`, buf)
+    }
+}
+
+
+
+/**
+ * The mobile `JpDictRect` wire form (right/bottom edges, not width/height).
+ */
+data class RotatedGeometryRect (
+    var `left`: kotlin.Int, 
+    var `top`: kotlin.Int, 
+    var `right`: kotlin.Int, 
+    var `bottom`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRotatedGeometryRect: FfiConverterRustBuffer<RotatedGeometryRect> {
+    override fun read(buf: ByteBuffer): RotatedGeometryRect {
+        return RotatedGeometryRect(
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RotatedGeometryRect) = (
+            FfiConverterInt.allocationSize(value.`left`) +
+            FfiConverterInt.allocationSize(value.`top`) +
+            FfiConverterInt.allocationSize(value.`right`) +
+            FfiConverterInt.allocationSize(value.`bottom`)
+    )
+
+    override fun write(value: RotatedGeometryRect, buf: ByteBuffer) {
+            FfiConverterInt.write(value.`left`, buf)
+            FfiConverterInt.write(value.`top`, buf)
+            FfiConverterInt.write(value.`right`, buf)
+            FfiConverterInt.write(value.`bottom`, buf)
+    }
+}
+
+
+
+/**
  * One furigana run: `base` surface text with optional `ruby` above it.
  *
  * Field-for-field the PC `jpdict_core::util::japanese::RubySegment`; the
@@ -6103,6 +6438,70 @@ public object FfiConverterOptionalTypeOovCandidates: FfiConverterRustBuffer<OovC
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeReDecodedLine: FfiConverterRustBuffer<ReDecodedLine?> {
+    override fun read(buf: ByteBuffer): ReDecodedLine? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeReDecodedLine.read(buf)
+    }
+
+    override fun allocationSize(value: ReDecodedLine?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeReDecodedLine.allocationSize(value)
+        }
+    }
+
+    override fun write(value: ReDecodedLine?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeReDecodedLine.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeRotatedGeometryQuad: FfiConverterRustBuffer<RotatedGeometryQuad?> {
+    override fun read(buf: ByteBuffer): RotatedGeometryQuad? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeRotatedGeometryQuad.read(buf)
+    }
+
+    override fun allocationSize(value: RotatedGeometryQuad?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeRotatedGeometryQuad.allocationSize(value)
+        }
+    }
+
+    override fun write(value: RotatedGeometryQuad?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeRotatedGeometryQuad.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>?> {
     override fun read(buf: ByteBuffer): List<kotlin.Int>? {
         if (buf.get().toInt() == 0) {
@@ -6281,6 +6680,34 @@ public object FfiConverterSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>> 
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterInt.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceLong: FfiConverterRustBuffer<List<kotlin.Long>> {
+    override fun read(buf: ByteBuffer): List<kotlin.Long> {
+        val len = buf.getInt()
+        return List<kotlin.Long>(len) {
+            FfiConverterLong.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.Long>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterLong.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.Long>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterLong.write(it, buf)
         }
     }
 }
@@ -6673,6 +7100,34 @@ public object FfiConverterSequenceTypePlaceBox: FfiConverterRustBuffer<List<Plac
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypePlaceBox.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeRotatedGeometryQuad: FfiConverterRustBuffer<List<RotatedGeometryQuad>> {
+    override fun read(buf: ByteBuffer): List<RotatedGeometryQuad> {
+        val len = buf.getInt()
+        return List<RotatedGeometryQuad>(len) {
+            FfiConverterTypeRotatedGeometryQuad.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<RotatedGeometryQuad>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeRotatedGeometryQuad.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<RotatedGeometryQuad>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeRotatedGeometryQuad.write(it, buf)
         }
     }
 }
@@ -7489,6 +7944,83 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * The mobile `OcrEngine.computeCharBoxes` legacy chain (horizontal columns +
+         * ink resolve + uniform sizing, vertical columns + punctuation rules).
+         *
+         * Delegates to `jpdict_core::char_boxes::compute_char_boxes_with`: `snap`
+         * and `uniform` are the `BOX_LAYOUT_MODE == BOX_SNAP` / `BOX_UNIFORM_SIZE`
+         * flags, `ink_half_widths` the facade's `Paint`-measured half-widths
+         * (horizontal only; empty reads as all-zero). Returns crop-space boxes as
+         * `(x, y, w, h)`; the facade maps them to `JpDictRect`.
+         */ fun `ocrEngineComputeCharBoxes`(`text`: kotlin.String, `charCols`: List<kotlin.Float>, `seqLenTotal`: kotlin.Long, `cropX`: kotlin.Int, `cropY`: kotlin.Int, `cropW`: kotlin.Int, `cropH`: kotlin.Int, `isVertical`: kotlin.Boolean, `pixels`: List<kotlin.Int>?, `pixW`: kotlin.Int, `pixH`: kotlin.Int, `snap`: kotlin.Boolean, `uniform`: kotlin.Boolean, `inkHalfWidths`: List<kotlin.Float>): List<BoundingBox> {
+            return FfiConverterSequenceTypeBoundingBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterInt.lower(`cropX`),FfiConverterInt.lower(`cropY`),FfiConverterInt.lower(`cropW`),FfiConverterInt.lower(`cropH`),FfiConverterBoolean.lower(`isVertical`),FfiConverterOptionalSequenceInt.lower(`pixels`),FfiConverterInt.lower(`pixW`),FfiConverterInt.lower(`pixH`),FfiConverterBoolean.lower(`snap`),FfiConverterBoolean.lower(`uniform`),FfiConverterSequenceFloat.lower(`inkHalfWidths`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile vertical closing punctuation (`OcrEngine.computeCharBoxes`): marks
+         * that shrink onto the next box's start. Exported so the JVM suite can pin
+         * the set; the box path itself applies it internally.
+         */ fun `ocrEngineIsVerticalClosingPunct`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_closing_punct(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile vertical opening punctuation: marks that shrink onto the previous
+         * box's end. See [`ocr_engine_is_vertical_closing_punct`].
+         */ fun `ocrEngineIsVerticalOpeningPunct`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_opening_punct(
+        FfiConverterInt.lower(`ch`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile `OcrEngine.reDecodeLineResult`'s walk, without the `LineResult`
+         * plumbing: greedy CTC over the cached raw alternatives (entry 0 the
+         * argmax, U+3000 the blank). `None` when nothing is cached. The facade
+         * recomputes the char boxes from the returned columns through
+         * `computeCharBoxes` and maps them through the line's quad itself.
+         */ fun `ocrEngineReDecode`(`raw`: List<List<GapCell>>, `isVertical`: kotlin.Boolean): ReDecodedLine? {
+            return FfiConverterOptionalTypeReDecodedLine.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_re_decode(
+        FfiConverterSequenceSequenceTypeGapCell.lower(`raw`),FfiConverterBoolean.lower(`isVertical`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Reading-order permutation for axis-aligned boxes (mobile
+         * `OcrEngine.sortDetectedBoxes`): the indices of `boxes` in reading order.
+         * The facade applies it to its own rects so their identities survive (the
+         * shared corpus pins order through referential equality).
+         */ fun `ocrEngineSortOrder`(`boxes`: List<BoundingBox>): List<kotlin.Long> {
+            return FfiConverterSequenceLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_sort_order(
+        FfiConverterSequenceTypeBoundingBox.lower(`boxes`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The popup list for one character: the head's own ranking first and
          * unchanged, then component neighbours by descending IDF mass, then the
          * obsolete variant forms of the current character.
@@ -7606,6 +8138,197 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_pitch_reading_of(
         FfiConverterString.lower(`definitionsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Rounded enclosing axis-aligned rectangle for a frame.
+         *
+         * The PC model returns `(x, y, w, h)`, while the mobile value type stores
+         * edges. Keep the same edge conversion as `map_local_rect`: round the PC
+         * origin and extent, then add the rounded extent to form the right/bottom
+         * edge. This makes a whole-frame `aabb` and `map_local_rect` agree even
+         * when a rotated extent lands near a half-pixel. It is intentionally the
+         * PC `BoundingBox` edge convention; the old Kotlin code rounded min and max
+         * independently.
+         */ fun `rotatedGeometryAabb`(`quad`: RotatedGeometryQuad): RotatedGeometryRect {
+            return FfiConverterTypeRotatedGeometryRect.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_aabb(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The widened default axis-aligned bound for a frame's long side.
+         *
+         * This is the exact `RotatedBox::is_axis_aligned` threshold expressed in
+         * degrees, with the caller's explicit `tolDeg` replacing the PC floor.
+         */ fun `rotatedGeometryAxisAlignedBoundDeg`(`longSide`: kotlin.Float, `tolDeg`: kotlin.Float): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_bound_deg(
+        FfiConverterFloat.lower(`longSide`),FfiConverterFloat.lower(`tolDeg`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The PC fit-quantization allowance in pixels.
+         */ fun `rotatedGeometryAxisAlignedQuantTolPx`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_quant_tol_px(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The PC axis-aligned floor in degrees (`AXIS_ALIGNED_TOL_RAD` converted for
+         * the Kotlin-facing unit).
+         */ fun `rotatedGeometryAxisAlignedTolDeg`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_axis_aligned_tol_deg(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Drop frames enclosing at least two substantially smaller, line-shaped
+         * frames.  The returned values are newly reconstructed by the PC model.
+         */ fun `rotatedGeometryFilterEnclosingBlobs`(`quads`: List<RotatedGeometryQuad>): List<RotatedGeometryQuad> {
+            return FfiConverterSequenceTypeRotatedGeometryQuad.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_filter_enclosing_blobs(
+        FfiConverterSequenceTypeRotatedGeometryQuad.lower(`quads`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The same PC filter, returning retained input indices.
+         *
+         * The Kotlin API filters an existing list and historically returns the
+         * original objects (including their exact float corner bits).  The index
+         * form lets the facade preserve that identity while the decision itself
+         * still comes from `jpdict_core::models::filter_enclosing_blobs`.
+         */ fun `rotatedGeometryFilterEnclosingBlobsIndices`(`quads`: List<RotatedGeometryQuad>): List<kotlin.Long> {
+            return FfiConverterSequenceLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_filter_enclosing_blobs_indices(
+        FfiConverterSequenceTypeRotatedGeometryQuad.lower(`quads`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Fit a minimum-area upright frame to interleaved x/y points.
+         *
+         * `count` follows the old Kotlin `fitQuad(points, count)` contract: a count
+         * below three, a negative count, or a count larger than the supplied buffer
+         * is a degenerate fit and returns `None`.  Extra array values are ignored,
+         * just as they were by the Kotlin implementation.
+         */ fun `rotatedGeometryFitQuad`(`points`: List<kotlin.Float>, `count`: kotlin.Long): RotatedGeometryQuad? {
+            return FfiConverterOptionalTypeRotatedGeometryQuad.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_fit_quad(
+        FfiConverterSequenceFloat.lower(`points`),FfiConverterLong.lower(`count`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Shrink (positive) or grow (negative) along the frame's local axes.
+         */ fun `rotatedGeometryInset`(`quad`: RotatedGeometryQuad, `xInset`: kotlin.Float, `yInset`: kotlin.Float): RotatedGeometryQuad {
+            return FfiConverterTypeRotatedGeometryQuad.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_inset(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),FfiConverterFloat.lower(`xInset`),FfiConverterFloat.lower(`yInset`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether the PC model considers the frame axis-aligned at its default band.
+         */ fun `rotatedGeometryIsAxisAligned`(`quad`: RotatedGeometryQuad): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_is_axis_aligned(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether the frame's local height is at least the PC vertical aspect ratio.
+         */ fun `rotatedGeometryIsVertical`(`quad`: RotatedGeometryQuad): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_is_vertical(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Map a local crop rectangle to its rounded source-space AABB.
+         */ fun `rotatedGeometryMapLocalRect`(`quad`: RotatedGeometryQuad, `local`: RotatedGeometryRect): RotatedGeometryRect {
+            return FfiConverterTypeRotatedGeometryRect.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_map_local_rect(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),FfiConverterTypeRotatedGeometryRect.lower(`local`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Clockwise tilt in degrees, with the same y-down sign as the mobile API.
+         */ fun `rotatedGeometryTiltDeg`(`quad`: RotatedGeometryQuad): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_tilt_deg(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Grow both local axes by the DB unclip amount, preserving the centre.
+         */ fun `rotatedGeometryUnclip`(`quad`: RotatedGeometryQuad, `ratio`: kotlin.Float): RotatedGeometryQuad {
+            return FfiConverterTypeRotatedGeometryQuad.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_unclip(
+        FfiConverterTypeRotatedGeometryQuad.lower(`quad`),FfiConverterFloat.lower(`ratio`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The PC vertical-orientation threshold (`VERTICAL_MIN_ASPECT`).
+         */ fun `rotatedGeometryVerticalMinAspect`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_rotated_geometry_vertical_min_aspect(
+        _status)
 }
     )
     }
