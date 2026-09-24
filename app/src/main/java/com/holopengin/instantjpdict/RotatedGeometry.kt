@@ -1,377 +1,140 @@
 package com.holopengin.instantjpdict
 
-import kotlin.math.abs
-import kotlin.math.atan
-import kotlin.math.atan2
 import kotlin.math.hypot
-import kotlin.math.roundToInt
+import uniffi.nav_graph_core.RotatedGeometryPoint as RustPoint
+import uniffi.nav_graph_core.RotatedGeometryQuad as RustQuad
+import uniffi.nav_graph_core.RotatedGeometryRect as RustRect
+import uniffi.nav_graph_core.rotatedGeometryAabb
+import uniffi.nav_graph_core.rotatedGeometryAxisAlignedBoundDeg
+import uniffi.nav_graph_core.rotatedGeometryAxisAlignedQuantTolPx
+import uniffi.nav_graph_core.rotatedGeometryAxisAlignedTolDeg
+import uniffi.nav_graph_core.rotatedGeometryFitQuad
+import uniffi.nav_graph_core.rotatedGeometryFilterEnclosingBlobsIndices
+import uniffi.nav_graph_core.rotatedGeometryInset
+import uniffi.nav_graph_core.rotatedGeometryIsVertical
+import uniffi.nav_graph_core.rotatedGeometryMapLocalRect
+import uniffi.nav_graph_core.rotatedGeometryTiltDeg
+import uniffi.nav_graph_core.rotatedGeometryUnclip
+import uniffi.nav_graph_core.rotatedGeometryVerticalMinAspect
 
 /**
  * #53: pure geometry for opt-in rotated line detection.
  *
- * The bundled PP-OCRv6 detector is a DB segmentation net, so its mask carries
- * no box — geometry is decided downstream. The axis-aligned path takes each
- * connected component's min/max X/Y; this object recovers the same component's
- * minimum-area rectangle from its boundary pixels, which is what PaddleOCR's
- * default `quad` postprocess emits (`cv2.minAreaRect`). Nothing here touches
- * Android: the fit, the unclip, the upright-crop frame and the local→source
- * mapping are pinned by JVM unit tests, and only the warp itself (a
- * `setPolyToPoly` draw) lives in the engine.
+ * The fit, orientation predicates, unclip/inset arithmetic, local→source
+ * mapping, and enclosing-blob filter now live in the PC crate's
+ * `jpdict_core::models` module. This object is the Android facade: it keeps
+ * the pre-conversion API and converts the app's four-corner `JpDictQuad` /
+ * `JpDictRect` values to the UniFFI records at the boundary.
  *
- * The frame convention: `c0..c3` are the crop's `(0,0),(w,0),(w,h),(0,h)` in
- * source pixels. For a horizontal Line, local x is the reading axis and local
- * y the cross axis; for a vertical Line, local x is the cross axis and local y
- * the reading axis. That is exactly the crop space `OcrEngine.computeCharBoxes`
- * already works in, so char boxes computed there map straight back out.
+ * The frame convention is unchanged: `c0..c3` are the crop's
+ * `(0,0),(w,0),(w,h),(0,h)` in source pixels. For a horizontal Line, local x
+ * is the reading axis and local y the cross axis; for a vertical Line, local x
+ * is the cross axis and local y the reading axis. The Rust model stores the
+ * same frame as centre + width + height + the local-x angle, and reconstructs
+ * the corners in this exact order.
  */
 object RotatedGeometry {
 
-    /** A fitted frame within this many degrees of the upright axes is treated
-     *  as axis-aligned and stays on the default (rect) path: the unrotate
-     *  cannot buy anything visible at this angle, and the default path is both
-     *  simpler and more stable. */
-    const val AXIS_ALIGNED_TOL_DEG = 1.0f
-
-    /** PC parity (pipeline-sharing/01 conformance `geometry` kind; PC
-     *  `models.rs` `AXIS_ALIGNED_QUANT_TOL_PX`): extra straightness allowance
-     *  for the fit's own quantization. The boundary points are pixel outer
-     *  corners (±0.5px), so a visually level blob can fit a fraction of a
-     *  degree off before any real tilt exists; scaled by the frame's long
-     *  side this is the "indistinguishable from straight" band. The 1°
-     *  tolerance above is the floor; this only widens it for short noisy
-     *  frames such as UI text. */
-    const val AXIS_ALIGNED_QUANT_TOL_PX = 1.5f
-
-    /** Widened axis-aligned bound in degrees for a frame whose long side is
-     *  [longSide] px: `max(tolDeg, atan(1.5px / longSide))`. */
-    fun axisAlignedBoundDeg(longSide: Float, tolDeg: Float = AXIS_ALIGNED_TOL_DEG): Float {
-        val long = longSide.coerceAtLeast(1f)
-        return maxOf(tolDeg, atan(AXIS_ALIGNED_QUANT_TOL_PX / long) * RAD_TO_DEG)
-    }
-
-    /** Same orientation rule the engine uses for axis-aligned boxes (#28):
-     *  near-square counts as horizontal so a lone upright character is never
-     *  fed to the model sideways. */
-    const val VERTICAL_MIN_ASPECT = 1.25f
-
-    private const val RAD_TO_DEG = 57.29577951308232f
-    private const val EPS = 1e-6f
-
-    // ── the fit ─────────────────────────────────────────────────────────────
-
     /**
-     * Fit the minimum-area rectangle to [count] interleaved x,y points, as the
-     * upright-crop frame [JpDictQuad]. The rotation is recovered by testing
-     * every convex-hull edge direction (a minimum-area enclosing rectangle
-     * always has a side collinear with a hull edge); O(h²) over the hull, on
-     * an opt-in path only.
-     *
-     * Returns null when the points are degenerate (fewer than three distinct
-     * non-collinear points, e.g. a three-pixel noise blob), so the caller can
-     * drop the component.
+     * A fitted frame within this many degrees of the upright axes is treated
+     * as axis-aligned and stays on the default (rect) path. Read from
+     * `jpdict_core` at first use (UniFFI cannot export consts).
      */
-    fun fitQuad(points: FloatArray, count: Int): JpDictQuad? {
-        if (count < 3 || points.size < count * 2) return null
-        val hull = convexHull(points, count) ?: return null
-        val h = hull.size / 2
+    val AXIS_ALIGNED_TOL_DEG: Float = rotatedGeometryAxisAlignedTolDeg()
 
-        var bestArea = Float.MAX_VALUE
-        var cx = 0f
-        var cy = 0f
-        var ax = 1f
-        var ay = 0f
-        var aLen = 0f
-        var bLen = 0f
-        for (i in 0 until h) {
-            val j = (i + 1) % h
-            var dx = hull[2 * j] - hull[2 * i]
-            var dy = hull[2 * j + 1] - hull[2 * i + 1]
-            val len = hypot(dx, dy)
-            if (len <= EPS) continue
-            dx /= len
-            dy /= len
-            val nx = -dy
-            val ny = dx
+    /** PC fit-quantization allowance in pixels, read from `jpdict_core`. */
+    val AXIS_ALIGNED_QUANT_TOL_PX: Float = rotatedGeometryAxisAlignedQuantTolPx()
 
-            var tMin = Float.MAX_VALUE
-            var tMax = -Float.MAX_VALUE
-            var sMin = Float.MAX_VALUE
-            var sMax = -Float.MAX_VALUE
-            for (k in 0 until h) {
-                val px = hull[2 * k]
-                val py = hull[2 * k + 1]
-                val t = px * dx + py * dy
-                val s = px * nx + py * ny
-                if (t < tMin) tMin = t
-                if (t > tMax) tMax = t
-                if (s < sMin) sMin = s
-                if (s > sMax) sMax = s
-            }
-            val area = (tMax - tMin) * (sMax - sMin)
-            if (area < bestArea - EPS) {
-                bestArea = area
-                val tc = (tMin + tMax) * 0.5f
-                val sc = (sMin + sMax) * 0.5f
-                cx = tc * dx + sc * nx
-                cy = tc * dy + sc * ny
-                ax = dx
-                ay = dy
-                aLen = tMax - tMin
-                bLen = sMax - sMin
-            }
-        }
-        if (bestArea == Float.MAX_VALUE) return null
-
-        // Which fitted axis is the long one? The long axis is the reading axis
-        // when it lies closer to vertical than to horizontal (and the box is
-        // elongated enough); otherwise the axis closer to horizontal is the
-        // reading axis — for a near-square box that is not necessarily the
-        // longer one. The chosen axes point right/down so the frame is never
-        // mirrored, and [JpDictQuad.tiltDeg] is the clockwise turn from
-        // upright.
-        var lx: Float
-        var ly: Float
-        val longLen: Float
-        val shortLen: Float
-        if (aLen >= bLen) {
-            lx = ax
-            ly = ay
-            longLen = aLen
-            shortLen = bLen
-        } else {
-            lx = -ay
-            ly = ax
-            longLen = bLen
-            shortLen = aLen
-        }
-        val vertical = longLen >= shortLen * VERTICAL_MIN_ASPECT && abs(ly) > abs(lx)
-        val localX: QuadPoint
-        val localY: QuadPoint
-        val w: Float
-        val hgt: Float
-        if (vertical) {
-            if (ly < 0f) {
-                lx = -lx
-                ly = -ly
-            }
-            // reading = local y; local x = reading rotated 90° CCW = (ry, -rx).
-            localX = QuadPoint(ly, -lx)
-            localY = QuadPoint(lx, ly)
-            w = shortLen
-            hgt = longLen
-        } else {
-            // reading = the fitted axis closer to horizontal, which for a
-            // near-square box is not necessarily the longer one: a 20x22 box
-            // must not use its slightly-longer vertical axis as the reading
-            // axis and come out turned 90°.
-            val useD = abs(ax) >= abs(ay)
-            lx = if (useD) ax else -ay
-            ly = if (useD) ay else ax
-            if (lx < 0f) {
-                lx = -lx
-                ly = -ly
-            }
-            // reading = local x; local y = reading rotated 90° CW = (-ry, rx).
-            localX = QuadPoint(lx, ly)
-            localY = QuadPoint(-ly, lx)
-            w = if (useD) aLen else bLen
-            hgt = if (useD) bLen else aLen
-        }
-
-        val hw = w * 0.5f
-        val hh = hgt * 0.5f
-        val ox = cx - hw * localX.x - hh * localY.x
-        val oy = cy - hw * localX.y - hh * localY.y
-        return JpDictQuad(
-            QuadPoint(ox, oy),
-            QuadPoint(ox + w * localX.x, oy + w * localX.y),
-            QuadPoint(ox + w * localX.x + hgt * localY.x, oy + w * localX.y + hgt * localY.y),
-            QuadPoint(ox + hgt * localY.x, oy + hgt * localY.y),
-        )
-    }
-
-    /** Convex hull (monotone chain) of [count] interleaved points, as an
-     *  interleaved array, or null when fewer than three distinct non-collinear
-     *  points exist. Collinear points are dropped, so hull.size >= 6 when
-     *  non-null. */
-    private fun convexHull(points: FloatArray, count: Int): FloatArray? {
-        val order = (0 until count).sortedWith(
-            compareBy({ points[2 * it] }, { points[2 * it + 1] })
-        )
-        fun cross(o: Int, a: Int, b: Int): Float {
-            val ox = points[2 * o]
-            val oy = points[2 * o + 1]
-            return (points[2 * a] - ox) * (points[2 * b + 1] - oy) -
-                (points[2 * a + 1] - oy) * (points[2 * b] - ox)
-        }
-        val hull = IntArray(2 * count)
-        var k = 0
-        for (ii in order.indices) {
-            val p = order[ii]
-            while (k >= 2 && cross(hull[k - 2], hull[k - 1], p) <= 0f) k--
-            hull[k++] = p
-        }
-        if (k < 3) return null
-        val lowerSize = k + 1
-        for (ii in count - 2 downTo 0) {
-            val p = order[ii]
-            while (k >= lowerSize && cross(hull[k - 2], hull[k - 1], p) <= 0f) k--
-            hull[k++] = p
-        }
-        // hull[0..k-2] is the hull; hull[k-1] repeats hull[0].
-        val out = FloatArray((k - 1) * 2)
-        for (i in 0 until k - 1) {
-            out[2 * i] = points[2 * hull[i]]
-            out[2 * i + 1] = points[2 * hull[i] + 1]
-        }
-        return out
-    }
-
-    // ── frame helpers ───────────────────────────────────────────────────────
-
-    /** The vertical-Line rule on the frame's own local sizes (pinned to
-     *  [VERTICAL_MIN_ASPECT] like the axis-aligned `isVerticalBox`). */
-    fun isVertical(quad: JpDictQuad): Boolean =
-        quad.localHeight >= quad.localWidth * VERTICAL_MIN_ASPECT
-
-    /** Clockwise degrees the overlay must rotate this frame's glyphs by:
-     *  the reading axis' angle away from the upright axis (x for horizontal
-     *  Lines, y for vertical ones). The sign matches `View.rotation` and
-     *  `Canvas.rotate` (positive = clockwise). */
-    fun tiltDeg(quad: JpDictQuad): Float = if (isVertical(quad)) {
-        val y = quad.yAxis
-        atan2(-y.x, y.y) * RAD_TO_DEG
-    } else {
-        val x = quad.xAxis
-        atan2(x.y, x.x) * RAD_TO_DEG
-    }
-
-    /** DB unclip on the frame's own axes: grow both local axes by
-     *  `localArea × ratio / localPerimeter` per side. The axis-aligned path
-     *  does exactly this on the min/max box; the rotated path does it on the
-     *  fitted rect, so the expansion follows the rotation. */
-    fun unclip(quad: JpDictQuad, ratio: Float): JpDictQuad {
-        val w = quad.localWidth
-        val h = quad.localHeight
-        if (w <= EPS || h <= EPS) return quad
-        val expand = w * h * ratio / (2f * (w + h))
-        return inset(quad, -expand, -expand)
-    }
-
-    /** Shrink (positive) or grow (negative) the frame along its local x/y
-     *  axes, corner-wise. Positive insets keep the centre. */
-    fun inset(quad: JpDictQuad, xInset: Float, yInset: Float): JpDictQuad {
-        val x = quad.xAxis
-        val y = quad.yAxis
-        return JpDictQuad(
-            QuadPoint(quad.c0.x + xInset * x.x + yInset * y.x, quad.c0.y + xInset * x.y + yInset * y.y),
-            QuadPoint(quad.c1.x - xInset * x.x + yInset * y.x, quad.c1.y - xInset * x.y + yInset * y.y),
-            QuadPoint(quad.c2.x - xInset * x.x - yInset * y.x, quad.c2.y - xInset * x.y - yInset * y.y),
-            QuadPoint(quad.c3.x + xInset * x.x - yInset * y.x, quad.c3.y + xInset * x.y - yInset * y.y),
-        )
-    }
-
-    /** The frame's enclosing axis-aligned rect, rounded to whole pixels. */
-    fun aabb(quad: JpDictQuad): JpDictRect = JpDictRect(
-        minOf(quad.c0.x, quad.c1.x, quad.c2.x, quad.c3.x).roundToInt(),
-        minOf(quad.c0.y, quad.c1.y, quad.c2.y, quad.c3.y).roundToInt(),
-        maxOf(quad.c0.x, quad.c1.x, quad.c2.x, quad.c3.x).roundToInt(),
-        maxOf(quad.c0.y, quad.c1.y, quad.c2.y, quad.c3.y).roundToInt(),
-    )
-
-    /** A box in the frame's local crop space as a source-space AABB: map the
-     *  four local corners through the frame (origin `c0`, axes [JpDictQuad.xAxis]/
-     *  [JpDictQuad.yAxis]) and take the enclosing rect. The default
-     *  (axis-aligned) frame maps one-to-one, so upright char boxes are
-     *  untouched. */
-    fun mapLocalRect(quad: JpDictQuad, local: JpDictRect): JpDictRect {
-        val x = quad.xAxis
-        val y = quad.yAxis
-        val lx0 = local.left.toFloat()
-        val lx1 = local.right.toFloat()
-        val ly0 = local.top.toFloat()
-        val ly1 = local.bottom.toFloat()
-        fun px(lx: Float, ly: Float) = quad.c0.x + lx * x.x + ly * y.x
-        fun py(lx: Float, ly: Float) = quad.c0.y + lx * x.y + ly * y.y
-        val p0x = px(lx0, ly0)
-        val p0y = py(lx0, ly0)
-        val p1x = px(lx1, ly0)
-        val p1y = py(lx1, ly0)
-        val p2x = px(lx1, ly1)
-        val p2y = py(lx1, ly1)
-        val p3x = px(lx0, ly1)
-        val p3y = py(lx0, ly1)
-        return JpDictRect(
-            minOf(p0x, p1x, p2x, p3x).roundToInt(),
-            minOf(p0y, p1y, p2y, p3y).roundToInt(),
-            maxOf(p0x, p1x, p2x, p3x).roundToInt(),
-            maxOf(p0y, p1y, p2y, p3y).roundToInt(),
-        )
-    }
-
-    // ── blob filtering ──────────────────────────────────────────────────────
-
-    /** An enclosed frame counts as a smaller Line only when it is at most this
-     *  fraction of the enclosing frame's area. */
-    private const val ENCLOSED_AREA_FRACTION = 0.6f
-
-    /** ...and only when it is this elongated — detached marks (dakuten, mask
-     *  crumbs) inside a Line's frame are not Lines. */
-    private const val ENCLOSED_MIN_ASPECT = 2f
-
-    /** How many enclosed Lines make the enclosing frame a blob. */
-    private const val ENCLOSED_MIN_COUNT = 2
+    /** PC vertical-orientation threshold, read from `jpdict_core`. */
+    val VERTICAL_MIN_ASPECT: Float = rotatedGeometryVerticalMinAspect()
 
     /**
-     * Drop fitted frames that enclose several smaller, Line-shaped frames.
+     * Widened axis-aligned bound in degrees for a frame whose long side is
+     * [longSide] px: `max(tolDeg, atan(1.5px / longSide))`.
+     */
+    fun axisAlignedBoundDeg(longSide: Float, tolDeg: Float = AXIS_ALIGNED_TOL_DEG): Float =
+        rotatedGeometryAxisAlignedBoundDeg(longSide, tolDeg)
+
+    /**
+     * Fit the minimum-area rectangle to [count] interleaved x,y points.
+     * Returns null for a degenerate point set.
+     */
+    fun fitQuad(points: FloatArray, count: Int): JpDictQuad? =
+        rotatedGeometryFitQuad(points.toList(), count.toLong())?.toQuad()
+
+    /** The frame's local-height/local-width vertical rule. */
+    fun isVertical(quad: JpDictQuad): Boolean =
+        rotatedGeometryIsVertical(quad.toRust())
+
+    /** Clockwise rotation of the frame, in the same y-down sign as before. */
+    fun tiltDeg(quad: JpDictQuad): Float =
+        rotatedGeometryTiltDeg(quad.toRust())
+
+    /** Grow both local axes by the DB unclip amount. */
+    fun unclip(quad: JpDictQuad, ratio: Float): JpDictQuad =
+        rotatedGeometryUnclip(quad.toRust(), ratio).toQuad()
+
+    /** Shrink (positive) or grow (negative) along the frame's local axes. */
+    fun inset(quad: JpDictQuad, xInset: Float, yInset: Float): JpDictQuad =
+        rotatedGeometryInset(quad.toRust(), xInset, yInset).toQuad()
+
+    /**
+     * The frame's enclosing axis-aligned rectangle, rounded to whole pixels.
+     * The Rust `BoundingBox` origin-plus-extent shape is converted to edges in
+     * the same way as [mapLocalRect], so a whole-frame result agrees exactly.
+     */
+    fun aabb(quad: JpDictQuad): JpDictRect =
+        rotatedGeometryAabb(quad.toRust()).toRect()
+
+    /** Map a local crop rectangle into source pixels as an enclosing AABB. */
+    fun mapLocalRect(quad: JpDictQuad, local: JpDictRect): JpDictRect =
+        rotatedGeometryMapLocalRect(quad.toRust(), local.toRust()).toRect()
+
+    /**
+     * Drop frames enclosing several smaller, line-shaped frames.
      *
-     * The DB mask can merge neighbouring Lines into one connected component
-     * (dense leading, camera blur, low contrast), and that component's
-     * minimum-area rectangle is a large blob covering the Lines inside it —
-     * while those Lines arrive as their own smaller fits. The blob is the false
-     * positive here, so remove any frame that contains the centres of at least
-     * [ENCLOSED_MIN_COUNT] other frames which are both substantially smaller
-     * ([ENCLOSED_AREA_FRACTION]) and elongated like a text Line
-     * ([ENCLOSED_MIN_ASPECT]). Upright Lines are never affected (the default
-     * path does not call this).
+     * The Rust filter returns newly reconstructed corner values. The facade
+     * uses its index-preserving companion here so the old Kotlin contract —
+     * returning the original objects and their exact float bits — remains true.
      */
     fun filterEnclosingBlobs(quads: List<JpDictQuad>): List<JpDictQuad> {
-        if (quads.size <= ENCLOSED_MIN_COUNT) return quads
-        val areas = FloatArray(quads.size) { quads[it].localWidth * quads[it].localHeight }
-        return quads.filterIndexed { i, quad ->
-            var enclosed = 0
-            for (j in quads.indices) {
-                if (i == j || areas[j] >= areas[i] * ENCLOSED_AREA_FRACTION) continue
-                val inner = quads[j]
-                val w = inner.localWidth
-                val h = inner.localHeight
-                if (maxOf(w, h) < ENCLOSED_MIN_ASPECT * minOf(w, h)) continue
-                if (!containsPoint(quad, inner.center)) continue
-                if (++enclosed >= ENCLOSED_MIN_COUNT) return@filterIndexed false
-            }
-            true
-        }
+        // The PC filter's <=2 identity guard; keep the original list (and its
+        // object identity) for this boundary case.
+        if (quads.size <= 2) return quads
+        val indices = rotatedGeometryFilterEnclosingBlobsIndices(quads.map { it.toRust() })
+        return indices.mapNotNull { index -> quads.getOrNull(index.toInt()) }
     }
 
-    /** True when [p] lies inside the frame, tested on the frame's own axes. */
-    private fun containsPoint(quad: JpDictQuad, p: QuadPoint): Boolean {
-        val x = quad.xAxis
-        val y = quad.yAxis
-        val dx = p.x - quad.c0.x
-        val dy = p.y - quad.c0.y
-        val lx = dx * x.x + dy * x.y
-        val ly = dx * y.x + dy * y.y
-        return lx >= 0f && lx <= quad.localWidth && ly >= 0f && ly <= quad.localHeight
-    }
-
-    // ── small vector helpers ────────────────────────────────────────────────
-
+    /** Distance helper retained for `JpDictQuad`'s derived local dimensions. */
     internal fun distance(a: QuadPoint, b: QuadPoint): Float = hypot(b.x - a.x, b.y - a.y)
 
+    /** Unit-vector helper retained for `JpDictQuad`'s derived local axes. */
     internal fun unit(a: QuadPoint, b: QuadPoint): QuadPoint {
         val dx = b.x - a.x
         val dy = b.y - a.y
         val len = hypot(dx, dy)
-        return if (len <= EPS) QuadPoint(0f, 0f) else QuadPoint(dx / len, dy / len)
+        return if (len <= 1e-6f) QuadPoint(0f, 0f) else QuadPoint(dx / len, dy / len)
     }
+
+    private fun QuadPoint.toRust(): RustPoint = RustPoint(x, y)
+
+    private fun RustPoint.toPoint(): QuadPoint = QuadPoint(x, y)
+
+    private fun JpDictQuad.toRust(): RustQuad = RustQuad(
+        c0 = c0.toRust(),
+        c1 = c1.toRust(),
+        c2 = c2.toRust(),
+        c3 = c3.toRust(),
+    )
+
+    private fun RustQuad.toQuad(): JpDictQuad = JpDictQuad(
+        c0 = c0.toPoint(),
+        c1 = c1.toPoint(),
+        c2 = c2.toPoint(),
+        c3 = c3.toPoint(),
+    )
+
+    private fun JpDictRect.toRust(): RustRect = RustRect(left, top, right, bottom)
+
+    private fun RustRect.toRect(): JpDictRect = JpDictRect(left, top, right, bottom)
 }

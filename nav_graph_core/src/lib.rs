@@ -35,7 +35,9 @@ mod kana_size;
 mod kanji_variants;
 mod oov_candidates;
 mod oov_suggestions;
+mod ocr_engine;
 mod pitch;
+mod rotated_geometry;
 mod ruby_style;
 
 /// Bounding box for a detected character.
