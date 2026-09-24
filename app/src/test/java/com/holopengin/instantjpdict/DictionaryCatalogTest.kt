@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.nav_graph_core.catalogEntries
 
 /**
  * #71: the bundled dictionary catalog, asserted against the shipped asset
@@ -21,6 +22,24 @@ class DictionaryCatalogTest {
 
     private val json: String by lazy { TestAssets.assetsFile(DictionaryCatalog.ASSET).readText() }
     private val entries by lazy { DictionaryCatalog.parse(json) }
+
+    @Test
+    fun the_shipped_asset_matches_the_core_catalog() {
+        val core = catalogEntries()
+        assertEquals(core.map { it.id }, entries.map { it.id })
+        assertEquals(core.size, entries.size)
+        core.zip(entries).forEach { (fromCore, fromAsset) ->
+            assertEquals(fromCore.name, fromAsset.name)
+            assertEquals(fromCore.description, fromAsset.description)
+            assertEquals(fromCore.url, fromAsset.url)
+            assertEquals(fromCore.bytes, fromAsset.bytes)
+            assertEquals(fromCore.sha256, fromAsset.sha256)
+            assertEquals(fromCore.title, fromAsset.title)
+            assertEquals(fromCore.recommended, fromAsset.recommended)
+            assertEquals(fromCore.license, fromAsset.license)
+            assertEquals(fromCore.source, fromAsset.source)
+        }
+    }
 
     @Test
     fun the_catalog_ships_the_dictionaries_the_feature_promises() {

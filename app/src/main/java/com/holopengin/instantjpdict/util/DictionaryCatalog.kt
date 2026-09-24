@@ -1,7 +1,9 @@
 package com.holopengin.instantjpdict.util
 
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import uniffi.nav_graph_core.CatalogEntryRecord
+import uniffi.nav_graph_core.catalogBaseTitle
+import uniffi.nav_graph_core.catalogInstalledIds
+import uniffi.nav_graph_core.catalogParse
 import java.util.Locale
 
 /**
@@ -9,13 +11,15 @@ import java.util.Locale
  *
  * The catalog is a STATIC asset (`catalog/dictionaries.json`) — no remote
  * catalog service — so this type and [DictionaryCatalog] hold only the reading
- * side and no Android types, which keeps them JVM-unit-testable.
+ * side and no Android types, which keeps them JVM-unit-testable.  The rows,
+ * parser, and installed-state rules are owned by `jpdict_core`; this facade
+ * only maps the exported records onto the app's existing data class.
  *
- * A "dictionary" here is one downloadable artifact: a Yomitan-format zip fetched
- * from a pinned upstream URL ([url]), integrity-checked against [bytes] and
- * [sha256], then handed to `DictionaryImporter`. Dictionaries already bundled in
- * the APK (the Kanjium pitch accents, #43) are not listed — they are installed
- * at first launch and need no catalog row.
+ * A "dictionary" here is one downloadable artifact: a Yomitan-format zip
+ * fetched from a pinned upstream URL ([url]), integrity-checked against [bytes]
+ * and [sha256], then handed to `DictionaryImporter`. Dictionaries already
+ * bundled in the APK (the Kanjium pitch accents, #43) are not listed — they
+ * are installed at first launch and need no catalog row.
  */
 data class CatalogEntry(
     /** Stable catalog id, e.g. `jmdict-english`. */
@@ -97,12 +101,12 @@ data class CatalogEntry(
 data class InstalledDictionary(val name: String, val catalogId: String? = null)
 
 /**
- * The bundled catalog: parsing, validation and installed-state resolution.
+ * The bundled catalog facade.
  *
- * [parse] is strict on purpose. These URLs are pinned to a dated release and a
- * SHA-256; an entry that is missing a pin, or that points at `/releases/latest/`
- * (a moving target that would silently defeat the hash), is a bug in the asset,
- * not something to paper over at runtime.
+ * Parsing, validation, title normalization, and installed-state resolution are
+ * delegated to `jpdict_core` through the generated UniFFI surface. The
+ * `ASSET` path remains available as the parity-test fixture/licence reference;
+ * the rows exposed to the app are produced by the core's canonical parser.
  */
 object DictionaryCatalog {
 
@@ -112,62 +116,13 @@ object DictionaryCatalog {
     /** The schema version this reader understands. */
     const val SCHEMA = 1
 
-    private val SHA256 = Regex("^[0-9a-f]{64}$")
-
-    fun parse(json: String): List<CatalogEntry> {
-        val root = JsonParser.parseString(json)
-        require(root.isJsonObject) { "$ASSET: top level must be an object" }
-        val obj = root.asJsonObject
-        val schema = obj.int("schema") ?: error("$ASSET: missing `schema`")
-        require(schema == SCHEMA) { "$ASSET: schema $schema is not the supported $SCHEMA" }
-        val array = obj.get("entries")
-        require(array != null && array.isJsonArray) { "$ASSET: missing `entries` array" }
-        val entries = array.asJsonArray.mapIndexed { i, element ->
-            require(element.isJsonObject) { "$ASSET: entry $i is not an object" }
-            entry(element.asJsonObject, i)
-        }
-        require(entries.isNotEmpty()) { "$ASSET: lists no dictionaries" }
-        val dupes = entries.groupBy { it.id }.filterValues { it.size > 1 }.keys
-        require(dupes.isEmpty()) { "$ASSET: duplicate ids: ${dupes.joinToString()}" }
-        return entries
-    }
-
-    private fun entry(o: JsonObject, index: Int): CatalogEntry {
-        fun where(field: String) = "$ASSET: entry $index (`${o.string("id") ?: "?"}`) $field"
-        fun required(field: String): String =
-            o.string(field) ?: error(where("is missing `$field`"))
-
-        val id = required("id")
-        val name = required("name")
-        val description = required("description")
-        val license = required("license")
-        val source = required("source")
-        val title = required("title")
-        val bytes = o.long("bytes") ?: error(where("is missing `bytes`"))
-        require(bytes > 0) { where("must have a positive `bytes`") }
-        val sha256 = required("sha256")
-        require(SHA256.matches(sha256)) { where("`sha256` is not 64 lowercase hex chars: $sha256") }
-        val url = required("url")
-        require(url.startsWith("https://")) { where("`url` is not https: $url") }
-        require(!url.contains("/releases/latest/")) {
-            where("`url` points at /releases/latest/, which moves; pin a dated release: $url")
-        }
-        val recommended = o.get("recommended")
-            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
-            ?.asBoolean ?: false
-        return CatalogEntry(
-            id = id,
-            name = name,
-            description = description,
-            license = license,
-            source = source,
-            title = title,
-            bytes = bytes,
-            sha256 = sha256,
-            recommended = recommended,
-            url = url,
-        )
-    }
+    /**
+     * Parse a catalog document with the core's strict parser and map its
+     * records onto the app-facing [CatalogEntry] shape.  The test fixture uses
+     * this entry point to prove that the shipped asset and the core agree.
+     */
+    fun parse(json: String): List<CatalogEntry> =
+        catalogParse(json).map { it.toCatalogEntry() }
 
     /**
      * The dictionary's stable title, with any bracketed revision stripped:
@@ -175,11 +130,7 @@ object DictionaryCatalog {
      * release date, so matching the family title is what lets an installed
      * dictionary be recognised across releases.
      */
-    fun baseTitle(name: String): String {
-        val trimmed = name.trim()
-        val bracket = trimmed.indexOf(" [")
-        return if (bracket > 0) trimmed.substring(0, bracket).trim() else trimmed
-    }
+    fun baseTitle(name: String): String = catalogBaseTitle(name)
 
     /**
      * The catalog ids that are installed.
@@ -187,30 +138,36 @@ object DictionaryCatalog {
      * A dictionary installed through the catalog is matched by its
      * [InstalledDictionary.catalogId]. A title-only install — the file picker,
      * or a dictionary installed before this column existed — cannot say which
-     * variant it is, so it resolves to the FIRST entry of its title family (the
-     * default). Two catalog entries may therefore share a title family (the two
-     * JMdict variants do), and only one of them ever reports installed, which is
-     * what makes them mutually exclusive in the UI.
+     * variant it is, so the core resolves it to the first entry of its title
+     * family (the default). Two catalog entries may therefore share a title
+     * family (the two JMdict variants do), and the same matching rules run on
+     * both desktop and Android.
+     *
+     * `entries` is retained for source compatibility with the pre-core facade;
+     * the shared core owns the canonical list used for the lookup.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun installedIds(
         entries: List<CatalogEntry>,
         installed: Collection<InstalledDictionary>,
     ): Set<String> {
-        val ids = mutableSetOf<String>()
-        installed.forEach { dictionary ->
-            val match = dictionary.catalogId?.let { id -> entries.firstOrNull { it.id == id } }
-                ?: entries.firstOrNull { it.title == baseTitle(dictionary.name) }
-            match?.let { ids += it.id }
-        }
-        return ids
+        val rows = installed.toList()
+        return catalogInstalledIds(
+            rows.map { it.name },
+            rows.map { it.catalogId },
+        ).toSet()
     }
-
-    private fun JsonObject.string(key: String): String? =
-        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
-
-    private fun JsonObject.int(key: String): Int? =
-        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt
-
-    private fun JsonObject.long(key: String): Long? =
-        get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 }
+
+private fun CatalogEntryRecord.toCatalogEntry(): CatalogEntry = CatalogEntry(
+    id = id,
+    name = name,
+    description = description,
+    license = license,
+    source = source,
+    title = title,
+    bytes = bytes,
+    sha256 = sha256,
+    recommended = recommended,
+    url = url,
+)
