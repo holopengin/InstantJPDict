@@ -90,11 +90,6 @@ class KanaSizeNcnn private constructor(private val handle: Long) {
         private const val TAG = "KanaSizeNcnn"
         const val WINDOW_BYTES = KanaSizeEncoder.WINDOW_BYTES   // 40
 
-        /** Probability the pair is the *big* form, from the logit. The one sigmoid in
-         *  the project (#86/C1): [com.holopengin.instantjpdict.util.KanaSizeFix] used
-         *  to carry a private copy of this formula. */
-        fun probBig(logit: Float): Float = 1f / (1f + kotlin.math.exp(-logit).toFloat())
-
         private const val PARAM_ASSET = "kana_size/nb_all.param"
         private const val BIN_ASSET = "kana_size/nb_all.bin"
         private const val PARAM_FILE = "kana_size.param"
