@@ -15,6 +15,10 @@ import com.holopengin.instantjpdict.util.BookmarkCandidate
 import com.holopengin.instantjpdict.util.Definitions
 import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import com.google.gson.JsonParser
+import com.google.gson.JsonPrimitive
 import uniffi.nav_graph_core.*
 
 data class LineResult(
@@ -1145,258 +1149,70 @@ class OcrOverlayStateController {
         )
     }
 
-    private fun getAttr(data: Map<*, *>, key: String) = 
-        (data["data"] as? Map<*, *>)?.get(key) as? String ?: data["data-$key"] as? String ?: data[key] as? String
-
     /**
-     * #88: the `data-content` classes that are structural blocks rather than
-     * inline text. A block never gets a comma spliced in front of it, and its
-     * own children keep their own layout. Verified against the Jitendex
-     * 2026.08.11.0 term banks (`sense-group`, `forms`, `extra-info`, `xref`,
-     * `antonym`, `sense-note`, `info-gloss`, `lang-source`, examples) plus the
-     * `sense` wrapper both Jitendex and some JMdict builds emit.
+     * JSON codec for the definition-format shim calls below. Separate from the
+     * nullable service-supplied [gson]: unit tests construct this controller
+     * with no arguments and call [parseDefinition] directly.
      */
-    private val blockContentClasses = setOf(
-        "sense-groups", "sense-group", "sense",
-        "forms", "extra-info",
-        "example-sentence", "xref", "antonym", "related",
-        "sense-note", "info-gloss", "lang-source", "attribution", "graphic",
-    )
+    private val parseCodec = Gson()
 
     /**
-     * #88 follow-up: Jitendex's `extra-info` boxes (cross reference, antonym,
-     * related, usage note, source language). Each must render as its own line.
-     * Without this they parse to inline text and are concatenated onto the
-     * sense's glossary — "inside the baySee also 湾外 …".
-     */
-    private val boxedContentClasses = setOf(
-        "xref", "antonym", "related", "sense-note", "info-gloss", "lang-source",
-    )
-
-    /**
-     * #88: `data-content` values that stay inline even when carried by a
-     * `ul`/`ol` — a bullet list of glosses reads as a comma-joined sentence.
-     * The set is the pre-#88 list, kept as-is so JMdict's existing layout does
-     * not shift; everything else in a list is a block.
-     */
-    private val inlineListClasses = setOf(
-        "glossary", "infoGlossary", "sourceLanguages", "info-gloss", "sense-note",
-    )
-
-    /**
-     * #88: Jitendex renders a valid/invalid/rare form cell as a `td` whose
-     * class carries the marker and whose only child is an empty tooltip span.
-     * These glyphs are the ones upstream's own `styles.css` draws, so the forms
-     * table reads the same in the app as it does in Yomitan.
-     */
-    private val formMarkers = mapOf(
-        "form-valid" to "◇",
-        "form-rare" to "▽",
-        "form-pri" to "★",
-        "form-irr" to "✕",
-        "form-out" to "古",
-        "form-old" to "旧",
-    )
-
-    /**
-     * #88: true only for an actual example container. The old test matched any
-     * `data-content` containing "example", which also caught Jitendex's
-     * `example-sentence-a`/`-b` divisors and `example-keyword` spans and wrapped
-     * each in its own nested box; matching the container exactly lets the
-     * sub-parts render as the sentence they are.
-     */
-    private fun isExample(data: Map<*, *>): Boolean {
-        val scContent = getAttr(data, "content")
-        return data["type"] == "sentence" || data["type"] == "example" ||
-            data.containsKey("japanese") ||
-            scContent == "example-sentence" || scContent == "examples" ||
-            getAttr(data, "class")?.contains("example") == true
-    }
-
-    private fun isBlock(item: Any?): Boolean {
-        if (item is List<*>) return item.any { isBlock(it) }
-        val data = item as? Map<*, *> ?: return false
-        if (isExample(data)) return true
-
-        val tag = data["tag"] as? String
-        val scContent = getAttr(data, "content")
-
-        if (tag == "table") return true
-        // Lists are blocks unless they are one of the inline gloss/reference
-        // enumerations; that decision is made before the block-class check so a
-        // `ul[data-content=sense-note]` keeps its pre-#88 inline treatment.
-        if (tag == "ul" || tag == "ol") return scContent !in inlineListClasses
-        if (scContent != null && scContent in blockContentClasses) return true
-
-        val content = data["content"] ?: data["list"]
-        return content != null && isBlock(content)
-    }
-
-    private fun isInlineNode(node: DefinitionNode): Boolean {
-        return node is DefinitionNode.Text || node is DefinitionNode.Ruby || node is DefinitionNode.Tag
-    }
-
-    /**
-     * #88: split a Jitendex example box into its Japanese and English parts, so
-     * the renderer can lay each out as its own line. Returns null when the box
-     * does not have that shape (falls back to the generic content walk).
-     */
-    private fun exampleParts(content: Any?): List<List<DefinitionNode>>? {
-        val children = content as? List<*> ?: return null
-        val parts = children.mapNotNull { child ->
-            val map = child as? Map<*, *> ?: return@mapNotNull null
-            when (getAttr(map, "content")) {
-                "example-sentence-a" -> parseDefinition(map["content"], separator = "")
-                "example-sentence-b" -> parseDefinition(map["content"], separator = "")
-                else -> null
-            }
-        }
-        return parts.takeIf { it.isNotEmpty() }
-    }
-
-    /**
-     * #88: turn Yomitan structured content into [DefinitionNode]s.
+     * #88: turn Yomitan structured content into [DefinitionNode]s — via the
+     * single-sourced walker in `jpdict_core::definition_format` (package 04).
+     * The Gson-parsed [data] is serialised back to JSON for the shim, which
+     * returns the walked nodes as JSON; [nodeFromJson] maps that JSON into
+     * the existing model. The mapping is presentation-only — no walker lives
+     * on this side.
      *
      * [separator] is spliced between adjacent inline siblings: `", "` joins a
      * gloss list, `"\n"` separates a JMdict example's Japanese/English lines,
-     * and `""` concatenates the fragments of one sentence (a Jitendex example
-     * is a sequence of ruby/string pieces that must not gain punctuation). The
-     * walker fails open: an unknown tag, a malformed ruby and an unshaped table
-     * all render their content rather than dropping the node — and with it the
-     * sense.
+     * and `""` concatenates the fragments of one sentence. The walker fails
+     * open, as before.
      */
     internal fun parseDefinition(data: Any?, separator: String = ", "): List<DefinitionNode> {
-        val nodes = mutableListOf<DefinitionNode>()
-        when (data) {
-            is String -> {
-                // Remove internal newlines to allow normal wrapping for long definitions.
-                val replaced = data.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
-                    .replace(";", "; ").replace(";  ", "; ")
-                val trimmed = replaced.trim().replace(Regex("\\s+"), " ")
-                if (trimmed.isNotEmpty()) {
-                    nodes.add(DefinitionNode.Text(trimmed))
-                }
-            }
-            is List<*> -> {
-                data.forEach { item ->
-                    val itemNodes = parseDefinition(item, separator)
-                    if (itemNodes.isNotEmpty()) {
-                        // Attach the separator to the PREVIOUS text node where
-                        // possible, so it cannot wrap onto a line of its own.
-                        if (nodes.isNotEmpty() && separator.isNotEmpty() && !isBlock(item)) {
-                            val last = nodes.last()
-                            val first = itemNodes.first()
-                            if (isInlineNode(last) && isInlineNode(first)) {
-                                // #88: a ruby run is one word or sentence, not
-                                // an enumeration — never splice a separator
-                                // between its pieces (the xref 湾外 must not
-                                // render "湾, 外").
-                                val glue = if (last is DefinitionNode.Ruby || first is DefinitionNode.Ruby) "" else separator
-                                if (glue.isNotEmpty()) {
-                                    if (last is DefinitionNode.Text) {
-                                        nodes[nodes.size - 1] = DefinitionNode.Text(last.text + glue)
-                                    } else {
-                                        nodes.add(DefinitionNode.Text(glue))
-                                    }
-                                }
-                            }
-                        }
-                        nodes.addAll(itemNodes)
-                    }
-                }
-            }
-            is Map<*, *> -> {
-                val tag = data["tag"] as? String
-                val content = data["content"] ?: data["list"]
-                val scContent = getAttr(data, "content")
-                val scClass = getAttr(data, "class")
+        val out = definitionFormatParse(parseCodec.toJson(data), separator)
+        return (JsonParser.parseString(out) as? JsonArray)
+            ?.map { nodeFromJson(it) }.orEmpty()
+    }
 
-                when {
-                    // #88 follow-up: the source line that closes a Jitendex
-                    // entry; rendered as a faint citation, not definition text.
-                    contentClass(data) == "attribution" -> {
-                        nodes.add(DefinitionNode.Citation(citationText(content)))
-                    }
-                    isExample(data) -> {
-                        val jp = (data["japanese"] as? String) ?: (content as? String)
-                        val en = data["english"] as? String
-                        if (jp != null) {
-                            nodes.add(DefinitionNode.Example(jp, en, null))
-                        } else {
-                            val parts = exampleParts(content)
-                            if (parts != null) {
-                                nodes.add(DefinitionNode.Example(null, null, null, parts))
-                            } else {
-                                nodes.add(DefinitionNode.Example(null, null, parseDefinition(content, separator = "\n")))
-                            }
-                        }
-                    }
-                    // Jitendex marks form validity on the cell itself; the only
-                    // child is an empty tooltip span, so emit the glyph upstream
-                    // draws in its place.
-                    scClass != null && formMarkers.containsKey(scClass) -> {
-                        nodes.add(DefinitionNode.Text(formMarkers.getValue(scClass)))
-                    }
-                    scClass == "tag" && content is String -> {
-                        nodes.add(DefinitionNode.Tag(content))
-                    }
-                    tag == "span" && scContent?.endsWith("-info") == true -> {
-                        nodes.add(DefinitionNode.Tag(content?.toString() ?: ""))
-                    }
-                    tag == "ruby" -> {
-                        val rubyList = content as? List<*>
-                        if (rubyList != null && rubyList.size >= 2) {
-                            nodes.add(DefinitionNode.Ruby(rubyList[0].toString(), (rubyList[1] as? Map<*, *>)?.get("content")?.toString() ?: "", isMini = true))
-                        } else if (content != null) {
-                            // Fail open: a malformed ruby still shows its content.
-                            nodes.addAll(parseDefinition(content, separator))
-                        }
-                    }
-                    tag == "table" -> {
-                        // Rows -> cells, real content this time (#88). Each cell
-                        // is itself structured content, so a cell can carry ruby.
-                        val rows = (content as? List<*>)?.map { row ->
-                            val cells = (row as? Map<*, *>)?.get("content") ?: row
-                            (cells as? List<*>)?.map { cell ->
-                                // Parse the whole cell, not just its content, so
-                                // a form-validity class on the `td` is seen.
-                                parseDefinition(cell, separator)
-                            } ?: emptyList()
-                        } ?: emptyList()
-                        if (rows.isNotEmpty()) {
-                            nodes.add(DefinitionNode.Table(rows))
-                        } else if (content != null) {
-                            // Fail open: an unshaped table still shows its content.
-                            nodes.addAll(parseDefinition(content, separator))
-                        }
-                    }
-                    tag == "ul" || tag == "ol" -> {
-                        if (scContent in inlineListClasses) {
-                            nodes.addAll(parseDefinition(content, separator))
-                        } else {
-                            val items = (content as? List<*>)?.map { parseDefinition(it, separator) } ?: emptyList()
-                            if (items.isNotEmpty()) {
-                                nodes.add(DefinitionNode.ListBlock(items, scContent))
-                            } else if (content != null) {
-                                nodes.addAll(parseDefinition(content, separator))
-                            }
-                        }
-                    }
-                    // #88 follow-up: an extra-info box gets a block of its own,
-                    // so it starts a new line instead of being spliced into the
-                    // sense's inline text run.
-                    scContent != null && scContent in boxedContentClasses -> {
-                        val inner = parseDefinition(content, separator)
-                        if (inner.isNotEmpty()) {
-                            nodes.add(DefinitionNode.Group(inner, isInline = false))
-                        }
-                    }
-                    // Fail open: any other tag contributes its content.
-                    content != null -> nodes.addAll(parseDefinition(content, separator))
-                }
-            }
+    /**
+     * Map one `DefinitionNodeJson` object (see
+     * `jpdict_core::definition_format::DefinitionNodeJson`; `kind` selects the
+     * variant) into the existing [DefinitionNode] model. Reads the Gson tree
+     * directly — no reflective DTO, so nothing needs an R8 keep rule.
+     */
+    private fun nodeFromJson(el: JsonElement): DefinitionNode {
+        val o = el.asJsonObject
+        fun s(name: String): String? =
+            (o.get(name) as? JsonPrimitive)?.takeIf { it.isString }?.asString
+        fun nodes(name: String): List<DefinitionNode> =
+            (o.get(name) as? JsonArray)?.map { nodeFromJson(it) }.orEmpty()
+        fun nested(name: String): List<List<DefinitionNode>> =
+            (o.get(name) as? JsonArray)
+                ?.map { inner -> (inner as JsonArray).map { nodeFromJson(it) } }
+                .orEmpty()
+        return when ((o.get("kind") as? JsonPrimitive)?.asString) {
+            "ruby" -> DefinitionNode.Ruby(s("term").orEmpty(), s("reading").orEmpty(), isMini = true)
+            "tag" -> DefinitionNode.Tag(s("text").orEmpty())
+            "citation" -> DefinitionNode.Citation(s("text").orEmpty())
+            "example" -> DefinitionNode.Example(
+                s("japanese"),
+                s("english"),
+                (o.get("content") as? JsonArray)?.map { nodeFromJson(it) },
+                nested("parts"),
+            )
+            "list" -> DefinitionNode.ListBlock(nested("items"), s("list_type"))
+            "table" -> DefinitionNode.Table(
+                (o.get("rows") as? JsonArray)
+                    ?.map { row -> (row as JsonArray).map { cell -> (cell as JsonArray).map { nodeFromJson(it) } } }
+                    .orEmpty(),
+            )
+            "group" -> DefinitionNode.Group(
+                nodes("nodes"),
+                (o.get("is_inline") as? JsonPrimitive)?.asBoolean == true,
+            )
+            else -> DefinitionNode.Text(s("text").orEmpty())
         }
-        return nodes
     }
 
     /** #88: one Jitendex `sense-group` split for numbering. */
@@ -1407,13 +1223,16 @@ class OcrOverlayStateController {
     )
 
     /**
-     * #88: a row's glossary, split for numbering.
+     * #88: a row's glossary, split for numbering — via
+     * `jpdict_core::definition_format` (package 04), mapped back into the
+     * model above.
      *
-     * JMdict/KANJIDIC rows carry one sense per row, so [structured] is false and
-     * [plain] is the whole row's node list — the pre-#88 behaviour. Jitendex
-     * rows carry every sense in one glossary, so [structured] is true and
-     * [groups] holds each `sense-group`; [trailing] holds the non-sense blocks
-     * (the forms table, attribution) that must render unnumbered.
+     * JMdict/KANJIDIC rows carry one sense per row, so [ParsedGlossary.structured]
+     * is false and [ParsedGlossary.plain] is the whole row's node list.
+     * Jitendex rows carry every sense in one glossary, so [ParsedGlossary.structured]
+     * is true and [ParsedGlossary.groups] holds each `sense-group`;
+     * [ParsedGlossary.trailing] holds the non-sense blocks (the forms table,
+     * attribution) that must render unnumbered.
      */
     private class ParsedGlossary(
         val structured: Boolean,
@@ -1422,98 +1241,24 @@ class OcrOverlayStateController {
         val trailing: List<DefinitionNode>,
     )
 
-    /** Yomitan structured-content class on a node, or null. */
-    private fun contentClass(node: Any?): String? =
-        ((node as? Map<*, *>)?.get("data") as? Map<*, *>)?.get("content") as? String
-
-    /**
-     * The plain text of a Jitendex `attribution` block: its link labels joined
-     * in order (`JMdict`, or `JMdict | Tatoeba`). Links carry only a label and
-     * an href, so the label is what a citation shows.
-     */
-    private fun citationText(content: Any?): String {
-        val parts = mutableListOf<String>()
-        fun walk(node: Any?) {
-            when (node) {
-                is String -> parts.add(node)
-                is List<*> -> node.forEach { walk(it) }
-                is Map<*, *> -> walk(node["content"])
-                else -> Unit
-            }
-        }
-        walk(content)
-        return parts.joinToString("").trim().replace(Regex("\\s+"), " ")
-    }
-
     private fun parseGlossary(data: Any?): ParsedGlossary {
-        val groups = mutableListOf<ParsedSenseGroup>()
-        val trailing = mutableListOf<DefinitionNode>()
-
-        fun walk(node: Any?) {
-            when (node) {
-                is List<*> -> node.forEach { walk(it) }
-                is Map<*, *> -> when (contentClass(node)) {
-                    "sense-group" -> groups.add(splitSenseGroup(node))
-                    "sense" -> groups.add(ParsedSenseGroup(emptyList(), listOf(parseDefinition(node)), emptyList()))
-                    "forms", "attribution" -> trailing.addAll(parseDefinition(node))
-                    else -> walk(node["content"])
-                }
-                else -> Unit
-            }
-        }
-        walk(data)
-
-        return if (groups.isEmpty()) {
-            ParsedGlossary(
-                structured = false,
-                groups = emptyList(),
-                plain = parseDefinition(data),
-                trailing = emptyList(),
+        val root =
+            JsonParser.parseString(definitionFormatParseGlossary(parseCodec.toJson(data))).asJsonObject
+        fun nodeList(el: JsonElement?): List<DefinitionNode> =
+            (el as? JsonArray)?.map { nodeFromJson(it) }.orEmpty()
+        val groups = (root.get("groups") as? JsonArray)?.map { g ->
+            val go = g.asJsonObject
+            ParsedSenseGroup(
+                nodeList(go.get("header")),
+                ((go.get("senses") as? JsonArray)?.map { s -> nodeList(s) }).orEmpty(),
+                nodeList(go.get("trailing")),
             )
-        } else {
-            ParsedGlossary(structured = true, groups = groups, plain = emptyList(), trailing = trailing)
-        }
-    }
-
-    /**
-     * Split one Jitendex `sense-group` into its shared header (POS/field/misc
-     * info), one entry per `sense` child (each is numbered), and any forms or
-     * attribution block inside it. An unexpected shape falls back to the whole
-     * group as a single sense, so nothing is dropped.
-     */
-    private fun splitSenseGroup(senseGroup: Map<*, *>): ParsedSenseGroup {
-        val header = mutableListOf<DefinitionNode>()
-        val senses = mutableListOf<List<DefinitionNode>>()
-        val trailing = mutableListOf<DefinitionNode>()
-
-        fun walk(node: Any?) {
-            when (node) {
-                is List<*> -> node.forEach { walk(it) }
-                is Map<*, *> -> when (val cls = contentClass(node)) {
-                    "sense" -> senses.add(parseDefinition(node))
-                    "forms", "attribution" -> trailing.addAll(parseDefinition(node))
-                    null -> {
-                        // A wrapper node may carry its single child as an object
-                        // rather than a one-element array — Jitendex emits `ol`
-                        // with one `li[sense]` this way. Descend into either
-                        // shape; treating the object form as header copy put the
-                        // sense (and its example) in the unnumbered header and
-                        // then rendered it again as the fallback sense.
-                        val content = node["content"]
-                        if (content is List<*> || content is Map<*, *>) {
-                            walk(content)
-                        } else {
-                            header.addAll(parseDefinition(node))
-                        }
-                    }
-                    else -> header.addAll(parseDefinition(node))
-                }
-                else -> Unit
-            }
-        }
-        walk(senseGroup["content"])
-
-        if (senses.isEmpty()) senses.add(parseDefinition(senseGroup))
-        return ParsedSenseGroup(header, senses, trailing)
+        }.orEmpty()
+        return ParsedGlossary(
+            structured = (root.get("structured") as? JsonPrimitive)?.asBoolean == true,
+            groups = groups,
+            plain = nodeList(root.get("plain")),
+            trailing = nodeList(root.get("trailing")),
+        )
     }
 }

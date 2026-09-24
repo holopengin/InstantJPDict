@@ -1,11 +1,11 @@
 package com.holopengin.instantjpdict.util
 
-import com.google.gson.JsonElement
-import com.google.gson.JsonParser
 import com.holopengin.instantjpdict.data.Bookmark
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import uniffi.nav_graph_core.definitionFormatPlain
+import uniffi.nav_graph_core.definitionFormatPlainAll
 
 /**
  * #67: the stable identity of a bookmarked headword — glyph, reading, and the
@@ -61,60 +61,20 @@ object BookmarkSort {
  * punctuation that would be meaningless to a reader.
  *
  * A malformed blob falls back to the raw string rather than losing the senses.
+ *
+ * Since the definition-format swap this is a thin facade over the PC
+ * `jpdict_core` implementation (`core/src/definition_format.rs`, exposed
+ * through `nav_graph_core`'s UniFFI surface), so the flattening has one
+ * source of truth. The public API is unchanged.
  */
 object Definitions {
-    /**
-     * #88: structured-content keys that describe presentation, carry a link
-     * target or hold a tooltip — never the readable definition. The generic
-     * fallback below joins an object's values, and without this a Jitendex
-     * form cell (`<td class=form-valid><span title=…/></td>`) would export as
-     * "valid form/reading combination, span, form-valid".
-     */
-    private val NON_TEXT_KEYS = setOf(
-        "data", "href", "style", "path", "title",
-        "tag", "type", "lang", "class", "code", "id",
-    )
-
     /** One plain-text line per top-level sense; nested glosses join with ", ". */
-    fun plain(definitionsJson: String): String {
-        val root = runCatching { JsonParser.parseString(definitionsJson) }.getOrNull()
-            ?: return definitionsJson
-        if (root.isJsonArray) {
-            return root.asJsonArray
-                .mapNotNull { render(it)?.takeIf { s -> s.isNotBlank() } }
-                .joinToString("\n")
-        }
-        return render(root).orEmpty()
-    }
+    fun plain(definitionsJson: String): String =
+        definitionFormatPlain(definitionsJson)
 
     /** Several definition blobs (multiple entries in one dictionary block) as one blob of lines. */
     fun plainAll(definitionsJsonRows: List<String>): String =
-        definitionsJsonRows.flatMap { plain(it).lines() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("\n")
-
-    private fun render(el: JsonElement?): String? {
-        if (el == null || el.isJsonNull) return null
-        if (el.isJsonPrimitive) return el.asJsonPrimitive.asString
-        if (el.isJsonArray) {
-            return el.asJsonArray.mapNotNull { render(it) }
-                .filter { it.isNotBlank() }
-                .joinToString(", ")
-                .ifBlank { null }
-        }
-        // Object: prefer the content-bearing keys, else the values that are
-        // text rather than presentation/attribute noise.
-        val obj = el.asJsonObject
-        val content = obj.get("content") ?: obj.get("list") ?: obj.get("glossary")
-        if (content != null) return render(content)
-        return obj.entrySet()
-            .filter { (key, _) -> key !in NON_TEXT_KEYS }
-            .mapNotNull { (_, value) -> render(value) }
-            .filter { it.isNotBlank() }
-            .joinToString(", ")
-            .ifBlank { null }
-    }
+        definitionFormatPlainAll(definitionsJsonRows)
 }
 
 /**
