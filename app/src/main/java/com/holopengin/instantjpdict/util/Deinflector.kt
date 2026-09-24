@@ -34,7 +34,7 @@ data class DeinflectionChain(
  * returned record's `ruleTypes` field onto [DeinflectionResult.type], keeping
  * the API call sites already use.
  */
-class Deinflector private constructor(private val inner: RustDeinflector) {
+class Deinflector private constructor(internal val inner: RustDeinflector) {
     /** Parse the rule JSON behind [reader]. Malformed or unreadable rules yield
      *  an empty deinflector — the pre-swap swallow-to-empty behaviour. */
     constructor(reader: Reader) : this(load(reader))

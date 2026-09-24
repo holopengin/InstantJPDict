@@ -1,9 +1,6 @@
 package com.holopengin.instantjpdict
 
-import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.Deinflector
-import com.holopengin.instantjpdict.util.KanaOrthography
-import com.holopengin.instantjpdict.util.KanaSoundChanges
 import com.holopengin.instantjpdict.util.DeinflectionChain
 import com.holopengin.instantjpdict.util.DictionaryRedirects
 import com.holopengin.instantjpdict.util.OovCandidates
@@ -14,6 +11,8 @@ import com.holopengin.instantjpdict.util.PitchAccent
 import com.holopengin.instantjpdict.util.BookmarkCandidate
 import com.holopengin.instantjpdict.util.Definitions
 import com.holopengin.instantjpdict.data.DictionaryEntry
+import com.holopengin.instantjpdict.data.toEntity
+import com.holopengin.instantjpdict.data.toRow
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -849,72 +848,22 @@ class OcrOverlayStateController {
         followingText: String,
         deinflector: Deinflector
     ): Pair<Set<String>, List<Pair<Int, List<SearchCandidate>>>> {
-        val allTermsToSearch = mutableSetOf<String>()
-        val candidatesByLength = mutableListOf<Pair<Int, List<SearchCandidate>>>()
-
-        for (len in followingText.length downTo 1) {
-            val queryTextRaw = followingText.substring(0, len)
-            val queryText = JapaneseUtil.normalize(queryTextRaw)
-
-            // #75: pre-reform orthography. The modern form of the prefix is searched
-            // as one more variant — the raw prefix is still in the list, so this can
-            // only add a reachable headword, never take one away. Displayed text is
-            // untouched: only this query string is rewritten.
-            val modernised = KanaOrthography.modernise(queryText)
-            // #81: the historical sound changes JMdict's entry-local variants cannot
-            // reach (やう->よう, けふ->きょう, 思ふ->思う). Composed after #75, so
-            // きやう -> きゃう -> きょう; both forms stay in the candidate set, so
-            // nothing #75 reached is lost, and the raw prefix is still searched.
-            val soundChanged = KanaSoundChanges.modernise(modernised)
-
-            // The RAW prefix is searched alongside its folded form. The fold is a
-            // substitution, so folding alone replaced the queried form outright: an old
-            // form the head can emit (摑) resolved to the modern headword and the old
-            // form's OWN entries — a kanjidic row, a dictionary that indexes 摑 — were
-            // never looked up at all (#44). Searching both keeps the redirect *and* the
-            // entries the old form has in dictionaries that carry it.
-            val variants = listOf(
-                queryTextRaw,
-                queryText,
-                JapaneseUtil.katakanaToHiragana(queryText),
-                JapaneseUtil.collapseEmphatic(queryText),
-                modernised,
-                JapaneseUtil.katakanaToHiragana(modernised),
-                soundChanged,
-                JapaneseUtil.katakanaToHiragana(soundChanged)
-            ).distinct()
-
-            val deinflections = deinflector.deinflect(queryText)
-            // The deinflection rules are modern orthography (ちゃう, った, かった). A
-            // legacy surface has to be normalised before they can fire at all, so the
-            // modern form is deinflected as well — additive, like the variant above.
-            val modernisedDeinflections =
-                if (modernised != queryText) deinflector.deinflect(modernised) else emptyList()
-            val soundChangedDeinflections =
-                if (soundChanged != modernised) deinflector.deinflect(soundChanged) else emptyList()
-            val lengthCandidates = mutableListOf<SearchCandidate>()
-            variants.forEach { lengthCandidates.add(SearchCandidate(it, null, null)); allTermsToSearch.add(it) }
-            deinflections.forEach {
-                if (it.term != queryText && it.reasons.isNotEmpty()) {
-                    lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
-                    allTermsToSearch.add(it.term)
-                }
+        // Candidate preparation runs in jpdict_core; the facade passes its
+        // UniFFI-backed handle so Rust deinflects in-process (no callback
+        // round-trip per prefix).
+        val prepared = lookupPrepareCandidates(followingText, deinflector.inner)
+        val candidatesByLength = prepared.byLength.map { group ->
+            group.length.toInt() to group.candidates.map { candidate ->
+                SearchCandidate(
+                    term = candidate.term,
+                    requiredTypes = candidate.requiredTypes,
+                    chain = candidate.chain?.let {
+                        DeinflectionChain(it.surface, it.steps)
+                    },
+                )
             }
-            modernisedDeinflections.forEach {
-                if (it.term != modernised && it.reasons.isNotEmpty()) {
-                    lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
-                    allTermsToSearch.add(it.term)
-                }
-            }
-            soundChangedDeinflections.forEach {
-                if (it.term != soundChanged && it.reasons.isNotEmpty()) {
-                    lengthCandidates.add(SearchCandidate(it.term, it.type, DeinflectionChain(queryTextRaw, it.reasons)))
-                    allTermsToSearch.add(it.term)
-                }
-            }
-            candidatesByLength.add(len to lengthCandidates)
         }
-        return Pair(allTermsToSearch, candidatesByLength)
+        return prepared.terms.toSet() to candidatesByLength
     }
 
     fun processResults(
@@ -923,39 +872,36 @@ class OcrOverlayStateController {
         allTermsToSearch: Set<String>,
         followingText: String
     ): Pair<List<TermMatch>, Int> {
-        val resultsByTerm = mutableMapOf<String, MutableList<DictionaryEntry>>()
-        dbResults.forEach { entry ->
-            if (entry.kanji in allTermsToSearch) resultsByTerm.getOrPut(entry.kanji) { mutableListOf() }.add(entry)
-            if (entry.reading in allTermsToSearch) resultsByTerm.getOrPut(entry.reading) { mutableListOf() }.add(entry)
+        val prepared = PreparedLookupCandidates(
+            terms = allTermsToSearch.toList(),
+            byLength = candidatesByLength.map { (length, candidates) ->
+                LookupCandidateGroup(
+                    length = length.toLong(),
+                    candidates = candidates.map { candidate ->
+                        LookupSearchCandidate(
+                            term = candidate.term,
+                            requiredTypes = candidate.requiredTypes,
+                            chain = candidate.chain?.let {
+                                LookupDeinflectionChain(it.surface, it.steps)
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        val processed = lookupProcessResults(
+            rows = dbResults.map { it.toRow() },
+            prepared = prepared,
+            followingText = followingText,
+        )
+        val matches = processed.matches.map { match ->
+            TermMatch(
+                term = match.term,
+                entries = match.entries.map { it.toEntity() },
+                chain = match.chain?.let { DeinflectionChain(it.surface, it.steps) },
+            )
         }
-
-        val matches = mutableListOf<TermMatch>()
-        var maxLen = 0
-        for ((len, candidates) in candidatesByLength) {
-            var found = false
-            for ((term, requiredTypes, chain) in candidates) {
-                val termEntries = resultsByTerm[term] ?: continue
-                val filteredResults = if (requiredTypes == null) {
-                    val queryText = JapaneseUtil.normalize(followingText.substring(0, len))
-                    termEntries.filter { entry ->
-                        val isKanjiEntry = entry.onyomi != null || entry.kunyomi != null
-                        !isKanjiEntry || entry.kanji == queryText
-                    }
-                } else {
-                    termEntries.filter { entry ->
-                        val entryTags = entry.rules.split(" ")
-                        requiredTypes.isEmpty() || requiredTypes.any { it in entryTags } ||
-                                (entryTags.any { it.startsWith("v") } && requiredTypes.any { it.startsWith("v") })
-                    }
-                }
-                if (filteredResults.isNotEmpty()) {
-                    matches.add(TermMatch(term, filteredResults.distinctBy { it.id }, chain))
-                    found = true
-                }
-            }
-            if (found && maxLen == 0) maxLen = len
-        }
-        return matches.distinctBy { it.term } to maxLen
+        return matches to processed.maxLen.toInt()
     }
 
     fun resolveGamepadAction(keyCode: Int, layoutSwap: Boolean): GamepadAction {
