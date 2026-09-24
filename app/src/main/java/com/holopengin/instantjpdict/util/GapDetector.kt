@@ -1,7 +1,21 @@
 package com.holopengin.instantjpdict.util
 
+import com.holopengin.instantjpdict.JpDictRect
 import com.holopengin.instantjpdict.LineResult
-import kotlin.math.abs
+import uniffi.nav_graph_core.BoundingBox
+import uniffi.nav_graph_core.GapCell
+import uniffi.nav_graph_core.GapLine
+import uniffi.nav_graph_core.GapOverride
+import uniffi.nav_graph_core.GapResult
+import uniffi.nav_graph_core.blankGapDefaultHorizontalRatio
+import uniffi.nav_graph_core.blankGapDefaultTimestepStridePx
+import uniffi.nav_graph_core.blankGapDefaultVerticalRatio
+import uniffi.nav_graph_core.blankGapDetect
+import uniffi.nav_graph_core.blankGapDetectWith
+import uniffi.nav_graph_core.blankGapMedian
+import uniffi.nav_graph_core.blankGapMinEmittedChars
+import uniffi.nav_graph_core.blankGapTimestepBlankChar
+import uniffi.nav_graph_core.blankGapTimestepColumns
 
 /**
  * One detected deletion site on a recognised line (#44, plan Task 2.2).
@@ -13,7 +27,6 @@ import kotlin.math.abs
  *
  * @property insertAt the **character index in [LineResult.text]** the placeholder
  *   belongs at: the gap sits between `text[insertAt - 1]` and `text[insertAt]`.
- *   Feed it straight to `LineResult.withGapCharAt(insertAt, column)`.
  * @property ratio this pair's spacing divided by the line's own median spacing
  *   (scale-invariant: pixels and timesteps give the same number).
  * @property spanPx the pair's spacing in pixels; estimated from timesteps (and the
@@ -32,38 +45,11 @@ data class Gap(
 /**
  * Spacing-ratio detector for characters the recogniser dropped (#44, plan Task 2.2).
  *
- * ## Why per-orientation
- *
- * The trigger was measured separately for the two domains, and they are not the
- * same problem (M5 in `docs/ocr-oov-correction-plan.md`):
- *
- * | bench | deletion ratio | rule | recall | false rate |
- * |---|---|---|---|---|
- * | vertical (`vert_large`) | median 2.00 (p25 1.92) | ≥1.6 | **1.00** | **0.00%** |
- * | horizontal (trails ×2) | median 1.67 (p25 **1.00**) | ≥1.6 | 0.60 | 1.10% |
- * | horizontal | | ≥1.8 | 0.20 | 0.66% |
- *
- * A quarter of horizontal deletions leave *no* wider gap at all, so horizontal
- * can never be as good as vertical here, and the two thresholds differ. They are
- * **configurable constructor parameters** — never a hardcoded constant — because
- * the right point on the curve depends on whether a missed gap or a spurious
- * affordance is worse, and on the second signal (component agreement) that the
- * horizontal path needs before showing anything.
- *
- * ## Geometry
- *
- * Spacing is measured between adjacent **emitted** characters, in reading order:
- *
- *  1. **[LineResult.charBoxes] centres** (preferred) — `centerY` for vertical,
- *     `centerX` for horizontal. Spacings are already pixels.
- *  2. **[LineResult.charCols]** — the cached CTC timestep column per emitted
- *     character (#49). Used when `charBoxes` is empty/short; spacings are in
- *     timesteps and are converted with the crop length.
- *  3. **[LineResult.rawAlternatives]**, walked exactly as
- *     `OcrEngine.reDecodeLineResult` walks it — the last resort when neither
- *     geometry cache is populated (see [timestepColumns] for the assumptions).
- *
- * The ratio is scale-invariant, so the threshold carries across all three.
+ * Since the util-core swap the detector itself lives in `jpdict_core::blank_gaps`
+ * (per-orientation thresholds, the three geometry sources — char boxes, CTC columns,
+ * the raw-alternatives timestep walk — and the guards against unusable geometry);
+ * this class is the host side. See the Rust module for the measurements behind the
+ * 1.6/1.8 thresholds.
  */
 class GapDetector(
     /** Trigger for vertical (tategumi) lines. Measured recall 1.00, false 0.00% at 1.6. */
@@ -77,7 +63,8 @@ class GapDetector(
         if (isVertical) verticalThreshold else horizontalThreshold
 
     /** Detect gaps using the line's own orientation threshold. */
-    fun detect(line: LineResult): List<Gap> = detect(line, thresholdFor(line.isVertical))
+    fun detect(line: LineResult): List<Gap> =
+        blankGapDetect(line.toGapLine(), verticalThreshold, horizontalThreshold).map { it.toGap() }
 
     /**
      * Detect gaps using an explicit [threshold] (lets a caller sweep the curve
@@ -86,145 +73,69 @@ class GapDetector(
      * A pair triggers when `spacing / medianSpacing >= threshold` — the
      * `>=` form is the one the measured sweep is quoted in ("ratio ≥ 1.6").
      */
-    fun detect(line: LineResult, threshold: Float): List<Gap> {
-        val n = line.text.length
-        if (n < MIN_EMITTED_CHARS) return emptyList()
-
-        val geometry = geometryOf(line) ?: return emptyList()
-        val centres = geometry.centres
-        if (centres.size != n) return emptyList()
-
-        val spacings = FloatArray(n - 1) { abs(centres[it + 1] - centres[it]) }
-        val pitch = medianOf(spacings)
-        if (pitch <= 0f) return emptyList()   // degenerate geometry: everything on one pixel
-
-        val gaps = ArrayList<Gap>()
-        for (k in spacings.indices) {
-            val ratio = spacings[k] / pitch
-            if (ratio >= threshold) {
-                gaps.add(
-                    Gap(
-                        insertAt = k + 1,                       // between chars k and k+1
-                        ratio = ratio,
-                        spanPx = spacings[k] * geometry.pxPerUnit,
-                    )
-                )
-            }
-        }
-        return gaps
-    }
-
-    // ── geometry extraction ──────────────────────────────────────────────────
-
-    private class Geometry(val centres: FloatArray, val pxPerUnit: Float)
-
-    private fun geometryOf(line: LineResult): Geometry? {
-        val n = line.text.length
-        if (n == 0) return null
-
-        if (line.charBoxes.size >= n) {
-            val centres = FloatArray(n)
-            for (i in 0 until n) {
-                val box = line.charBoxes[i]
-                centres[i] = (if (line.isVertical) box.centerY() else box.centerX()).toFloat()
-            }
-            return Geometry(centres, pxPerUnit = 1f)   // boxes are already pixels
-        }
-
-        val pxPerTimestep = pixelPerTimestep(line)
-        if (line.charCols.size == n) return Geometry(line.charCols, pxPerUnit = pxPerTimestep)
-
-        val derived = timestepColumns(line.rawAlternatives)
-        if (derived.size != n) return null
-        return Geometry(derived, pxPerUnit = pxPerTimestep)
-    }
-
-    /**
-     * Pixels per CTC timestep along the reading axis — mirrors `computeCharBoxes`'
-     * `avgColW` (`cropH / seqLenTotal` vertical, `cropW / seqLenTotal` horizontal).
-     * Falls back to the model's own stride ([DEFAULT_TIMESTEP_STRIDE_PX]) when the
-     * crop geometry was never cached.
-     */
-    private fun pixelPerTimestep(line: LineResult): Float {
-        val len = if (line.isVertical) line.cropH else line.cropW
-        if (len > 0 && line.seqLenTotal > 0) return len.toFloat() / line.seqLenTotal.toFloat()
-        return DEFAULT_TIMESTEP_STRIDE_PX
-    }
+    fun detect(line: LineResult, threshold: Float): List<Gap> =
+        blankGapDetectWith(line.toGapLine(), threshold).map { it.toGap() }
 
     companion object {
-        /** Vertical trigger: measured recall 1.00, false positives 0.00% (M5). */
-        const val DEFAULT_VERTICAL_RATIO = 1.6f
+        /** Vertical trigger, read from Rust at first use (UniFFI cannot export consts). */
+        val DEFAULT_VERTICAL_RATIO: Float = blankGapDefaultVerticalRatio()
 
-        /** Horizontal trigger: the best available point, and still weak on its own. */
-        const val DEFAULT_HORIZONTAL_RATIO = 1.8f
+        /** Horizontal trigger, read from Rust. */
+        val DEFAULT_HORIZONTAL_RATIO: Float = blankGapDefaultHorizontalRatio()
 
         /** Model downsampling stride, for when the crop length is unknown. */
-        const val DEFAULT_TIMESTEP_STRIDE_PX = 8f
+        val DEFAULT_TIMESTEP_STRIDE_PX: Float = blankGapDefaultTimestepStridePx()
 
         /** Fewer emitted characters than this cannot produce a spacing pair. */
-        const val MIN_EMITTED_CHARS = 2
+        val MIN_EMITTED_CHARS: Int = blankGapMinEmittedChars().toInt()
     }
 }
+
+/** The detector's `Gap` as the exported record. */
+private fun GapResult.toGap(): Gap = Gap(insertAt.toInt(), ratio, spanPx)
+
+/** Blank is stored in `rawAlternatives` as the ideographic space (`OcrEngine.kt:2159`). */
+internal val TIMESTEP_BLANK_CHAR: Char = Char(blankGapTimestepBlankChar())
+
+/** Median of a float array; 0 for an empty array. Even counts average the middles. */
+internal fun medianOf(values: FloatArray): Float = blankGapMedian(values.toList())
 
 /**
  * Emitted character → CTC timestep column, recovered from
- * [LineResult.rawAlternatives] (`OcrEngine.kt`).
- *
- * ## Assumptions — verified against the code, and pinned by unit test
- *
- *  - `rawAlternatives[t]` is the top-N list for timestep `t`.
- *  - **The head's emitted character for a timestep is its FIRST entry** —
- *    `reDecodeLineResult` takes `alts.firstOrNull()` as the argmax
- *    (`OcrEngine.kt`, `reDecodeLineResult`), the same way `ctcDecodeTopK` takes
- *    `indexed[0]`.
- *  - **Blank is stored as the `'\u3000'` entry** — `decodeChar(0)` (blank) and
- *    `decodeChar(18708)` both return `'\u3000'` (`OcrEngine.kt`, `decodeChar`), and
- *    `reDecodeLineResult` reads `blankScore` by matching that character. If that
- *    ever changes, this walk and the confident/contest split break together —
- *    hence the test. (The line references this used to carry rotted; named
- *    symbols and tests are the guard now.)
- *  - Collapse rules mirror `reDecodeLineResult` exactly: a blank timestep *resets*
- *    the previous character (so a repeat after a blank is emitted), a space never
- *    collapses, and any other character collapses only against the immediately
- *    preceding emitted character.
- *
- * Returns an empty array for input that derives nothing; the caller compares the
- * size against `text.length` and gives up when they disagree — which is what a
- * materialised [GAP_CHAR] placeholder (#44) produces, since the walk sees the
- * decode's characters and not the later insertion. Those lines carry
- * [LineResult.charCols] for every emitted character, and that is the geometry to
- * fall back to.
+ * [LineResult.rawAlternatives] (`OcrEngine.kt`). The walk's assumptions (head is
+ * the first entry, blank resets the repeat state, a space never collapses) live in
+ * the Rust port; this forwards the data.
  */
-internal fun timestepColumns(raw: List<List<Pair<Char, Float>>>): FloatArray {
-    val cols = ArrayList<Float>(raw.size)
-    var prevChar: Char? = null
-    for ((t, alts) in raw.withIndex()) {
-        val top = alts.firstOrNull() ?: continue
-        val ch = top.first
-        when {
-            ch == TIMESTEP_BLANK_CHAR -> prevChar = null
-            ch == ' ' -> {
-                cols.add(t.toFloat())
-                prevChar = ' '
-            }
-            ch == prevChar -> Unit    // CTC repeat collapse
-            else -> {
-                cols.add(t.toFloat())
-                prevChar = ch
-            }
-        }
-    }
-    return cols.toFloatArray()
-}
+internal fun timestepColumns(raw: List<List<Pair<Char, Float>>>): FloatArray =
+    blankGapTimestepColumns(raw.map { step -> step.map { (c, s) -> GapCell(c.code, s) } })
+        .toFloatArray()
 
-/** Blank is stored in `rawAlternatives` as the ideographic space (`OcrEngine.kt:2159`). */
-internal const val TIMESTEP_BLANK_CHAR = '\u3000'
+/**
+ * The mobile `LineResult` subset the gap pipeline reads and writes, as the
+ * exported record. Fields the pipeline never touches (the quad, chunk boxes, the
+ * sample path) stay on the Kotlin side; [toLineResult] copies them back from the
+ * receiver.
+ */
+internal fun LineResult.toGapLine(): GapLine = GapLine(
+    text = text,
+    isVertical = isVertical,
+    charBoxes = charBoxes.map { BoundingBox(it.left, it.top, it.right - it.left, it.bottom - it.top) },
+    alternatives = alternatives.map { alts -> alts.map { (c, s) -> GapCell(c.code, s) } },
+    rawAlternatives = rawAlternatives.map { alts -> alts.map { (c, s) -> GapCell(c.code, s) } },
+    charCols = charCols.toList(),
+    overrides = overrides.map { (index, v) -> GapOverride(index, v.first.code, v.second) },
+    cropW = cropW,
+    cropH = cropH,
+    cropX = cropX,
+    cropY = cropY,
+    seqLenTotal = seqLenTotal,
+)
 
-/** Median of a float array; 0 for an empty array. Even counts average the middles. */
-internal fun medianOf(values: FloatArray): Float {
-    if (values.isEmpty()) return 0f
-    val sorted = values.clone()
-    sorted.sort()
-    val mid = sorted.size / 2
-    return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2f
-}
+/** The record back as a `LineResult`, taking every untouched field from [base]. */
+internal fun GapLine.toLineResult(base: LineResult): LineResult = base.copy(
+    text = text,
+    charBoxes = charBoxes.map { JpDictRect(it.x, it.y, it.x + it.w, it.y + it.h) },
+    alternatives = alternatives.map { alts -> alts.map { Char(it.ch) to it.score }.toMutableList() },
+    charCols = charCols.toFloatArray(),
+    overrides = overrides.associateTo(LinkedHashMap()) { it.index to (Char(it.ch) to it.score) },
+)

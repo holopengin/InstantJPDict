@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict.util
 import android.content.Context
 import com.holopengin.instantjpdict.LineResult
 import com.holopengin.instantjpdict.OcrEngine
+import uniffi.nav_graph_core.blankGapsApply
 
 /**
  * Feature 2 (#44): materialise a character the recogniser dropped as a **tappable blank**.
@@ -31,6 +32,10 @@ import com.holopengin.instantjpdict.OcrEngine
  * Applying this twice must not insert twice. A line that already carries a placeholder is
  * returned unchanged, and insertions run right-to-left so the detector's `insertAt` indices
  * (computed against the original text) stay valid as the text grows.
+ *
+ * Since the util-core swap the insertion itself lives in `jpdict_core::blank_gaps`
+ * (`apply_blank_gaps`); this object keeps the eligibility policy and the identity
+ * short-circuits mobile relies on (`assertSame` on an untouched line).
  */
 object BlankGaps {
     const val PREF_ENABLED = "blank_gaps_enabled"
@@ -56,31 +61,8 @@ object BlankGaps {
     fun apply(line: LineResult): LineResult {
         if (!line.isVertical) return line
         if (line.text.indexOf(OcrEngine.GAP_CHAR) >= 0) return line
-        val gaps = GapDetector().detect(line)
-        if (gaps.isEmpty()) return line
-
-        var out = line
-        for (gap in gaps.sortedByDescending { it.insertAt }) {
-            out = out.withGapCharAt(gap.insertAt, column = columnFor(out, gap.insertAt))
-        }
-        return out
-    }
-
-    /**
-     * The CTC timestep column for the new position: midway between the neighbours' columns
-     * when they are known (the same "between the characters it was dropped from" geometry
-     * the placeholder box uses), else the preceding column, else 0.
-     */
-    private fun columnFor(line: LineResult, insertAt: Int): Float {
-        val cols = line.charCols
-        if (cols.isEmpty() || cols.size != line.text.length) return 0f
-        val before = cols.getOrNull(insertAt - 1)
-        val after = cols.getOrNull(insertAt)
-        return when {
-            before != null && after != null -> (before + after) / 2f
-            before != null -> before
-            after != null -> after
-            else -> 0f
-        }
+        val out = blankGapsApply(line.toGapLine()).toLineResult(line)
+        // Nothing inserted: keep the receiver's identity (the tests assertSame).
+        return if (out.text == line.text) line else out
     }
 }
