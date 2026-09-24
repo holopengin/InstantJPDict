@@ -32,9 +32,9 @@ import uniffi.nav_graph_core.kanaSizeWindowBytes
  * Since the util-core swap this is a thin facade over the PC `jpdict_core` implementation
  * (`core/src/kana_size.rs`, exposed through `nav_graph_core`'s UniFFI surface), so the window
  * layout, the pair tables and the boundary clip have one source of truth. This object only adapts
- * types (`Char` ↔ `Int` code points) and keeps the API call sites already use. [WINDOW_BYTES] and
- * [BOUNDARY] are mirrors of the Rust consts, which UniFFI cannot export; the Rust side pins the
- * window length against `WINDOW_BYTES`, so the mirror cannot drift silently.
+ * types (`Char` ↔ `Int` code points) and keeps the API call sites already use. [WINDOW_BYTES] is
+ * read from Rust (UniFFI cannot export consts); the boundary characters live in the Rust window
+ * function.
  */
 object KanaSizeEncoder {
 
@@ -59,8 +59,8 @@ object KanaSizeEncoder {
 
     /**
      * The 40-byte window for the position at [index] in [text]. The character at [index] is
-     * excluded; context stops at a [BOUNDARY] character and runs off the ends as zero padding,
-     * which is what the app itself sees, since it recognises line by line.
+     * excluded; context stops at a boundary character (`。` or newline) and runs off the ends as
+     * zero padding, which is what the app itself sees, since it recognises line by line.
      *
      * [index] counts Unicode scalar values, as the Rust window does; for the BMP text the model
      * sees that equals the Kotlin index. A supplementary-plane character before the target

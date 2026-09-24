@@ -323,11 +323,6 @@ mod tests {
         assert_eq!(SuggestionSource::Lm, source_from_core(CoreSource::Lm));
     }
 
-    /// The Kotlin facade's consts are documented mirrors (UniFFI cannot export
-    /// consts). Pin the upstream values so a change there cannot silently
-    /// desync `OovSuggestions.MIN_IDF_FRACTION` / `MAX_COMPONENT_CANDIDATES` /
-    /// `MAX_VARIANT_CANDIDATES` in Kotlin.
-    #[test]
     /// The exported const accessors match the crate's consts, so the Kotlin
     /// facade's values cannot drift from the caps the policy enforces.
     #[test]
