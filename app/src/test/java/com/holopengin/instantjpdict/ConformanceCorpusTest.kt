@@ -8,6 +8,7 @@ import com.holopengin.instantjpdict.data.DictionaryEntry
 import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.GapCandidates
+import com.holopengin.instantjpdict.util.GapDetector
 import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.KanaSizeEncoder
 import com.holopengin.instantjpdict.util.KanaSizeFix
@@ -91,7 +92,7 @@ class ConformanceCorpusTest {
     /** Kinds executed by a runner below. */
     private val EXECUTED_KINDS = setOf(
         "furigana", "geometry", "reading_order", "gap", "char_lm", "kana", "dictionary",
-        "deinflection", "ruby_style", "normalize",
+        "deinflection", "ruby_style", "normalize", "gap_detection",
     )
 
     /**
@@ -361,10 +362,75 @@ class ConformanceCorpusTest {
         }
     }
 
+    // ── gap detection ──────────────────────────────────────────────────
+
+    /**
+     * Spacing-ratio gap detection over recorded line geometry. `char_boxes`,
+     * `char_cols` and `raw_alternatives` are the three geometry sources in
+     * priority order and are optional, so a probe exercises one in isolation.
+     * The expectations are the canonical Android behaviour (`GapDetectorTest`),
+     * so this runner works before and after the WP-13 swap.
+     */
+    @Test
+    fun gapDetectionCases() {
+        for (c in kindCases("gap_detection")) {
+            val lines = c.root.getAsJsonObject("case").getAsJsonArray("lines")
+            lines.forEachIndexed { i, probe ->
+                val o = probe.asJsonObject
+                val text = o.stringField("text")
+                val boxes = o.getAsJsonArray("char_boxes")?.map { b ->
+                    val r = b.asJsonArray
+                    JpDictRect(
+                        left = r[0].asInt,
+                        top = r[1].asInt,
+                        right = r[0].asInt + r[2].asInt,
+                        bottom = r[1].asInt + r[3].asInt,
+                    )
+                } ?: emptyList()
+                val cols = o.getAsJsonArray("char_cols")?.map { it.asFloat }?.toFloatArray() ?: floatArrayOf()
+                val raw = o.getAsJsonArray("raw_alternatives")?.map { step ->
+                    step.asJsonArray.map { e ->
+                        singleChar(e.asJsonArray[0].asString) to e.asJsonArray[1].asFloat
+                    }
+                } ?: emptyList()
+                val line = LineResult(
+                    text = text,
+                    charBoxes = boxes,
+                    alternatives = MutableList(text.length) { mutableListOf(text[it] to 1f) },
+                    isVertical = o.get("is_vertical")?.asBoolean ?: false,
+                    rawAlternatives = raw,
+                    seqLenTotal = o.get("seq_len_total")?.asInt ?: 0,
+                    cropW = o.get("crop_w")?.asInt ?: 0,
+                    cropH = o.get("crop_h")?.asInt ?: 0,
+                    charCols = cols,
+                )
+                val detector = GapDetector()
+                val got = o.get("threshold")?.asFloat?.let { detector.detect(line, it) }
+                    ?: detector.detect(line)
+                val expect = o.getAsJsonArray("expect")
+                assertEquals("${c.id} line $i: gap count drifted: $got", expect.size(), got.size)
+                expect.forEachIndexed { k, e ->
+                    val exp = e.asJsonObject
+                    assertEquals(
+                        "${c.id} line $i gap $k: insert_at drifted",
+                        exp.intField("insert_at"), got[k].insertAt,
+                    )
+                    for ((field, value) in listOf("ratio" to got[k].ratio, "span_px" to got[k].spanPx)) {
+                        val want = exp.doubleField(field).toFloat()
+                        val tol = kotlin.math.abs(want) * 1e-4f + 1e-6f
+                        assertTrue(
+                            "${c.id} line $i gap $k: $field drifted: got $value, want $want",
+                            kotlin.math.abs(value - want) <= tol,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun charLmCases() {
-        for (c in kindCases("char_lm")) {
-            val body = c.root.getAsJsonObject("case")
+        for (c in kindCases("char_lm")) {            val body = c.root.getAsJsonObject("case")
             val lm = CharLm.fromBytes(
                 packLm(
                     body.getAsJsonArray("entries").map {
