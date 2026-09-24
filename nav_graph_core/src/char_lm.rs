@@ -85,6 +85,14 @@ pub fn char_lm_from_bytes(data: Vec<u8>) -> Option<Arc<CharLm>> {
         .map(|inner| Arc::new(CharLm { inner }))
 }
 
+/// The packed table's n-gram order (mobile `CharLm.MAX_ORDER`), so the Kotlin
+/// mirror is sourced from here instead of hand-typed. UniFFI cannot export
+/// consts.
+#[uniffi::export]
+pub fn char_lm_max_order() -> i64 {
+    jpdict_core::util::char_lm::MAX_ORDER as i64
+}
+
 #[uniffi::export]
 impl CharLm {
     /// Entry count from the header (for logs and tests).
@@ -249,5 +257,15 @@ mod tests {
         assert_eq!(lm.rank(cps("今日"), cps("をは")), cps("はを"));
         assert_eq!(lm.rank(cps("だから"), cps("を、")), cps("、を"));
         assert_eq!(lm.rank(cps("定期船"), cps("をの")), cps("のを"));
+    }
+
+    /// The exported const mirror matches the crate's const, so the Kotlin
+    /// facade's value cannot drift from the table format it describes.
+    #[test]
+    fn exported_max_order_matches_upstream() {
+        assert_eq!(
+            char_lm_max_order(),
+            jpdict_core::util::char_lm::MAX_ORDER as i64
+        );
     }
 }

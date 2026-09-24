@@ -170,6 +170,13 @@ pub fn gap_kana_defaults() -> Vec<i32> {
     codepoints_from_chars(&jpdict_core::util::gap_candidates::KANA_DEFAULTS)
 }
 
+/// The candidate cap (mobile `GapCandidates.MAX`), Rust-sourced because UniFFI
+/// cannot export consts.
+#[uniffi::export]
+pub fn gap_candidates_max() -> i64 {
+    jpdict_core::util::gap_candidates::MAX as i64
+}
+
 #[cfg(test)]
 mod tests {
     //! Mirror of the PC `jpdict_core::util::gap_candidates` unit tests, run
@@ -384,5 +391,15 @@ mod tests {
             Vec::<i32>::new()
         );
         assert_eq!(gap_context_before("あい".to_string(), 99), cps("あい"));
+    }
+
+    /// The exported const mirror matches the crate's const, so the Kotlin
+    /// facade's default cap cannot drift.
+    #[test]
+    fn exported_max_matches_upstream() {
+        assert_eq!(
+            gap_candidates_max(),
+            jpdict_core::util::gap_candidates::MAX as i64
+        );
     }
 }

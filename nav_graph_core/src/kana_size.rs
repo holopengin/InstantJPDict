@@ -112,6 +112,20 @@ pub fn kana_size_is_small(ch: i32) -> bool {
     pc::is_small(char_from_codepoint(ch))
 }
 
+/// The 40-byte window length, Rust-sourced because UniFFI cannot export consts
+/// (the Kotlin facade's `WINDOW_BYTES` and `KanaSizeNcnn.WINDOW_BYTES` read it).
+#[uniffi::export]
+pub fn kana_size_window_bytes() -> i64 {
+    pc::WINDOW_BYTES as i64
+}
+
+/// The measured ε default, Rust-sourced because UniFFI cannot export consts
+/// (the Kotlin facade's `EPSILON`/`DEF_EPSILON` read it).
+#[uniffi::export]
+pub fn kana_size_epsilon() -> f32 {
+    pc::EPSILON
+}
+
 /// The 40-byte window for the position at `index` in `text`, with the character
 /// at `index` excluded. Context stops at a boundary character (。 or newline)
 /// and runs off the ends as zero padding; see `jpdict_core::kana_size::window`
@@ -568,5 +582,13 @@ mod tests {
         assert!(got.flips.is_empty() && got.declined.is_empty());
         let empty = kana_size_correct_lines(Vec::new(), Arc::new(FixedLogits(vec![])), 0.01);
         assert!(empty.texts.is_empty());
+    }
+
+    /// The exported const accessors match the crate's consts, so the Kotlin
+    /// facade's values cannot drift from the encoder and the measured ε.
+    #[test]
+    fn exported_consts_match_upstream() {
+        assert_eq!(kana_size_window_bytes(), pc::WINDOW_BYTES as i64);
+        assert_eq!(kana_size_epsilon(), pc::EPSILON);
     }
 }

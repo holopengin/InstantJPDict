@@ -900,6 +900,18 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1036,6 +1048,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_from_bytes(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_lm_max_order(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     fun uniffi_nav_graph_core_fn_func_deinflector_from_json_str(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_furigana_filter(`raw`: RustBuffer.ByValue,`uncl`: RustBuffer.ByValue,`imgW`: Int,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -1044,6 +1058,8 @@ internal interface UniffiLib : Library {
     ): Byte
     fun uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(`sRaw`: RustBuffer.ByValue,`bRaw`: RustBuffer.ByValue,`sUn`: RustBuffer.ByValue,`bUn`: RustBuffer.ByValue,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    fun uniffi_nav_graph_core_fn_func_gap_candidates_max(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     fun uniffi_nav_graph_core_fn_func_gap_context_before(`text`: RustBuffer.ByValue,`index`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_gap_fallback(`limit`: Long,`lm`: RustBuffer.ByValue,`context`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1084,16 +1100,24 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_correct_lines(`texts`: RustBuffer.ByValue,`scorer`: Pointer,`epsilon`: Float,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_epsilon(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
     fun uniffi_nav_graph_core_fn_func_kana_size_is_small(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_nav_graph_core_fn_func_kana_size_small_to_big(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_window(`text`: RustBuffer.ByValue,`index`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_kana_size_window_bytes(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_oov_suggestions_assemble(`current`: Int,`headAlternatives`: RustBuffer.ByValue,`oov`: RustBuffer.ByValue,`variants`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_oov_suggestions_max_component_candidates(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    fun uniffi_nav_graph_core_fn_func_oov_suggestions_max_variant_candidates(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     fun uniffi_nav_graph_core_fn_func_pitch_falls_beyond_word(`moraCount`: Long,`position`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_nav_graph_core_fn_func_pitch_morae_of(`reading`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1222,6 +1246,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_from_bytes(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_lm_max_order(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_deinflector_from_json_str(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_filter(
@@ -1229,6 +1255,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_horizontal(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gap_candidates_max(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_gap_context_before(
     ): Short
@@ -1270,15 +1298,23 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_correct_lines(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_epsilon(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_is_small(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_small_to_big(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_window(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_kana_size_window_bytes(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_oov_suggestions_max_component_candidates(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_oov_suggestions_max_variant_candidates(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_pitch_falls_beyond_word(
     ): Short
@@ -1393,6 +1429,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_char_lm_from_bytes() != 6307.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_lm_max_order() != 54725.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_deinflector_from_json_str() != 27511.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1403,6 +1442,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_furigana_is_ruby_vertical() != 15884.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gap_candidates_max() != 24052.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_gap_context_before() != 23487.toShort()) {
@@ -1465,6 +1507,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_correct_lines() != 56739.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_epsilon() != 50406.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_is_small() != 38521.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1474,10 +1519,19 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window() != 10540.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window_bytes() != 31935.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_oov_suggestions_assemble() != 12834.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_oov_suggestions_max_component_candidates() != 24894.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_oov_suggestions_max_variant_candidates() != 7200.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_pitch_falls_beyond_word() != 5540.toShort()) {
@@ -6090,6 +6144,20 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     
 
         /**
+         * The packed table's n-gram order (mobile `CharLm.MAX_ORDER`), so the Kotlin
+         * mirror is sourced from here instead of hand-typed. UniFFI cannot export
+         * consts.
+         */ fun `charLmMaxOrder`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_lm_max_order(
+        _status)
+}
+    )
+    }
+    
+
+        /**
          * Parse deinflection rules from JSON text. `None` when the text is not a
          * valid rule file; the Kotlin facade then keeps its empty fallback.
          *
@@ -6152,6 +6220,19 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_furigana_is_ruby_vertical(
         FfiConverterTypeBoundingBox.lower(`sRaw`),FfiConverterTypeBoundingBox.lower(`bRaw`),FfiConverterTypeBoundingBox.lower(`sUn`),FfiConverterTypeBoundingBox.lower(`bUn`),FfiConverterInt.lower(`imgH`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The candidate cap (mobile `GapCandidates.MAX`), Rust-sourced because UniFFI
+         * cannot export consts.
+         */ fun `gapCandidatesMax`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_candidates_max(
+        _status)
 }
     )
     }
@@ -6451,6 +6532,19 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     
 
         /**
+         * The measured ε default, Rust-sourced because UniFFI cannot export consts
+         * (the Kotlin facade's `EPSILON`/`DEF_EPSILON` read it).
+         */ fun `kanaSizeEpsilon`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_epsilon(
+        _status)
+}
+    )
+    }
+    
+
+        /**
          * Whether `ch` is the small member of a pair, i.e. what the model corrects.
          */ fun `kanaSizeIsSmall`(`ch`: kotlin.Int): kotlin.Boolean {
             return FfiConverterBoolean.lift(
@@ -6495,6 +6589,19 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     
 
         /**
+         * The 40-byte window length, Rust-sourced because UniFFI cannot export consts
+         * (the Kotlin facade's `WINDOW_BYTES` and `KanaSizeNcnn.WINDOW_BYTES` read it).
+         */ fun `kanaSizeWindowBytes`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_kana_size_window_bytes(
+        _status)
+}
+    )
+    }
+    
+
+        /**
          * Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if the slot
          * is empty or the inputs are out of range.
          */ fun `navigate`(`graph`: NavGraph, `idx`: kotlin.Int, `dir`: kotlin.Int): kotlin.Int? {
@@ -6525,6 +6632,32 @@ public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBu
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_oov_suggestions_assemble(
         FfiConverterInt.lower(`current`),FfiConverterSequenceInt.lower(`headAlternatives`),FfiConverterOptionalTypeOovCandidates.lower(`oov`),FfiConverterSequenceInt.lower(`variants`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The component-group cap (mobile `OovSuggestions.MAX_COMPONENT_CANDIDATES`),
+         * Rust-sourced because UniFFI cannot export consts.
+         */ fun `oovSuggestionsMaxComponentCandidates`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_oov_suggestions_max_component_candidates(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The variant-group cap (mobile `OovSuggestions.MAX_VARIANT_CANDIDATES`),
+         * Rust-sourced because UniFFI cannot export consts.
+         */ fun `oovSuggestionsMaxVariantCandidates`(): kotlin.Long {
+            return FfiConverterLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_oov_suggestions_max_variant_candidates(
+        _status)
 }
     )
     }

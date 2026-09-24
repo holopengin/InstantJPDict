@@ -13,15 +13,15 @@
 //! ## Kotlin facade contract
 //!
 //! The generated Kotlin surface (`uniffi.nav_graph_core.Suggestion`,
-//! `uniffi.nav_graph_core.SuggestionSource` and the `oovSuggestionsAssemble`
-//! free function) is wrapped by the hand-written
+//! `uniffi.nav_graph_core.SuggestionSource`, the `oovSuggestionsAssemble` free
+//! function and the cap accessors) is wrapped by the hand-written
 //! `com.holopengin.instantjpdict.util.OovSuggestions` object, which keeps the
-//! pre-conversion API byte-for-byte (`MIN_IDF_FRACTION`,
-//! `MAX_COMPONENT_CANDIDATES` and `MAX_VARIANT_CANDIDATES` as documented
-//! mirrors — UniFFI cannot export consts — plus `Source`,
+//! pre-conversion API (`MAX_COMPONENT_CANDIDATES` and `MAX_VARIANT_CANDIDATES`,
+//! now read from the accessors rather than hand-typed, plus `Source`,
 //! `Suggestion(char, source)` and `assemble(Char, List<Char>, OovCandidates?,
 //! (Char) -> List<Char>)` with its lambda default) so no call site or test
-//! changes. The facade absorbs all `Char` ↔ `Int` conversion.
+//! changes. `MIN_IDF_FRACTION` was a dead mirror and is gone; the tier is
+//! enforced in the crate. The facade absorbs all `Char` ↔ `Int` conversion.
 
 use std::sync::Arc;
 
@@ -118,6 +118,20 @@ pub fn oov_suggestions_assemble(
         source: source_from_core(s.source),
     })
     .collect()
+}
+
+/// The component-group cap (mobile `OovSuggestions.MAX_COMPONENT_CANDIDATES`),
+/// Rust-sourced because UniFFI cannot export consts.
+#[uniffi::export]
+pub fn oov_suggestions_max_component_candidates() -> i64 {
+    jpdict_core::util::oov_suggestions::MAX_COMPONENT_CANDIDATES as i64
+}
+
+/// The variant-group cap (mobile `OovSuggestions.MAX_VARIANT_CANDIDATES`),
+/// Rust-sourced because UniFFI cannot export consts.
+#[uniffi::export]
+pub fn oov_suggestions_max_variant_candidates() -> i64 {
+    jpdict_core::util::oov_suggestions::MAX_VARIANT_CANDIDATES as i64
 }
 
 #[cfg(test)]
@@ -314,9 +328,17 @@ mod tests {
     /// desync `OovSuggestions.MIN_IDF_FRACTION` / `MAX_COMPONENT_CANDIDATES` /
     /// `MAX_VARIANT_CANDIDATES` in Kotlin.
     #[test]
-    fn the_documented_const_mirrors_still_match_upstream() {
-        assert!((jpdict_core::util::oov_suggestions::MIN_IDF_FRACTION - 0.7).abs() < f32::EPSILON);
-        assert_eq!(15, MAX_COMPONENT_CANDIDATES);
-        assert_eq!(15, MAX_VARIANT_CANDIDATES);
+    /// The exported const accessors match the crate's consts, so the Kotlin
+    /// facade's values cannot drift from the caps the policy enforces.
+    #[test]
+    fn exported_consts_match_upstream() {
+        assert_eq!(
+            oov_suggestions_max_component_candidates(),
+            MAX_COMPONENT_CANDIDATES as i64
+        );
+        assert_eq!(
+            oov_suggestions_max_variant_candidates(),
+            MAX_VARIANT_CANDIDATES as i64
+        );
     }
 }
