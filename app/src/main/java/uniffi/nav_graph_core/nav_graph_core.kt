@@ -934,6 +934,10 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1094,6 +1098,10 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_max_order(uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    fun uniffi_nav_graph_core_fn_func_char_placement_blank(uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_nav_graph_core_fn_func_char_placement_place(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`pixels`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_deinflector_from_json_str(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_furigana_filter(`raw`: RustBuffer.ByValue,`uncl`: RustBuffer.ByValue,`imgW`: Int,`imgH`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -1314,6 +1322,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_max_order(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_blank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_place(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_deinflector_from_json_str(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_furigana_filter(
@@ -1529,6 +1541,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_char_lm_max_order() != 54725.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_blank() != 48053.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_place() != 60789.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_deinflector_from_json_str() != 27511.toShort()) {
@@ -5467,6 +5485,189 @@ public object FfiConverterTypeNavGraph: FfiConverterRustBuffer<NavGraph> {
 
 
 /**
+ * One output box in crop pixels; the cross axis is the whole crop. The PC
+ * port returns `[f64; 4]`; the shim narrows to `f32` for the mobile shapes.
+ */
+data class PlaceBox (
+    var `left`: kotlin.Float, 
+    var `top`: kotlin.Float, 
+    var `right`: kotlin.Float, 
+    var `bottom`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePlaceBox: FfiConverterRustBuffer<PlaceBox> {
+    override fun read(buf: ByteBuffer): PlaceBox {
+        return PlaceBox(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PlaceBox) = (
+            FfiConverterFloat.allocationSize(value.`left`) +
+            FfiConverterFloat.allocationSize(value.`top`) +
+            FfiConverterFloat.allocationSize(value.`right`) +
+            FfiConverterFloat.allocationSize(value.`bottom`)
+    )
+
+    override fun write(value: PlaceBox, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`left`, buf)
+            FfiConverterFloat.write(value.`top`, buf)
+            FfiConverterFloat.write(value.`right`, buf)
+            FfiConverterFloat.write(value.`bottom`, buf)
+    }
+}
+
+
+
+/**
+ * The mobile `CharPlacement.Options` knobs (27 fields), in declaration order.
+ *
+ * The PC struct has three more (`ridge_ls`, `profile_band`, `profile_smooth`)
+ * that the mobile port never exposed; [`to_core_options`] starts from
+ * `Options::default()` so those keep the shipped values.
+ */
+data class PlaceOptions (
+    var `inkMaxPullEm`: kotlin.Float, 
+    var `windowEm`: kotlin.Float, 
+    var `windowStride`: kotlin.Float, 
+    var `anchorTolEm`: kotlin.Float, 
+    var `anchorTolStride`: kotlin.Float, 
+    var `huberEm`: kotlin.Float, 
+    var `minMassFrac`: kotlin.Float, 
+    var `maxSpreadEm`: kotlin.Float, 
+    var `confFloor`: kotlin.Float, 
+    var `refinePasses`: kotlin.Int, 
+    var `finalPass`: kotlin.Boolean, 
+    var `extentPadPx`: kotlin.Float, 
+    var `extentFloor`: kotlin.Float, 
+    var `extentWindowEm`: kotlin.Float, 
+    var `extentGrowFrac`: kotlin.Float, 
+    var `splitFloorFrac`: kotlin.Float, 
+    var `minHalfPx`: kotlin.Float, 
+    var `punctSpreadFallback`: kotlin.Boolean, 
+    var `bimodalRetry`: kotlin.Boolean, 
+    var `bimodalValleyEm`: kotlin.Float, 
+    var `bimodalMinFrac`: kotlin.Float, 
+    var `punctFallbackWindowEm`: kotlin.Float, 
+    var `punctFallbackMaxEm`: kotlin.Float, 
+    var `translateOverlap`: kotlin.Boolean, 
+    var `translateMaxEm`: kotlin.Float, 
+    var `translatePasses`: kotlin.Int, 
+    var `translateGateCut`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePlaceOptions: FfiConverterRustBuffer<PlaceOptions> {
+    override fun read(buf: ByteBuffer): PlaceOptions {
+        return PlaceOptions(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PlaceOptions) = (
+            FfiConverterFloat.allocationSize(value.`inkMaxPullEm`) +
+            FfiConverterFloat.allocationSize(value.`windowEm`) +
+            FfiConverterFloat.allocationSize(value.`windowStride`) +
+            FfiConverterFloat.allocationSize(value.`anchorTolEm`) +
+            FfiConverterFloat.allocationSize(value.`anchorTolStride`) +
+            FfiConverterFloat.allocationSize(value.`huberEm`) +
+            FfiConverterFloat.allocationSize(value.`minMassFrac`) +
+            FfiConverterFloat.allocationSize(value.`maxSpreadEm`) +
+            FfiConverterFloat.allocationSize(value.`confFloor`) +
+            FfiConverterInt.allocationSize(value.`refinePasses`) +
+            FfiConverterBoolean.allocationSize(value.`finalPass`) +
+            FfiConverterFloat.allocationSize(value.`extentPadPx`) +
+            FfiConverterFloat.allocationSize(value.`extentFloor`) +
+            FfiConverterFloat.allocationSize(value.`extentWindowEm`) +
+            FfiConverterFloat.allocationSize(value.`extentGrowFrac`) +
+            FfiConverterFloat.allocationSize(value.`splitFloorFrac`) +
+            FfiConverterFloat.allocationSize(value.`minHalfPx`) +
+            FfiConverterBoolean.allocationSize(value.`punctSpreadFallback`) +
+            FfiConverterBoolean.allocationSize(value.`bimodalRetry`) +
+            FfiConverterFloat.allocationSize(value.`bimodalValleyEm`) +
+            FfiConverterFloat.allocationSize(value.`bimodalMinFrac`) +
+            FfiConverterFloat.allocationSize(value.`punctFallbackWindowEm`) +
+            FfiConverterFloat.allocationSize(value.`punctFallbackMaxEm`) +
+            FfiConverterBoolean.allocationSize(value.`translateOverlap`) +
+            FfiConverterFloat.allocationSize(value.`translateMaxEm`) +
+            FfiConverterInt.allocationSize(value.`translatePasses`) +
+            FfiConverterBoolean.allocationSize(value.`translateGateCut`)
+    )
+
+    override fun write(value: PlaceOptions, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`inkMaxPullEm`, buf)
+            FfiConverterFloat.write(value.`windowEm`, buf)
+            FfiConverterFloat.write(value.`windowStride`, buf)
+            FfiConverterFloat.write(value.`anchorTolEm`, buf)
+            FfiConverterFloat.write(value.`anchorTolStride`, buf)
+            FfiConverterFloat.write(value.`huberEm`, buf)
+            FfiConverterFloat.write(value.`minMassFrac`, buf)
+            FfiConverterFloat.write(value.`maxSpreadEm`, buf)
+            FfiConverterFloat.write(value.`confFloor`, buf)
+            FfiConverterInt.write(value.`refinePasses`, buf)
+            FfiConverterBoolean.write(value.`finalPass`, buf)
+            FfiConverterFloat.write(value.`extentPadPx`, buf)
+            FfiConverterFloat.write(value.`extentFloor`, buf)
+            FfiConverterFloat.write(value.`extentWindowEm`, buf)
+            FfiConverterFloat.write(value.`extentGrowFrac`, buf)
+            FfiConverterFloat.write(value.`splitFloorFrac`, buf)
+            FfiConverterFloat.write(value.`minHalfPx`, buf)
+            FfiConverterBoolean.write(value.`punctSpreadFallback`, buf)
+            FfiConverterBoolean.write(value.`bimodalRetry`, buf)
+            FfiConverterFloat.write(value.`bimodalValleyEm`, buf)
+            FfiConverterFloat.write(value.`bimodalMinFrac`, buf)
+            FfiConverterFloat.write(value.`punctFallbackWindowEm`, buf)
+            FfiConverterFloat.write(value.`punctFallbackMaxEm`, buf)
+            FfiConverterBoolean.write(value.`translateOverlap`, buf)
+            FfiConverterFloat.write(value.`translateMaxEm`, buf)
+            FfiConverterInt.write(value.`translatePasses`, buf)
+            FfiConverterBoolean.write(value.`translateGateCut`, buf)
+    }
+}
+
+
+
+/**
  * One furigana run: `base` surface text with optional `ruby` above it.
  *
  * Field-for-field the PC `jpdict_core::util::japanese::RubySegment`; the
@@ -6030,6 +6231,38 @@ public object FfiConverterOptionalSequenceTypeRubySegment: FfiConverterRustBuffe
 /**
  * @suppress
  */
+public object FfiConverterOptionalSequenceSequenceTypeGapCell: FfiConverterRustBuffer<List<List<GapCell>>?> {
+    override fun read(buf: ByteBuffer): List<List<GapCell>>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceSequenceTypeGapCell.read(buf)
+    }
+
+    override fun allocationSize(value: List<List<GapCell>>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceSequenceTypeGapCell.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<List<GapCell>>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceSequenceTypeGapCell.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceInt: FfiConverterRustBuffer<List<kotlin.Int>> {
     override fun read(buf: ByteBuffer): List<kotlin.Int> {
         val len = buf.getInt()
@@ -6422,6 +6655,34 @@ public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypePlaceBox: FfiConverterRustBuffer<List<PlaceBox>> {
+    override fun read(buf: ByteBuffer): List<PlaceBox> {
+        val len = buf.getInt()
+        return List<PlaceBox>(len) {
+            FfiConverterTypePlaceBox.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PlaceBox>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePlaceBox.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PlaceBox>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePlaceBox.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeRubySegment: FfiConverterRustBuffer<List<RubySegment>> {
     override fun read(buf: ByteBuffer): List<RubySegment> {
         val len = buf.getInt()
@@ -6735,6 +6996,36 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_lm_max_order(
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * The decoder's blank (`jpdict_core::char_placement::BLANK`, U+3000), so the
+         * Kotlin `CharPlacement.BLANK` is Rust-sourced. UniFFI cannot export consts.
+         */ fun `charPlacementBlank`(): kotlin.Int {
+            return FfiConverterInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_blank(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Place one line's characters (mobile `CharPlacement.place`).
+         *
+         * Delegates to `jpdict_core::char_placement::place_with`; see its docs for
+         * the input contract. Returns one box per character of `text`; each box spans
+         * the whole cross axis, and degenerate inputs return an empty list rather
+         * than panicking (the PC guard rails).
+         */ fun `charPlacementPlace`(`text`: kotlin.String, `charCols`: List<kotlin.Float>, `seqLenTotal`: kotlin.Long, `cropW`: kotlin.UInt, `cropH`: kotlin.UInt, `vertical`: kotlin.Boolean, `pixels`: List<kotlin.Int>?, `steps`: List<List<GapCell>>?, `options`: PlaceOptions): List<PlaceBox> {
+            return FfiConverterSequenceTypePlaceBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_place(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),FfiConverterBoolean.lower(`vertical`),FfiConverterOptionalSequenceInt.lower(`pixels`),FfiConverterOptionalSequenceSequenceTypeGapCell.lower(`steps`),FfiConverterTypePlaceOptions.lower(`options`),_status)
 }
     )
     }

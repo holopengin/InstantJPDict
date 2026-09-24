@@ -24,6 +24,7 @@ uniffi::setup_scaffolding!();
 
 mod blank_gaps;
 mod char_lm;
+mod char_placement;
 mod component_table;
 mod deinflector;
 mod furigana;
