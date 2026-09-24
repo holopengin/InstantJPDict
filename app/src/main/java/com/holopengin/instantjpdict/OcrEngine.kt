@@ -28,6 +28,11 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import uniffi.nav_graph_core.BoundingBox
+import uniffi.nav_graph_core.GapCell
+import uniffi.nav_graph_core.ocrEngineComputeCharBoxes
+import uniffi.nav_graph_core.ocrEngineReDecode
+import uniffi.nav_graph_core.ocrEngineSortOrder
 
 /** PP-OCRv6 [OcrEngine] — ncnn detect (DB, DET_MODEL_SIZE²) + dynamic-width rec (48×W) + CTC.
  *
@@ -174,7 +179,7 @@ class OcrEngine(
 
         /** #28 orientation rule, shared with the rotated fit so both paths agree.
          *  The furigana geometry rules themselves live in [FuriganaRule]. */
-        private const val VERTICAL_MIN_ASPECT = RotatedGeometry.VERTICAL_MIN_ASPECT
+        private val VERTICAL_MIN_ASPECT = RotatedGeometry.VERTICAL_MIN_ASPECT
 
         /** Shared orientation rule (#28): near-square boxes count as horizontal
          *  so lone upright characters never enter the model sideways. Pure and
@@ -188,11 +193,11 @@ class OcrEngine(
          *  then verticals right-edge-to-left/top-to-bottom (pipeline-sharing/01
          *  conformance entry point; `detect` resolves to this). */
         internal fun sortDetectedBoxes(boxes: List<JpDictRect>): List<JpDictRect> {
-            val horizontal = boxes.filter { !isVerticalBox(it) }
-                .sortedWith(compareBy({ it.top }, { it.left }))
-            val vertical = boxes.filter { isVerticalBox(it) }
-                .sortedWith(compareByDescending<JpDictRect> { it.right }.thenBy { it.top })
-            return horizontal + vertical
+            if (boxes.size < 2) return boxes
+            val order = ocrEngineSortOrder(boxes.map {
+                BoundingBox(x = it.left, y = it.top, w = it.width(), h = it.height())
+            })
+            return order.map { boxes[it.toInt()] }
         }
 
         // Recognition constants (not tunable)
@@ -1978,46 +1983,23 @@ class OcrEngine(
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    //  Char boxes from CTC columns
+    //  Char boxes from CTC columns (pure stages in jpdict_core::char_boxes)
     // ═════════════════════════════════════════════════════════════════════════
 
-    /** Per-character boxes from CTC timestep columns.
-     *
-     * Horizontal: center each char at `(t+0.5)*avgColW` (`avgColW=cropW/seqLen`)
-     * with width `cropH`, then split overlaps evenly. Vertical: same on the
-     * y-axis with height `cropW` (`avgColW=cropH/seqLen`; trailing blank
-     * timesteps absorb at the bottom), except punctuation: closing marks shrink
-     * onto the next box's start and opening marks onto the previous box's end,
-     * then expand back to the mean non-punctuation height (bounded by the next
-     * non-punctuation edge).
-     *
-     * @param pixels optional crop pixels (idea 4): snap box centers to ink
-     * evidence when BOX_LAYOUT_MODE is BOX_SNAP; null/legacy skips snapping. */
-    private fun isHalfWidthEm(ch: Char): Boolean = isHalfWidth(ch)
-
-    /** Ink-aware overlap resolution for horizontal lines (#49): legacy code
-     * split every box overlap evenly, jittering centers even when glyph
-     * bearings absorb the touch. Measure each glyph's ink half-width at the
-     * render text size (mirrors LineOverlayView horizontal measuring config:
-     * DEFAULT typeface, ROOT locale, no features, per-char bounds) and move
-     * centers only on true ink collision, splitting just the collision.
-     * Widths are preserved; only centers move. Local Paint per call, so this
-     * is safe on any dispatcher. */
-    private fun resolveInkCollisions(
-        cells: MutableList<Pair<Float, Float>>,
-        text: String,
-        renderTextSize: Float,
-    ) {
-        val n = cells.size
-        if (n < 2) return
+    /** Per-character ink half-widths at [renderTextSize], measured with the
+     * device typeface exactly as the old `resolveInkCollisions` did — the
+     * Rust side resolves collisions from these, so the measuring stays here
+     * (the desktop measures from its bundled font instead, and the legacy
+     * columns / snap / punctuation rules moved across whole). Local Paint
+     * per call, so this is safe on any dispatcher. */
+    private fun measureInkHalfWidths(text: String, n: Int, renderTextSize: Float): FloatArray {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.DEFAULT
             textSize = renderTextSize.coerceAtLeast(1f)
             textLocale = java.util.Locale.ROOT
         }
         val bounds = Rect()
-        val centers = cells.map { (a, b) -> (a + b) / 2f }.toMutableList()
-        val inkHalf = FloatArray(n) { i ->
+        return FloatArray(n) { i ->
             val s = text.getOrNull(i)?.toString() ?: ""
             if (s.isEmpty()) 0f
             else {
@@ -2025,201 +2007,8 @@ class OcrEngine(
                 bounds.width() / 2f
             }
         }
-        for (ci in 0 until n - 1) {
-            val inkR = centers[ci] + inkHalf[ci]
-            val inkL = centers[ci + 1] - inkHalf[ci + 1]
-            if (inkR <= inkL) continue
-            val shift = (inkR - inkL) / 2f
-            centers[ci] -= shift
-            centers[ci + 1] += shift
-        }
-        for (i in 0 until n) {
-            val half = (cells[i].second - cells[i].first) / 2f
-            val c = centers[i]
-            cells[i] = (c - half) to (c + half)
-        }
     }
 
-    /** Consistent em sizing (#49): uniform WIDTHS around existing centers
-     * (centers bit-identical to the resolve path — positioning untouched).
-     * em = median WIDTH-NORMALIZED pitch ([estimateEm]: each gap divided by
-     * its chars' mean advance, so ASCII-majority mixed lines no longer drag
-     * em to ~0.5x and shrink kanji); fullwidth = em, halfwidth = 0.5em;
-     * edges clamped legacy-style. Needs 2+ cells; otherwise returns input
-     * unchanged. */
-    private fun uniformCells(
-        cells: List<Pair<Float, Float>>,
-        text: String,
-        L: Float,
-    ): List<Pair<Float, Float>> {
-        if (cells.size < 2 || text.length != cells.size) return cells
-        val centers = cells.map { (a, b) -> (a + b) / 2f }
-        val em = estimateEm(text, centers)
-        if (em <= 0f) return cells
-        return List(cells.size) { i ->
-            val w = (if (isHalfWidthEm(text[i])) 0.5f else 1.0f) * em
-            val half = w / 2f
-            // Clamp EDGES (legacy convention), never move centers: center
-            // coercion showed up as +0.7px demean on ground truth.
-            val c = centers[i]
-            (maxOf(c - half, 0f)) to (minOf(c + half, L))
-        }
-    }
-
-    /** Legacy uniform column mapping (#49 verdict: gap surgery and affine
-     * refits all lost to this on ground truth — model timing is uniform;
-     * fractional charCols from peak interpolation flow here). */
-    private fun legacyCells(cols: FloatArray, seqLen: Int, L: Float, cross: Float): List<Pair<Float, Float>> {
-        val avgColW = L / seqLen.toFloat()
-        val half = cross / 2f
-        return cols.map { t ->
-            val c = (t + 0.5f) * avgColW
-            (maxOf(c - half, 0f)) to (minOf(c + half, L))
-        }.sortedBy { it.first }
-    }
-
-    /** Chars kept on legacy boxes (conservative): corner/side punctuation
-     * whose ink centroid is NOT the em center, small kana, and centered
-     * midline marks (harmless either way — left untouched to minimize
-     * behavior surface). The renderer centers ink itself. */
-    private fun isSnapSkipped(ch: Char): Boolean {
-        if (ch in "ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ") return true
-        return ch in "、。．，,．「」『』（）〔〕［］｛｝〈〉《》【】〘〙〚〛'\"\"‘’“”()[]{}-+*/<>＜＞＝…‥︙︰：；"
-    }
-
-    /** Idea 4 (#49 positioning): snap legacy box centers to image-ink
-     * evidence along the line axis. Profiled over the central 60% cross-band
-     * (dodges ruby at the edges); each center moves to its window ink
-     * centroid, clamped to its Voronoi cell (ordering preserved, worst case
-     * ~= legacy) with a 0.4-pitch leash. Polarity auto-detects (dark-on-light
-     * vs light-on-dark) from border pixels. Needs crop pixels; null = skip. */
-    private data class Peak(val argmax: Float, val centroid: Float, val mass: Float)
-
-    private fun snapCells(
-        cells: List<Pair<Float, Float>>,
-        text: String,
-        pixels: IntArray,
-        pixW: Int,
-        pixH: Int,
-        vertical: Boolean,
-        L: Float,
-    ): List<Pair<Float, Float>> {
-        if (cells.isEmpty() || pixels.size != pixW * pixH || pixW < 8 || pixH < 8) return cells
-        val lum = FloatArray(pixW * pixH) { i ->
-            val px = pixels[i]
-            (((px shr 16) and 0xFF) + ((px shr 8) and 0xFF) + (px and 0xFF)) / 3f
-        }
-        // Background polarity from border samples.
-        val border = mutableListOf<Float>()
-        var bi = 0
-        while (bi < pixW) {
-            border.add(lum[bi]); border.add(lum[(pixH - 1) * pixW + bi]); bi += 7
-        }
-        bi = 0
-        while (bi < pixH) {
-            border.add(lum[bi * pixW]); border.add(lum[bi * pixW + pixW - 1]); bi += 7
-        }
-        border.sort()
-        val bgLight = border[border.size / 2] > 128f
-        fun isInk(v: Float) = if (bgLight) v < 110f else v > 145f
-        // Axis profile over the central cross-band.
-        val profLen = if (vertical) pixH else pixW
-        val prof = FloatArray(profLen)
-        if (vertical) {
-            val x0 = (pixW * 0.2f).toInt(); val x1 = (pixW * 0.8f).toInt()
-            for (y in 0 until pixH) {
-                var m = 0f
-                for (x in x0 until x1) if (isInk(lum[y * pixW + x])) m += 1f
-                prof[y] = m
-            }
-        } else {
-            val y0 = (pixH * 0.2f).toInt(); val y1 = (pixH * 0.8f).toInt()
-            for (x in 0 until pixW) {
-                var m = 0f
-                for (y in y0 until y1) if (isInk(lum[y * pixW + x])) m += 1f
-                prof[x] = m
-            }
-        }
-        // Box blur radius 2.
-        val sm = FloatArray(profLen) { i ->
-            var a = 0f; var c = 0
-            for (k in -2..2) {
-                val j = (i + k).coerceIn(0, profLen - 1); a += prof[j]; c++
-            }
-            a / c
-        }
-        // Cells live in crop coords; pixels may be the clamped subset at image
-        // edges — scale defensively (normally identity).
-        val centers = cells.map { (a, b) -> (a + b) / 2f }
-        // Ink peaks along the axis (local maxima with prominence): in dense
-        // text a window centroid is contaminated by neighbors, so each box
-        // snaps to the NEAREST peak instead (#49: single rushed transitions
-        // accumulate downstream; peak assignment removes cumulativity).
-        // Each peak carries ARGMAX + CENTROID: region growing can walk
-        // through shallow valleys and merge neighbors (seen: し centroid
-        // pulled 21px into the gap toward 失). When they disagree the window
-        // is contaminated and the box keeps legacy (veto below); when they
-        // agree the centroid is the stable snap target.
-        val peaks = mutableListOf<Peak>()
-        run {
-            var p = 1
-            while (p < profLen - 1) {
-                if (sm[p] > sm[p - 1] && sm[p] >= sm[p + 1]) {
-                    var l = p
-                    while (l > 0 && sm[l - 1] >= sm[l] * 0.5f) l--
-                    var r = p
-                    while (r < profLen - 1 && sm[r + 1] >= sm[r] * 0.5f) r++
-                    var m2 = 0f; var mo = 0f; var am = -1f; var ap = p
-                    for (q in l..r) {
-                        m2 += sm[q]; mo += sm[q] * q
-                        if (sm[q] > am) { am = sm[q]; ap = q }
-                    }
-                    if (m2 > 0f) peaks.add(Peak(ap.toFloat(), mo / m2, m2))
-                    p = r + 1
-                } else p++
-            }
-        }
-        // Peak prominence gate: speck peaks (ruby fragments, noise) carry
-        // little mass vs a full glyph; measured against the median peak.
-        val medMass = peaks.map { it.mass }.sorted()
-            .let { if (it.isEmpty()) 0f else it[it.size / 2] }
-        return cells.mapIndexed { i, (a, b) ->
-            if (i >= text.length || isSnapSkipped(text[i])) return@mapIndexed a to b
-            val c = centers[i]
-            val pitch = (b - a).coerceAtLeast(4f)
-            // Position on the pixel axis.
-            val scale = profLen.toFloat() / L.coerceAtLeast(1f)
-            val cp = (c * scale).coerceIn(0f, profLen - 1f)
-            // Nearest peak within half pitch; must clear the mass floor.
-            var best: Peak? = null
-            var bestD = 0.5f * pitch * scale + 1f
-            for (pk in peaks) {
-                if (pk.mass < maxOf(6f, 0.35f * medMass)) continue
-                val d = kotlin.math.abs(pk.centroid - cp)
-                if (d < bestD) { bestD = d; best = pk }
-            }
-            if (best == null) return@mapIndexed a to b
-            // Agreement veto: centroid far from argmax = merged neighbors
-            // (the し case) — keep legacy rather than snap into a gap.
-            if (kotlin.math.abs(best.centroid - best.argmax) > 0.3f * pitch * scale) {
-                return@mapIndexed a to b
-            }
-            // Min-move gate: sub-visible moves (< 3px) carry measurement risk
-            // without visible benefit — they regressed exact boxes ~1px.
-            if (kotlin.math.abs(best.centroid / scale - c) < 3f) {
-                return@mapIndexed a to b
-            }
-            var nc = best.centroid / scale
-            // Voronoi clamp between neighbor centers (ends: line bounds).
-            val loB = if (i > 0) (centers[i - 1] + c) / 2f else 0f
-            val hiB = if (i < centers.size - 1) (c + centers[i + 1]) / 2f else L
-            nc = nc.coerceIn(loB, hiB)
-            nc = nc.coerceIn(c - 0.4f * pitch, c + 0.4f * pitch)
-            val len = b - a
-            val s0 = (nc - len / 2f).coerceIn(0f, maxOf(L - len, 0f))
-            s0 to minOf(s0 + len, L)
-        }
-    }
 
     fun computeCharBoxes(
         text: String,
@@ -2266,100 +2055,28 @@ class OcrEngine(
             }
         }
 
-        if (!isVertical) {
-            // ── HORIZONTAL: x-axis char boxes ──
-            val avgColW = cropW.toFloat() / seqLenTotal.toFloat()
-            val charW = maxOf(cropH.toFloat(), 3f)
-            val L = cropW.toFloat()
-
-            val base = legacyCells(charCols, seqLenTotal, L, charW)
-            val cells = if (BOX_LAYOUT_MODE == BOX_SNAP && pixels != null) {
-                snapCells(base, text, pixels, pixW, pixH, vertical = false, L)
-            } else base
-
-            // Resolve overlaps, ink-aware (#49): boxes may touch — glyph
-            // bearings absorb it. Measure each glyph's ink half-width at the
-            // render text size (line height * 0.90, mirrors LineOverlayView
-            // horizontal config) and move centers only on true ink collision,
-            // splitting just the collision instead of the whole box overlap.
-            val resolved = cells.toMutableList()
-            resolveInkCollisions(resolved, text, cropH.toFloat() * 0.90f)
-            // Consistent widths around resolved centers (#49).
-            val sized = if (BOX_UNIFORM_SIZE) uniformCells(resolved, text, L) else resolved
-
-            return sized.map { (xl, xr) ->
-                JpDictRect(
-                    (cropX + xl).roundToInt(), cropY,
-                    (cropX + xr).roundToInt(), cropY + cropH
-                )
-            }
-        } else {
-            // ── VERTICAL: y-axis char boxes with punctuation handling ──
-            // Char height = short side (cropW) like horizontal's charW=cropH.
-            // Each timestep identical avgColW=cropH/seqLen, empty at end =
-            // trailingNulls*avgColW where trailingNulls=seqLen-(lastT+1),
-            // final timestep (seqLen) aligns with bbox bottom.
-            val avgColW = cropH.toFloat() / seqLenTotal.toFloat()
-            val avgChH = maxOf(cropW.toFloat(), 3f)
-            val L = cropH.toFloat()
-
-            val base = legacyCells(charCols, seqLenTotal, L, avgChH)
-            val cells = if (BOX_LAYOUT_MODE == BOX_SNAP && pixels != null) {
-                snapCells(base, text, pixels, pixW, pixH, vertical = true, L)
-            } else base
-
-            val isCp = text.map { ch ->
-                ch in "。.．、,，)）〕》」』】〙〗〟’”］"
-            }
-            val isOp = text.map { ch ->
-                ch in "(（〔《「『【〘〖〝‘“［"
-            }
-
-            // Resolve overlaps with punctuation rules (always; positions).
-            val resolved = cells.toMutableList()
-            for (ci in 0 until n - 1) {
-                if (resolved[ci].second <= resolved[ci + 1].first) continue
-                when {
-                    isCp[ci] -> resolved[ci] = resolved[ci].first to resolved[ci + 1].first
-                    isOp[ci + 1] -> resolved[ci + 1] = resolved[ci].second to resolved[ci + 1].second
-                    isCp[ci + 1] -> resolved[ci + 1] = resolved[ci].second to resolved[ci + 1].second
-                    isOp[ci] -> resolved[ci] = resolved[ci].first to resolved[ci + 1].first
-                    else -> {
-                        val h = (resolved[ci].second - resolved[ci + 1].first) / 2f
-                        resolved[ci] = resolved[ci].first to (resolved[ci].second - h)
-                        resolved[ci + 1] = (resolved[ci + 1].first + h) to resolved[ci + 1].second
-                    }
-                }
-            }
-            // Expand punctuation cells to average non-punctuation height.
-            // Runs on the uniform-sized list when enabled (avgNpH ~= em, so
-            // punct lands corner-placed at consistent size, as before).
-            val sized = if (BOX_UNIFORM_SIZE) uniformCells(resolved, text, L).toMutableList() else resolved
-            val avgNpH = sized.filterIndexed { i, _ -> !isCp[i] && !isOp[i] }
-                .let { hs -> if (hs.isEmpty()) cropW.toFloat() else hs.sumOf { (it.second - it.first).toDouble() }.toFloat() / hs.size }
-            for (ci in 0 until n) {
-                val (yt, yb) = sized[ci]
-                if (isCp[ci]) {
-                    val nx = ((ci + 1) until n)
-                        .firstOrNull { !isCp[it] && !isOp[it] }
-                        ?.let { sized[it].first } ?: Float.POSITIVE_INFINITY
-                    sized[ci] = yt to maxOf(yb, minOf(yt + avgNpH, nx))
-                } else if (isOp[ci]) {
-                    val pl = (0 until ci)
-                        .lastOrNull { !isCp[it] && !isOp[it] }
-                        ?.let { sized[it].second } ?: Float.NEGATIVE_INFINITY
-                    sized[ci] = minOf(yt, maxOf(pl, yb - avgNpH)) to yb
-                }
-            }
-
-            return sized.map { (yt, yb) ->
-                val ch = maxOf(yb - yt, 1f)
-                JpDictRect(
-                    cropX, (cropY + yt).roundToInt(),
-                    cropX + cropW, (cropY + yt + ch).roundToInt()
-                )
-            }
-        }
+        // Legacy chain (#49) now lives in jpdict_core::char_boxes — same
+        // columns, snap, ink resolve and uniform sizing, with the ink widths
+        // measured above and the layout prefs passed explicitly.
+        val inkHalf = if (!isVertical) {
+            measureInkHalfWidths(text, n, cropH.toFloat() * 0.90f)
+        } else FloatArray(0)
+        return ocrEngineComputeCharBoxes(
+            text = text,
+            charCols = charCols.toList(),
+            seqLenTotal = seqLenTotal.toLong(),
+            cropX = cropX,
+            cropY = cropY,
+            cropW = cropW,
+            cropH = cropH,
+            isVertical = isVertical,
+            pixels = pixels?.toList(),
+            pixW = pixW,
+            pixH = pixH,
+            snap = BOX_LAYOUT_MODE == BOX_SNAP,
+            uniform = BOX_UNIFORM_SIZE,
+            inkHalfWidths = inkHalf.toList(),
+        ).map { JpDictRect(it.x, it.y, it.x + it.w, it.y + it.h) }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -2450,57 +2167,17 @@ class OcrEngine(
         val raw = oldLine.rawAlternatives
         if (raw.isEmpty()) return oldLine
 
-        val text = StringBuilder()
-        val newAlts = mutableListOf<MutableList<Pair<Char, Float>>>()
-        val charCols = mutableListOf<Float>()
-        var prevChar: Char? = null
-
-        fun wval(t: Int, ch: Char): Float? {
-            if (t < 0 || t >= raw.size) return null
-            return raw[t].firstOrNull { (c, _) -> c == ch }?.second
+        val re = ocrEngineReDecode(
+            raw.map { alts -> alts.map { g -> GapCell(ch = g.first.code, score = g.second) } },
+            oldLine.isVertical,
+        ) ?: return oldLine
+        // The walk already applies the vertical punctuation normalisation to
+        // the text and every alternative entry, like the emit path does.
+        val vertText = re.text
+        val newAlts = re.alternatives.map { alts ->
+            alts.map { g -> Char(g.ch) to g.score }.toMutableList()
         }
-        fun fracFor(t: Int, ch: Char, v1: Float): Float {
-            val w0 = wval(t - 1, ch)
-            val w2 = wval(t + 1, ch)
-            return if (w0 != null && w2 != null) peakOffset(w0, v1, w2) else 0f
-        }
-        for ((t, alts) in raw.withIndex()) {
-            val top = alts.firstOrNull() ?: continue
-            val topChar = top.first
-
-            when {
-                topChar == '\u3000' -> { // blank
-                    prevChar = null
-                }
-                topChar == ' ' -> {
-                    text.append(' ')
-                    prevChar = ' '
-                    charCols.add(t + fracFor(t, ' ', top.second))
-                    newAlts.add(alts.toMutableList())
-                }
-                topChar == prevChar -> { /* collapse */ }
-                else -> {
-                    text.append(topChar)
-                    charCols.add(t + fracFor(t, topChar, top.second))
-                    newAlts.add(alts.toMutableList())
-                    prevChar = topChar
-                }
-            }
-        }
-
-        // Vertical punctuation (#56, #63, safety net): the emit path
-        // normalizes, but cached raw alternatives may predate the fix —
-        // re-decode must not reintroduce ASCII `?` or horizontal `…`/`‥`
-        // into vertical lines.
-        val decodedText = text.toString()
-        val vertText = if (oldLine.isVertical) JapaneseUtil.verticalPunctuation(decodedText) else decodedText
-        if (oldLine.isVertical) {
-            val normalized = JapaneseUtil.verticalPunctuationAlternatives(newAlts)
-            for (i in newAlts.indices) {
-                val out = newAlts[i]
-                for (j in out.indices) out[j] = normalized[i][j]
-            }
-        }
+        val charCols = re.charCols.toFloatArray()
 
         val newCharBoxes = if (oldLine.cropW > 0 && oldLine.cropH > 0) {
             // CAP evidence on the re-decode path: the cached top-K is still
@@ -2512,7 +2189,7 @@ class OcrEngine(
                 oldLine.rawAlternatives
             }
             val local = computeCharBoxes(
-                vertText, charCols.toFloatArray(), oldLine.seqLenTotal,
+                vertText, charCols, oldLine.seqLenTotal,
                 oldLine.cropX, oldLine.cropY, oldLine.cropW, oldLine.cropH,
                 oldLine.isVertical,
                 steps = steps,
@@ -2534,7 +2211,7 @@ class OcrEngine(
             cropH = oldLine.cropH,
             cropX = oldLine.cropX,
             cropY = oldLine.cropY,
-            charCols = charCols.toFloatArray(),
+            charCols = charCols,
             quad = oldLine.quad,
         )
     }
