@@ -61,6 +61,7 @@ textwrap	MIT	0.16.2	licenses/texts/rust/textwrap-LICENSE	-	cargo metadata --lock
 thiserror	MIT OR Apache-2.0	1.0.69	licenses/texts/rust/anyhow-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 thiserror-impl	MIT OR Apache-2.0	1.0.69	licenses/texts/rust/anyhow-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 toml	MIT/Apache-2.0	0.5.11	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/toml-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
+ttf-parser	MIT OR Apache-2.0	0.21.1	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/ttf-parser-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 unicase	MIT OR Apache-2.0	2.9.0	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/unicase-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 unicode-ident	(MIT OR Apache-2.0) AND Unicode-3.0	1.0.24	licenses/texts/rust/anyhow-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT,licenses/texts/rust/unicode-ident-LICENSE-UNICODE	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 uniffi	MPL-2.0	0.28.3	licenses/texts/mpl-2.0.txt	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
