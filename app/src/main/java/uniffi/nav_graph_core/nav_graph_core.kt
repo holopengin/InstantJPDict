@@ -994,6 +994,26 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1236,6 +1256,14 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_kana_size_window_bytes(uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    fun uniffi_nav_graph_core_fn_func_lookup_following_text(`activeChars`: RustBuffer.ByValue,`globalIdx`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_lookup_format_results(`matches`: RustBuffer.ByValue,`dictNames`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_lookup_prepare_candidates(`text`: RustBuffer.ByValue,`deinflector`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_lookup_process_results(`rows`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,`followingText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropX`: Int,`cropY`: Int,`cropW`: Int,`cropH`: Int,`isVertical`: Byte,`pixels`: RustBuffer.ByValue,`pixW`: Int,`pixH`: Int,`snap`: Byte,`uniform`: Byte,`inkHalfWidths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1293,6 +1321,18 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_rotated_geometry_vertical_min_aspect(uniffi_out_err: UniffiRustCallStatus, 
     ): Float
     fun uniffi_nav_graph_core_fn_func_ruby_style_for_mini(`isMini`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_bank_number(`filename`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_parse_index_title(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_parse_kanji_bank(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_parse_tag_bank(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_parse_term_bank(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_yomitan_parse_term_meta_bank(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_nav_graph_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1516,6 +1556,14 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_kana_size_window_bytes(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_lookup_following_text(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_lookup_format_results(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_lookup_prepare_candidates(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_lookup_process_results(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes(
@@ -1573,6 +1621,18 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_rotated_geometry_vertical_min_aspect(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ruby_style_for_mini(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_bank_number(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_parse_index_title(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_parse_kanji_bank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_parse_tag_bank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_parse_term_bank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_yomitan_parse_term_meta_bank(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_charlm_count(
     ): Short
@@ -1834,6 +1894,18 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window_bytes() != 31935.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_lookup_following_text() != 55995.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_lookup_format_results() != 43246.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_lookup_prepare_candidates() != 12083.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_lookup_process_results() != 45133.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1919,6 +1991,24 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_ruby_style_for_mini() != 58587.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_bank_number() != 48631.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_parse_index_title() != 46952.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_parse_kanji_bank() != 58102.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_parse_tag_bank() != 40636.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_parse_term_bank() != 13369.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_yomitan_parse_term_meta_bank() != 57877.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_charlm_count() != 65008.toShort()) {
@@ -5945,6 +6035,191 @@ public object FfiConverterTypeKanaSizePair: FfiConverterRustBuffer<KanaSizePair>
 
 
 /**
+ * Candidates for one Unicode-character prefix length.
+ */
+data class LookupCandidateGroup (
+    var `length`: kotlin.Long, 
+    var `candidates`: List<LookupSearchCandidate>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLookupCandidateGroup: FfiConverterRustBuffer<LookupCandidateGroup> {
+    override fun read(buf: ByteBuffer): LookupCandidateGroup {
+        return LookupCandidateGroup(
+            FfiConverterLong.read(buf),
+            FfiConverterSequenceTypeLookupSearchCandidate.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LookupCandidateGroup) = (
+            FfiConverterLong.allocationSize(value.`length`) +
+            FfiConverterSequenceTypeLookupSearchCandidate.allocationSize(value.`candidates`)
+    )
+
+    override fun write(value: LookupCandidateGroup, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`length`, buf)
+            FfiConverterSequenceTypeLookupSearchCandidate.write(value.`candidates`, buf)
+    }
+}
+
+
+
+/**
+ * Deinflection chain carried by a candidate or term match.
+ */
+data class LookupDeinflectionChain (
+    var `surface`: kotlin.String, 
+    var `steps`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLookupDeinflectionChain: FfiConverterRustBuffer<LookupDeinflectionChain> {
+    override fun read(buf: ByteBuffer): LookupDeinflectionChain {
+        return LookupDeinflectionChain(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LookupDeinflectionChain) = (
+            FfiConverterString.allocationSize(value.`surface`) +
+            FfiConverterSequenceString.allocationSize(value.`steps`)
+    )
+
+    override fun write(value: LookupDeinflectionChain, buf: ByteBuffer) {
+            FfiConverterString.write(value.`surface`, buf)
+            FfiConverterSequenceString.write(value.`steps`, buf)
+    }
+}
+
+
+
+/**
+ * Dictionary display-name input. A record replaces the `(i64, String)` tuple
+ * because tuples are not UniFFI-record compatible.
+ */
+data class LookupDictionaryName (
+    var `id`: kotlin.Long, 
+    var `name`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLookupDictionaryName: FfiConverterRustBuffer<LookupDictionaryName> {
+    override fun read(buf: ByteBuffer): LookupDictionaryName {
+        return LookupDictionaryName(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LookupDictionaryName) = (
+            FfiConverterLong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`)
+    )
+
+    override fun write(value: LookupDictionaryName, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+    }
+}
+
+
+
+/**
+ * One query candidate. `required_types = None` is a direct surface variant;
+ * `Some(empty)` is a deinflected candidate that accepts any rule type.
+ */
+data class LookupSearchCandidate (
+    var `term`: kotlin.String, 
+    var `requiredTypes`: List<kotlin.String>?, 
+    var `chain`: LookupDeinflectionChain?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLookupSearchCandidate: FfiConverterRustBuffer<LookupSearchCandidate> {
+    override fun read(buf: ByteBuffer): LookupSearchCandidate {
+        return LookupSearchCandidate(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalSequenceString.read(buf),
+            FfiConverterOptionalTypeLookupDeinflectionChain.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LookupSearchCandidate) = (
+            FfiConverterString.allocationSize(value.`term`) +
+            FfiConverterOptionalSequenceString.allocationSize(value.`requiredTypes`) +
+            FfiConverterOptionalTypeLookupDeinflectionChain.allocationSize(value.`chain`)
+    )
+
+    override fun write(value: LookupSearchCandidate, buf: ByteBuffer) {
+            FfiConverterString.write(value.`term`, buf)
+            FfiConverterOptionalSequenceString.write(value.`requiredTypes`, buf)
+            FfiConverterOptionalTypeLookupDeinflectionChain.write(value.`chain`, buf)
+    }
+}
+
+
+
+/**
+ * One grouped term match and its database rows.
+ */
+data class LookupTermMatch (
+    var `term`: kotlin.String, 
+    var `entries`: List<DictionaryEntryRow>, 
+    var `chain`: LookupDeinflectionChain?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLookupTermMatch: FfiConverterRustBuffer<LookupTermMatch> {
+    override fun read(buf: ByteBuffer): LookupTermMatch {
+        return LookupTermMatch(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeDictionaryEntryRow.read(buf),
+            FfiConverterOptionalTypeLookupDeinflectionChain.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LookupTermMatch) = (
+            FfiConverterString.allocationSize(value.`term`) +
+            FfiConverterSequenceTypeDictionaryEntryRow.allocationSize(value.`entries`) +
+            FfiConverterOptionalTypeLookupDeinflectionChain.allocationSize(value.`chain`)
+    )
+
+    override fun write(value: LookupTermMatch, buf: ByteBuffer) {
+            FfiConverterString.write(value.`term`, buf)
+            FfiConverterSequenceTypeDictionaryEntryRow.write(value.`entries`, buf)
+            FfiConverterOptionalTypeLookupDeinflectionChain.write(value.`chain`, buf)
+    }
+}
+
+
+
+/**
  * Navigation graph with one outgoing edge per cardinal direction per node.
  */
 data class NavGraph (
@@ -6157,6 +6432,76 @@ public object FfiConverterTypePlaceOptions: FfiConverterRustBuffer<PlaceOptions>
             FfiConverterFloat.write(value.`translateMaxEm`, buf)
             FfiConverterInt.write(value.`translatePasses`, buf)
             FfiConverterBoolean.write(value.`translateGateCut`, buf)
+    }
+}
+
+
+
+/**
+ * Prepared terms and candidates returned to the Kotlin facade.
+ */
+data class PreparedLookupCandidates (
+    var `terms`: List<kotlin.String>, 
+    var `byLength`: List<LookupCandidateGroup>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreparedLookupCandidates: FfiConverterRustBuffer<PreparedLookupCandidates> {
+    override fun read(buf: ByteBuffer): PreparedLookupCandidates {
+        return PreparedLookupCandidates(
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceTypeLookupCandidateGroup.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PreparedLookupCandidates) = (
+            FfiConverterSequenceString.allocationSize(value.`terms`) +
+            FfiConverterSequenceTypeLookupCandidateGroup.allocationSize(value.`byLength`)
+    )
+
+    override fun write(value: PreparedLookupCandidates, buf: ByteBuffer) {
+            FfiConverterSequenceString.write(value.`terms`, buf)
+            FfiConverterSequenceTypeLookupCandidateGroup.write(value.`byLength`, buf)
+    }
+}
+
+
+
+/**
+ * Grouped rows plus the first matching query length.
+ */
+data class ProcessedLookupResults (
+    var `matches`: List<LookupTermMatch>, 
+    var `maxLen`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeProcessedLookupResults: FfiConverterRustBuffer<ProcessedLookupResults> {
+    override fun read(buf: ByteBuffer): ProcessedLookupResults {
+        return ProcessedLookupResults(
+            FfiConverterSequenceTypeLookupTermMatch.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ProcessedLookupResults) = (
+            FfiConverterSequenceTypeLookupTermMatch.allocationSize(value.`matches`) +
+            FfiConverterLong.allocationSize(value.`maxLen`)
+    )
+
+    override fun write(value: ProcessedLookupResults, buf: ByteBuffer) {
+            FfiConverterSequenceTypeLookupTermMatch.write(value.`matches`, buf)
+            FfiConverterLong.write(value.`maxLen`, buf)
     }
 }
 
@@ -6828,6 +7173,38 @@ public object FfiConverterOptionalTypeOovCandidates: FfiConverterRustBuffer<OovC
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeLookupDeinflectionChain: FfiConverterRustBuffer<LookupDeinflectionChain?> {
+    override fun read(buf: ByteBuffer): LookupDeinflectionChain? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeLookupDeinflectionChain.read(buf)
+    }
+
+    override fun allocationSize(value: LookupDeinflectionChain?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeLookupDeinflectionChain.allocationSize(value)
+        }
+    }
+
+    override fun write(value: LookupDeinflectionChain?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeLookupDeinflectionChain.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeReDecodedLine: FfiConverterRustBuffer<ReDecodedLine?> {
     override fun read(buf: ByteBuffer): ReDecodedLine? {
         if (buf.get().toInt() == 0) {
@@ -6946,6 +7323,38 @@ public object FfiConverterOptionalSequenceFloat: FfiConverterRustBuffer<List<kot
         } else {
             buf.put(1)
             FfiConverterSequenceFloat.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalSequenceString: FfiConverterRustBuffer<List<kotlin.String>?> {
+    override fun read(buf: ByteBuffer): List<kotlin.String>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceString.read(buf)
+    }
+
+    override fun allocationSize(value: List<kotlin.String>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<kotlin.String>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceString.write(value, buf)
         }
     }
 }
@@ -7304,6 +7713,62 @@ public object FfiConverterSequenceTypeDeinflectionResult: FfiConverterRustBuffer
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeDictionaryEntryRow: FfiConverterRustBuffer<List<DictionaryEntryRow>> {
+    override fun read(buf: ByteBuffer): List<DictionaryEntryRow> {
+        val len = buf.getInt()
+        return List<DictionaryEntryRow>(len) {
+            FfiConverterTypeDictionaryEntryRow.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DictionaryEntryRow>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDictionaryEntryRow.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DictionaryEntryRow>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDictionaryEntryRow.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDictionaryTagRow: FfiConverterRustBuffer<List<DictionaryTagRow>> {
+    override fun read(buf: ByteBuffer): List<DictionaryTagRow> {
+        val len = buf.getInt()
+        return List<DictionaryTagRow>(len) {
+            FfiConverterTypeDictionaryTagRow.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DictionaryTagRow>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDictionaryTagRow.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DictionaryTagRow>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDictionaryTagRow.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeGapAlternative: FfiConverterRustBuffer<List<GapAlternative>> {
     override fun read(buf: ByteBuffer): List<GapAlternative> {
         val len = buf.getInt()
@@ -7490,6 +7955,118 @@ public object FfiConverterSequenceTypeKanaSizePair: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeKanaSizePair.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLookupCandidateGroup: FfiConverterRustBuffer<List<LookupCandidateGroup>> {
+    override fun read(buf: ByteBuffer): List<LookupCandidateGroup> {
+        val len = buf.getInt()
+        return List<LookupCandidateGroup>(len) {
+            FfiConverterTypeLookupCandidateGroup.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LookupCandidateGroup>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLookupCandidateGroup.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LookupCandidateGroup>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLookupCandidateGroup.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLookupDictionaryName: FfiConverterRustBuffer<List<LookupDictionaryName>> {
+    override fun read(buf: ByteBuffer): List<LookupDictionaryName> {
+        val len = buf.getInt()
+        return List<LookupDictionaryName>(len) {
+            FfiConverterTypeLookupDictionaryName.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LookupDictionaryName>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLookupDictionaryName.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LookupDictionaryName>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLookupDictionaryName.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLookupSearchCandidate: FfiConverterRustBuffer<List<LookupSearchCandidate>> {
+    override fun read(buf: ByteBuffer): List<LookupSearchCandidate> {
+        val len = buf.getInt()
+        return List<LookupSearchCandidate>(len) {
+            FfiConverterTypeLookupSearchCandidate.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LookupSearchCandidate>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLookupSearchCandidate.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LookupSearchCandidate>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLookupSearchCandidate.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLookupTermMatch: FfiConverterRustBuffer<List<LookupTermMatch>> {
+    override fun read(buf: ByteBuffer): List<LookupTermMatch> {
+        val len = buf.getInt()
+        return List<LookupTermMatch>(len) {
+            FfiConverterTypeLookupTermMatch.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LookupTermMatch>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLookupTermMatch.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LookupTermMatch>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLookupTermMatch.write(it, buf)
         }
     }
 }
@@ -8515,6 +9092,60 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * Return the next 20 characters from `global_idx`, omitting U+3000 cells.
+         * An out-of-range host index degrades to an empty string instead of crossing
+         * a Rust panic.
+         */ fun `lookupFollowingText`(`activeChars`: List<kotlin.String>, `globalIdx`: kotlin.Long): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_lookup_following_text(
+        FfiConverterSequenceString.lower(`activeChars`),FfiConverterLong.lower(`globalIdx`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Format grouped rows as the compact JSON projection described by
+         * `jpdict_core::lookup_core::format_dictionary_results_json`.
+         */ fun `lookupFormatResults`(`matches`: List<LookupTermMatch>, `dictNames`: List<LookupDictionaryName>): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_lookup_format_results(
+        FfiConverterSequenceTypeLookupTermMatch.lower(`matches`),FfiConverterSequenceTypeLookupDictionaryName.lower(`dictNames`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Prepare lookup candidates from the host's exported deinflector object.
+         *
+         * The Kotlin facade passes its `Deinflector` handle straight through, so
+         * deinflection happens in-process rather than crossing back per prefix.
+         */ fun `lookupPrepareCandidates`(`text`: kotlin.String, `deinflector`: Deinflector): PreparedLookupCandidates {
+            return FfiConverterTypePreparedLookupCandidates.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_lookup_prepare_candidates(
+        FfiConverterString.lower(`text`),FfiConverterTypeDeinflector.lower(`deinflector`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Group database rows under prepared candidates.
+         */ fun `lookupProcessResults`(`rows`: List<DictionaryEntryRow>, `prepared`: PreparedLookupCandidates, `followingText`: kotlin.String): ProcessedLookupResults {
+            return FfiConverterTypeProcessedLookupResults.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_lookup_process_results(
+        FfiConverterSequenceTypeDictionaryEntryRow.lower(`rows`),FfiConverterTypePreparedLookupCandidates.lower(`prepared`),FfiConverterString.lower(`followingText`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Navigate from `idx` in `dir` (0=N,1=S,2=E,3=W). Returns `None` if the slot
          * is empty or the inputs are out of range.
          */ fun `navigate`(`graph`: NavGraph, `idx`: kotlin.Int, `dir`: kotlin.Int): kotlin.Int? {
@@ -8930,6 +9561,85 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ruby_style_for_mini(
         FfiConverterBoolean.lower(`isMini`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Numeric suffix of a Yomitan bank filename, using the shared parser's
+         * classification rules.  Kotlin receives `null` for an invalid suffix.
+         */ fun `yomitanBankNumber`(`filename`: kotlin.String): kotlin.Long? {
+            return FfiConverterOptionalLong.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_bank_number(
+        FfiConverterString.lower(`filename`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Read the declared title from an `index.json` document.  `None` means the
+         * document is malformed or has no string `title` field.
+         */ fun `yomitanParseIndexTitle`(`json`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_parse_index_title(
+        FfiConverterString.lower(`json`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a Yomitan kanji bank.  The returned rows use dictionary id `0`; the
+         * Android importer replaces it with the id created for the current ZIP.
+         */ fun `yomitanParseKanjiBank`(`json`: kotlin.String): List<DictionaryEntryRow> {
+            return FfiConverterSequenceTypeDictionaryEntryRow.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_parse_kanji_bank(
+        FfiConverterString.lower(`json`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a Yomitan tag bank.  The returned rows use dictionary id `0`; the
+         * Android importer replaces it with the id created for the current ZIP.
+         */ fun `yomitanParseTagBank`(`json`: kotlin.String): List<DictionaryTagRow> {
+            return FfiConverterSequenceTypeDictionaryTagRow.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_parse_tag_bank(
+        FfiConverterString.lower(`json`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a Yomitan term bank.  The returned rows use dictionary id `0`; the
+         * Android importer replaces it with the id created for the current ZIP.
+         */ fun `yomitanParseTermBank`(`json`: kotlin.String): List<DictionaryEntryRow> {
+            return FfiConverterSequenceTypeDictionaryEntryRow.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_parse_term_bank(
+        FfiConverterString.lower(`json`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse the pitch-bearing rows of a Yomitan term-meta bank.  The returned
+         * rows use dictionary id `0`; the Android importer replaces it with the id
+         * created for the current ZIP.
+         */ fun `yomitanParseTermMetaBank`(`json`: kotlin.String): List<DictionaryEntryRow> {
+            return FfiConverterSequenceTypeDictionaryEntryRow.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_yomitan_parse_term_meta_bank(
+        FfiConverterString.lower(`json`),_status)
 }
     )
     }
