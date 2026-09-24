@@ -55,7 +55,9 @@ import uniffi.nav_graph_core.kanaSizeEpsilon
  *
  * A flip writes the same `overrides[i]` entry a manual correction writes, so it is visible in
  * the text and undoable exactly like any other correction. The core returns the flip list; this
- * facade projects it onto the app's `LineResult.overrides` (the core has no such field).
+ * facade projects it onto the app's `LineResult.overrides` — the same entry a manual correction
+ * writes, so the flip is visible in the text and undoable. (The core models the field now that
+ * the gap port added it; the projection still lives here because the ε policy is text-only.)
  */
 object KanaSizeFix {
     /**
