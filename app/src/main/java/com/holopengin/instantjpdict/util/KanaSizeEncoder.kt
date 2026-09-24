@@ -6,6 +6,7 @@ import uniffi.nav_graph_core.kanaSizeBigFormOf
 import uniffi.nav_graph_core.kanaSizeIsSmall
 import uniffi.nav_graph_core.kanaSizeSmallToBig
 import uniffi.nav_graph_core.kanaSizeWindow
+import uniffi.nav_graph_core.kanaSizeWindowBytes
 
 /**
  * Window encoder for the small/large kana size model (#44).
@@ -69,9 +70,9 @@ object KanaSizeEncoder {
     fun window(text: CharSequence, index: Int): IntArray =
         kanaSizeWindow(text.toString(), index.toLong()).toIntArray()
 
-    /** Mirrors `jpdict_core::kana_size::WINDOW_BYTES`; UniFFI cannot export consts. */
-    const val WINDOW_BYTES = 40
-
-    /** Characters that terminate context; mirrors `jpdict_core::kana_size::BOUNDARY`. */
-    const val BOUNDARY = "。\n"
+    /**
+     * The 40-byte window length, read from `jpdict_core` at first use (UniFFI cannot export
+     * consts). `KanaSizeNcnn.WINDOW_BYTES` derives from this.
+     */
+    val WINDOW_BYTES: Int = kanaSizeWindowBytes().toInt()
 }

@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict.util
 import android.content.Context
 import uniffi.nav_graph_core.CharLm as RustCharLm
 import uniffi.nav_graph_core.charLmFromBytes
+import uniffi.nav_graph_core.charLmMaxOrder
 
 /**
  * Character n-gram language model (#44, Feature 2): the text prior that ranks candidates
@@ -35,8 +36,11 @@ class CharLm private constructor(internal val inner: RustCharLm) {
         inner.rank(context.toCodePoints(), candidates.map { it.code }).map { Char(it) }
 
     companion object {
-        /** Mirrors `jpdict_core::util::char_lm::MAX_ORDER`; the packed table's order. */
-        const val MAX_ORDER = 4
+        /**
+         * The packed table's n-gram order, read from `jpdict_core` at first use
+         * (UniFFI cannot export consts, so this is a `val` rather than a `const val`).
+         */
+        val MAX_ORDER: Int = charLmMaxOrder().toInt()
 
         /** Wrap packed bytes. Null when the header or length does not describe a table. */
         fun fromBytes(bytes: ByteArray): CharLm? =

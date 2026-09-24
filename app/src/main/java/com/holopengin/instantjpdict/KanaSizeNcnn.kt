@@ -88,7 +88,7 @@ class KanaSizeNcnn private constructor(private val handle: Long) {
 
     companion object {
         private const val TAG = "KanaSizeNcnn"
-        const val WINDOW_BYTES = KanaSizeEncoder.WINDOW_BYTES   // 40
+        val WINDOW_BYTES = KanaSizeEncoder.WINDOW_BYTES   // 40, read from the Rust encoder
 
         private const val PARAM_ASSET = "kana_size/nb_all.param"
         private const val BIN_ASSET = "kana_size/nb_all.bin"

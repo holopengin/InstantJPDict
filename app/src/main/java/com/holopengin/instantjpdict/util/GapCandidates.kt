@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict.util
 
 import uniffi.nav_graph_core.GapAlternative
+import uniffi.nav_graph_core.gapCandidatesMax
 import uniffi.nav_graph_core.gapContextBefore
 import uniffi.nav_graph_core.gapFallback
 import uniffi.nav_graph_core.gapGenerate
@@ -30,11 +31,10 @@ import uniffi.nav_graph_core.gapPunctDefaults
  */
 object GapCandidates {
     /**
-     * Mirrors `jpdict_core::util::gap_candidates::MAX`; UniFFI cannot export consts, so the
-     * literal stays here and the crate tests pin the same value. A `const` because it is a
-     * default parameter value.
+     * The candidate cap, read from `jpdict_core` at first use (UniFFI cannot export consts,
+     * so this is a `val`; it is still fine as a default parameter value).
      */
-    const val MAX = 15
+    val MAX: Int = gapCandidatesMax().toInt()
 
     /**
      * Whether a character the recogniser proposed is worth offering. Kanji, kana and

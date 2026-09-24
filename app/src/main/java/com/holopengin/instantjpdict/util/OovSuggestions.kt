@@ -2,6 +2,8 @@ package com.holopengin.instantjpdict.util
 
 import uniffi.nav_graph_core.SuggestionSource as RustSuggestionSource
 import uniffi.nav_graph_core.oovSuggestionsAssemble
+import uniffi.nav_graph_core.oovSuggestionsMaxComponentCandidates
+import uniffi.nav_graph_core.oovSuggestionsMaxVariantCandidates
 
 /**
  * Component-derived alternatives for a recognised character (#44, step 1).
@@ -33,24 +35,14 @@ import uniffi.nav_graph_core.oovSuggestionsAssemble
  */
 object OovSuggestions {
     /**
-     * IDF mass a candidate must share with the emitted character (measured tier).
-     *
-     * Mirrors `jpdict_core::util::oov_suggestions::MIN_IDF_FRACTION`; UniFFI cannot export
-     * consts, so this is a documented mirror and the Rust crate test pins the value.
+     * Caps on the generated groups, read from `jpdict_core` at first use (UniFFI cannot export
+     * consts). Raised from 5/3 to 15/15 at the maintainer's request (#44): tapping a generated
+     * entry rebuilds the list around it, so a longer list is what makes the kanji form space
+     * walkable, and the popup scrolls. The measured ranking still decides the order, so the
+     * useful entries stay at the front.
      */
-    const val MIN_IDF_FRACTION = 0.7f
-
-    /**
-     * Caps on the generated groups. Raised from 5/3 to 15/15 at the maintainer's request
-     * (#44): tapping a generated entry rebuilds the list around it, so a longer list is
-     * what makes the kanji form space walkable, and the popup scrolls. The measured
-     * ranking still decides the order, so the useful entries stay at the front.
-     *
-     * Mirrors the Rust consts; UniFFI cannot export consts, so these are documented
-     * mirrors and the Rust crate test pins the values.
-     */
-    const val MAX_COMPONENT_CANDIDATES = 15
-    const val MAX_VARIANT_CANDIDATES = 15
+    val MAX_COMPONENT_CANDIDATES: Int = oovSuggestionsMaxComponentCandidates().toInt()
+    val MAX_VARIANT_CANDIDATES: Int = oovSuggestionsMaxVariantCandidates().toInt()
 
     /** Where a popup entry came from. The panel tints non-HEAD entries. */
     enum class Source { HEAD, COMPONENTS, VARIANT, LM }

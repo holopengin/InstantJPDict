@@ -7,6 +7,7 @@ import com.holopengin.instantjpdict.LineResult
 import com.holopengin.instantjpdict.OcrEngine
 import uniffi.nav_graph_core.KanaSizeScorer
 import uniffi.nav_graph_core.kanaSizeCorrectLines
+import uniffi.nav_graph_core.kanaSizeEpsilon
 
 /**
  * Kana size correction (#44): let the byte-CNN decide the small/big form of a confusable
@@ -57,12 +58,15 @@ import uniffi.nav_graph_core.kanaSizeCorrectLines
  * facade projects it onto the app's `LineResult.overrides` (the core has no such field).
  */
 object KanaSizeFix {
-    /** Certainty required to flip; the middle band is deliberately left untouched. */
-    const val EPSILON = 0.01f
+    /**
+     * Certainty required to flip, read from `jpdict_core` at first use (the measured default;
+     * UniFFI cannot export consts). The middle band is deliberately left untouched.
+     */
+    val EPSILON: Float = kanaSizeEpsilon()
 
     /** Tunable copy of [EPSILON], so the threshold can be found on-device without a rebuild. */
     const val PREF_EPSILON = "kana_size_epsilon"
-    const val DEF_EPSILON = EPSILON
+    val DEF_EPSILON: Float = EPSILON
 
     fun epsilon(ctx: Context): Float =
         ctx.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
