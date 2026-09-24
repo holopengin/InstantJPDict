@@ -23,6 +23,11 @@
 uniffi::setup_scaffolding!();
 
 mod blank_gaps;
+mod catalog;
+mod data_models;
+mod definition_format;
+mod lookup_core;
+mod yomitan_parse;
 mod char_lm;
 mod char_placement;
 mod component_table;
