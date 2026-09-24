@@ -976,6 +976,24 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1132,6 +1150,14 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_build_nav_graph(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_catalog_base_title(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_catalog_entries(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_catalog_installed_ids(`installedNames`: RustBuffer.ByValue,`installedCatalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_catalog_parse(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_from_bytes(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_max_order(uniffi_out_err: UniffiRustCallStatus, 
@@ -1139,6 +1165,16 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_char_placement_blank(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     fun uniffi_nav_graph_core_fn_func_char_placement_place(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`pixels`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_parse(`glossaryJson`: RustBuffer.ByValue,`separator`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_parse_glossary(`glossaryJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_plain(`definitionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_plain_all(`definitionsJsonRows`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_redirect_targets(`definitionsJson`: RustBuffer.ByValue,`maxTargets`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_deinflector_from_json_str(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1394,6 +1430,14 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_build_nav_graph(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_catalog_base_title(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_catalog_entries(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_catalog_installed_ids(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_catalog_parse(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_from_bytes(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_max_order(
@@ -1401,6 +1445,16 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_char_placement_blank(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_place(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_parse(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_parse_glossary(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_plain(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_plain_all(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_redirect_targets(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_deinflector_from_json_str(
     ): Short
@@ -1651,6 +1705,18 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_build_nav_graph() != 17870.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_catalog_base_title() != 19301.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_catalog_entries() != 5649.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_catalog_installed_ids() != 64132.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_catalog_parse() != 6810.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_char_lm_from_bytes() != 6307.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1661,6 +1727,21 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_place() != 60789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_parse() != 30188.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_parse_glossary() != 28013.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_plain() != 54298.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_plain_all() != 19427.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_redirect_targets() != 16176.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_deinflector_from_json_str() != 27511.toShort()) {
@@ -5129,6 +5210,76 @@ public object FfiConverterTypeCandidate: FfiConverterRustBuffer<Candidate> {
 
 
 /**
+ * One catalog row at the UniFFI boundary.
+ *
+ * `bytes` crosses as `i64` because the Android `CatalogEntry` API uses a
+ * Kotlin `Long`; the core keeps the pin as `u64` for download accounting.
+ */
+data class CatalogEntryRecord (
+    var `id`: kotlin.String, 
+    var `name`: kotlin.String, 
+    var `description`: kotlin.String, 
+    var `url`: kotlin.String, 
+    var `bytes`: kotlin.Long, 
+    var `sha256`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `recommended`: kotlin.Boolean, 
+    var `license`: kotlin.String, 
+    var `source`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCatalogEntryRecord: FfiConverterRustBuffer<CatalogEntryRecord> {
+    override fun read(buf: ByteBuffer): CatalogEntryRecord {
+        return CatalogEntryRecord(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CatalogEntryRecord) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`description`) +
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterLong.allocationSize(value.`bytes`) +
+            FfiConverterString.allocationSize(value.`sha256`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterBoolean.allocationSize(value.`recommended`) +
+            FfiConverterString.allocationSize(value.`license`) +
+            FfiConverterString.allocationSize(value.`source`)
+    )
+
+    override fun write(value: CatalogEntryRecord, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`description`, buf)
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterLong.write(value.`bytes`, buf)
+            FfiConverterString.write(value.`sha256`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterBoolean.write(value.`recommended`, buf)
+            FfiConverterString.write(value.`license`, buf)
+            FfiConverterString.write(value.`source`, buf)
+    }
+}
+
+
+
+/**
  * A deinflection candidate: the base-form term plus the chain that produced
  * it.
  */
@@ -5173,6 +5324,179 @@ public object FfiConverterTypeDeinflectionResult: FfiConverterRustBuffer<Deinfle
             FfiConverterString.write(value.`term`, buf)
             FfiConverterSequenceString.write(value.`reasons`, buf)
             FfiConverterSequenceString.write(value.`ruleTypes`, buf)
+    }
+}
+
+
+
+/**
+ * A single dictionary entry (term or kanji).
+ */
+data class DictionaryEntryRow (
+    var `id`: kotlin.Long, 
+    var `kanji`: kotlin.String, 
+    var `reading`: kotlin.String, 
+    var `definitions`: kotlin.String, 
+    var `rules`: kotlin.String, 
+    var `popularity`: kotlin.Int, 
+    var `dictionaryId`: kotlin.Long, 
+    var `onyomi`: kotlin.String?, 
+    var `kunyomi`: kotlin.String?, 
+    var `jlpt`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDictionaryEntryRow: FfiConverterRustBuffer<DictionaryEntryRow> {
+    override fun read(buf: ByteBuffer): DictionaryEntryRow {
+        return DictionaryEntryRow(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DictionaryEntryRow) = (
+            FfiConverterLong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`kanji`) +
+            FfiConverterString.allocationSize(value.`reading`) +
+            FfiConverterString.allocationSize(value.`definitions`) +
+            FfiConverterString.allocationSize(value.`rules`) +
+            FfiConverterInt.allocationSize(value.`popularity`) +
+            FfiConverterLong.allocationSize(value.`dictionaryId`) +
+            FfiConverterOptionalString.allocationSize(value.`onyomi`) +
+            FfiConverterOptionalString.allocationSize(value.`kunyomi`) +
+            FfiConverterOptionalString.allocationSize(value.`jlpt`)
+    )
+
+    override fun write(value: DictionaryEntryRow, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`id`, buf)
+            FfiConverterString.write(value.`kanji`, buf)
+            FfiConverterString.write(value.`reading`, buf)
+            FfiConverterString.write(value.`definitions`, buf)
+            FfiConverterString.write(value.`rules`, buf)
+            FfiConverterInt.write(value.`popularity`, buf)
+            FfiConverterLong.write(value.`dictionaryId`, buf)
+            FfiConverterOptionalString.write(value.`onyomi`, buf)
+            FfiConverterOptionalString.write(value.`kunyomi`, buf)
+            FfiConverterOptionalString.write(value.`jlpt`, buf)
+    }
+}
+
+
+
+/**
+ * Metadata for an imported dictionary.
+ */
+data class DictionaryMetaRow (
+    var `id`: kotlin.Long, 
+    var `name`: kotlin.String, 
+    var `priority`: kotlin.Int, 
+    var `enabled`: kotlin.Boolean, 
+    var `builtIn`: kotlin.Boolean, 
+    var `catalogId`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDictionaryMetaRow: FfiConverterRustBuffer<DictionaryMetaRow> {
+    override fun read(buf: ByteBuffer): DictionaryMetaRow {
+        return DictionaryMetaRow(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DictionaryMetaRow) = (
+            FfiConverterLong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterInt.allocationSize(value.`priority`) +
+            FfiConverterBoolean.allocationSize(value.`enabled`) +
+            FfiConverterBoolean.allocationSize(value.`builtIn`) +
+            FfiConverterOptionalString.allocationSize(value.`catalogId`)
+    )
+
+    override fun write(value: DictionaryMetaRow, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterInt.write(value.`priority`, buf)
+            FfiConverterBoolean.write(value.`enabled`, buf)
+            FfiConverterBoolean.write(value.`builtIn`, buf)
+            FfiConverterOptionalString.write(value.`catalogId`, buf)
+    }
+}
+
+
+
+/**
+ * A tag from a dictionary tag bank.
+ */
+data class DictionaryTagRow (
+    var `id`: kotlin.Long, 
+    var `name`: kotlin.String, 
+    var `category`: kotlin.String, 
+    var `order`: kotlin.Int, 
+    var `notes`: kotlin.String, 
+    var `popularity`: kotlin.Int, 
+    var `dictionaryId`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDictionaryTagRow: FfiConverterRustBuffer<DictionaryTagRow> {
+    override fun read(buf: ByteBuffer): DictionaryTagRow {
+        return DictionaryTagRow(
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DictionaryTagRow) = (
+            FfiConverterLong.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`category`) +
+            FfiConverterInt.allocationSize(value.`order`) +
+            FfiConverterString.allocationSize(value.`notes`) +
+            FfiConverterInt.allocationSize(value.`popularity`) +
+            FfiConverterLong.allocationSize(value.`dictionaryId`)
+    )
+
+    override fun write(value: DictionaryTagRow, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`id`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`category`, buf)
+            FfiConverterInt.write(value.`order`, buf)
+            FfiConverterString.write(value.`notes`, buf)
+            FfiConverterInt.write(value.`popularity`, buf)
+            FfiConverterLong.write(value.`dictionaryId`, buf)
     }
 }
 
@@ -6199,6 +6523,72 @@ public object FfiConverterTypeVariantPair: FfiConverterRustBuffer<VariantPair> {
 
 
 
+
+
+/**
+ * A validation failure crossing the Kotlin boundary.
+ *
+ * UniFFI exports Rust errors as typed exceptions rather than as a bare
+ * `String`, so the facade receives an ordinary failed call that its existing
+ * `runCatching`/error handling can handle.
+ */
+sealed class CatalogParseException: kotlin.Exception() {
+    
+    class Invalid(
+        
+        val `reason`: kotlin.String
+        ) : CatalogParseException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<CatalogParseException> {
+        override fun lift(error_buf: RustBuffer.ByValue): CatalogParseException = FfiConverterTypeCatalogParseError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCatalogParseError : FfiConverterRustBuffer<CatalogParseException> {
+    override fun read(buf: ByteBuffer): CatalogParseException {
+        
+
+        return when(buf.getInt()) {
+            1 -> CatalogParseException.Invalid(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: CatalogParseException): ULong {
+        return when(value) {
+            is CatalogParseException.Invalid -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: CatalogParseException, buf: ByteBuffer) {
+        when(value) {
+            is CatalogParseException.Invalid -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
 /**
  * Where a popup entry came from. The panel tints non-`Head` entries by source
  * so the provenance is visible at a glance.
@@ -6858,6 +7248,34 @@ public object FfiConverterSequenceTypeCandidate: FfiConverterRustBuffer<List<Can
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCatalogEntryRecord: FfiConverterRustBuffer<List<CatalogEntryRecord>> {
+    override fun read(buf: ByteBuffer): List<CatalogEntryRecord> {
+        val len = buf.getInt()
+        return List<CatalogEntryRecord>(len) {
+            FfiConverterTypeCatalogEntryRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CatalogEntryRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCatalogEntryRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CatalogEntryRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCatalogEntryRecord.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDeinflectionResult: FfiConverterRustBuffer<List<DeinflectionResult>> {
     override fun read(buf: ByteBuffer): List<DeinflectionResult> {
         val len = buf.getInt()
@@ -7222,6 +7640,34 @@ public object FfiConverterSequenceTypeVariantPair: FfiConverterRustBuffer<List<V
 /**
  * @suppress
  */
+public object FfiConverterSequenceOptionalString: FfiConverterRustBuffer<List<kotlin.String?>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String?> {
+        val len = buf.getInt()
+        return List<kotlin.String?>(len) {
+            FfiConverterOptionalString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceSequenceTypeGapAlternative: FfiConverterRustBuffer<List<List<GapAlternative>>> {
     override fun read(buf: ByteBuffer): List<List<GapAlternative>> {
         val len = buf.getInt()
@@ -7425,6 +7871,66 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * Strip a bracketed revision from an imported dictionary title, matching the
+         * Android `DictionaryCatalog.baseTitle` contract.
+         */ fun `catalogBaseTitle`(`name`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_catalog_base_title(
+        FfiConverterString.lower(`name`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Return the catalog embedded in `jpdict_core`.
+         *
+         * The Android asset is retained as a fixture/licence reference, but the
+         * runtime rows come from this shared source.
+         */ fun `catalogEntries`(): List<CatalogEntryRecord> {
+            return FfiConverterSequenceTypeCatalogEntryRecord.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_catalog_entries(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Resolve installed names and optional catalog ids to catalog ids.
+         *
+         * The optional-id list is parallel to `installed_names`, matching the
+         * `InstalledDictionary(name, catalogId)` values collected by Android.
+         */ fun `catalogInstalledIds`(`installedNames`: List<kotlin.String>, `installedCatalogIds`: List<kotlin.String?>): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_catalog_installed_ids(
+        FfiConverterSequenceString.lower(`installedNames`),FfiConverterSequenceOptionalString.lower(`installedCatalogIds`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse and validate a catalog document with the core's strict rules.
+         *
+         * This is used by the Kotlin facade's asset-parity API and by host tests; the
+         * ordinary app path obtains the same embedded rows through
+         * [`catalog_entries`].
+         */
+    @Throws(CatalogParseException::class) fun `catalogParse`(`json`: kotlin.String): List<CatalogEntryRecord> {
+            return FfiConverterSequenceTypeCatalogEntryRecord.lift(
+    uniffiRustCallWithError(CatalogParseException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_catalog_parse(
+        FfiConverterString.lower(`json`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Wrap packed bytes. `None` when the header or length does not describe a
          * table (the blank's list then keeps its discovery order).
          *
@@ -7481,6 +7987,84 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_place(
         FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),FfiConverterBoolean.lower(`vertical`),FfiConverterOptionalSequenceInt.lower(`pixels`),FfiConverterOptionalSequenceSequenceTypeGapCell.lower(`steps`),FfiConverterTypePlaceOptions.lower(`options`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Parse a stored definition payload into displayable nodes, returned as
+         * JSON (`Vec<DefinitionNodeJson>`).
+         *
+         * `separator` is spliced between adjacent inline siblings (`", "` joins a
+         * gloss list, `"\n"` separates a JMdict example's lines, `""`
+         * concatenates one sentence's fragments). Delegates to
+         * `jpdict_core::definition_format::parse_to_json`.
+         */ fun `definitionFormatParse`(`glossaryJson`: kotlin.String, `separator`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_parse(
+        FfiConverterString.lower(`glossaryJson`),FfiConverterString.lower(`separator`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Split one database row's glossary for numbering, returned as JSON
+         * (`ParsedGlossaryJson`): Jitendex rows come back `structured` with a
+         * `groups` entry per `sense-group`; JMdict/KANJIDIC rows come back flat in
+         * `plain`. Delegates to
+         * `jpdict_core::definition_format::parse_glossary_to_json`.
+         */ fun `definitionFormatParseGlossary`(`glossaryJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_parse_glossary(
+        FfiConverterString.lower(`glossaryJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Flatten one stored `definitions` blob to plain text (one line per
+         * top-level sense). A malformed blob falls back to the raw string. Delegates
+         * to `jpdict_core::definition_format::plain_text`.
+         */ fun `definitionFormatPlain`(`definitionsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_plain(
+        FfiConverterString.lower(`definitionsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Flatten several definition blobs as one blob of lines (blank lines
+         * dropped, first occurrence kept). Delegates to
+         * `jpdict_core::definition_format::plain_all_text`.
+         */ fun `definitionFormatPlainAll`(`definitionsJsonRows`: List<kotlin.String>): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_plain_all(
+        FfiConverterSequenceString.lower(`definitionsJsonRows`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Headwords a JMdict pointer entry redirects to (empty when the entry
+         * carries real definitional content, or the payload is malformed).
+         * `max_targets` is Kotlin's `Int` widened to the `i64` the boundary takes;
+         * a negative value yields no targets. Delegates to
+         * `jpdict_core::definition_format::extract_redirect_targets`.
+         */ fun `definitionFormatRedirectTargets`(`definitionsJson`: kotlin.String, `maxTargets`: kotlin.Long): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_redirect_targets(
+        FfiConverterString.lower(`definitionsJson`),FfiConverterLong.lower(`maxTargets`),_status)
 }
     )
     }
