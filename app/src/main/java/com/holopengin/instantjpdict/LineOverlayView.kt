@@ -44,6 +44,32 @@ class LineOverlayView(
     // via [marginFor], so draw coords and hit rects just shift by [margin].
     private var margin = marginFor(fixedSize)
 
+    /**
+     * Per-character halfwidth classification, computed when the line is
+     * installed and read on every redraw.
+     *
+     * [OcrEngine.isHalfWidth] is a UniFFI crossing — measured 4.3 ms for the 183
+     * characters of one page's overlay, ~23 us a call — and [onDraw] used to ask
+     * it for EVERY character on EVERY pass. A highlight, a cursor move, a pan or
+     * a zoom re-draws the same line and paid the same 4.3 ms again, for a
+     * classification that cannot change: the only writer of a live line's text
+     * is the override path ([OcrOverlayView.replaceCharacter]), which calls
+     * [updateLine] on this view immediately afterwards, so install is the one
+     * point where the answer can be new.
+     *
+     * The cost is therefore paid once per install instead of once per glyph per
+     * redraw: the draw right after an install costs what it always did, and every
+     * later one is free.
+     *
+     * Indexed by character position in [LineResult.text] — the same characters,
+     * in the same order, the draw loop walks. It is sized to the TEXT, not to the
+     * boxes, because the boxes are the loop's bound: a CharBox with no
+     * corresponding text (a length mismatch, which the loop already tolerates
+     * with `getOrNull`) falls back to the live call rather than to a wrong
+     * default, so no mismatch can change what is drawn.
+     */
+    private var halfWidth: BooleanArray = BooleanArray(0)
+
     companion object {
         /** View padding per side, in units of fixedSize (#49). 0.30 covers
          * the worst proportional-latin overflow (~0.17em/side for W/% at
@@ -67,6 +93,14 @@ class LineOverlayView(
         const val BOX_FIT_SCALE_FLOOR = 0.85f
         fun marginFor(fixedSize: Int): Int =
             (fixedSize * INK_MARGIN_RATIO).roundToInt().coerceAtLeast(1)
+
+        /** The per-character halfwidth cache [halfWidth] is built from — one
+         *  [OcrEngine.isHalfWidth] crossing per character, positionally aligned
+         *  to [text] and nothing else. Kept as a named function (rather than
+         *  inlined at the two install sites) so the alignment the renderer relies
+         *  on is a thing a host test can pin: it is a View field, this is not. */
+        internal fun halfWidthOf(text: String): BooleanArray =
+            BooleanArray(text.length) { OcrEngine.isHalfWidth(text[it]) }
     }
 
     init {
@@ -77,6 +111,7 @@ class LineOverlayView(
             paint.textLocale = java.util.Locale.JAPANESE
             paint.fontFeatureSettings = "'vert' 1"
         }
+        updateHalfWidth()
         updateHitRects()
     }
 
@@ -94,6 +129,10 @@ class LineOverlayView(
             paint.textLocale = java.util.Locale.ROOT
             paint.fontFeatureSettings = null
         }
+        // The text may have been corrected in place (the override path edits
+        // LineResult.text and then re-installs the line here), so the cache is
+        // rebuilt with the line, never carried across it.
+        updateHalfWidth()
         updateHitRects()
         invalidate()
     }
@@ -101,6 +140,15 @@ class LineOverlayView(
     fun setHighlighted(indices: Set<Int>) {
         highlightedIndices = indices
         invalidate()
+    }
+
+    /**
+     * [halfWidth] for the line's current text — one FFI call per character, on
+     * the install path only (see [halfWidth] for why that is the only point at
+     * which the answer can be new).
+     */
+    private fun updateHalfWidth() {
+        halfWidth = halfWidthOf(line.text)
     }
 
     private fun updateHitRects() {
@@ -170,7 +218,11 @@ class LineOverlayView(
             // positioning/hit-testing, so fit against the full-em width and
             // let ink overflow symmetric bearings instead of shrinking to the
             // advance box (which halved cap height vs neighboring CJK).
-            val isHalf = OcrEngine.isHalfWidth(charStr[0])
+            // Read from the cache built at install (2026-09-25 overlay-install
+            // perf pass). A CharBox past the end of the text (the length
+            // mismatch getOrNull above tolerates) falls back to the live
+            // classification, so it draws exactly as before.
+            val isHalf = if (i < halfWidth.size) halfWidth[i] else OcrEngine.isHalfWidth(charStr[0])
             if (line.isVertical) {
                 val hLimit = if (isHalf) maxH * 2f else maxH
                 if (glyphH > hLimit) scale = hLimit / glyphH.coerceAtLeast(1f)

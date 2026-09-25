@@ -768,6 +768,33 @@ class OcrOverlayView(
                         if (closed) break
                         addLineToResults(this@OcrOverlayView, clicksLayer, entry.first, correctedLines[i])
                     }
+                    // 2026-09-25 overlay-install perf pass: the page's derived
+                    // globals, ONCE, after the whole page is installed.
+                    // addLineToResults used to call updateGlobalData itself,
+                    // which rebuilt the entire nav graph for every PREFIX of the page —
+                    // O(L^2) box geometry, measured 19.7 ms for 17 prefixes (~21 ms of
+                    // a ~892 ms page) with all but the last result discarded. Safe to
+                    // defer because nothing between an install and this line reads the
+                    // globals: the per-line neighbour chips come from activeLineResults
+                    // directly (getNeighborUiState), the cursor from the CharBoxes
+                    // (ensureCursorPosition/getGlobalIdx), and the panel is not opened
+                    // by an install. A tap cannot be processed either — this loop holds
+                    // the main thread and the maintainer confirmed the render-once pass
+                    // (#50) does not need mid-install taps to work. The status line below
+                    // reads activeAllChars.size, so it has to come after this.
+                    val globalsBefore = controller.globalDataUpdates
+                    val navBuildsBefore = controller.navGraphBuilds
+                    controller.updateGlobalData()
+                    val installedLines = controller.activeLineResults.count { it != null }
+                    // What the change is worth, in the two places a page run is
+                    // read: the copied inference log (with the detect/stream
+                    // stage timings) and logcat.
+                    val globalsLine =
+                        "page globals: ${controller.globalDataUpdates - globalsBefore} update, " +
+                            "${controller.navGraphBuilds - navBuildsBefore} nav rebuild, " +
+                            "$installedLines lines, ${controller.activeAllChars.size} chars"
+                    InferLog.add(globalsLine)
+                    Log.i("OcrOverlayView", globalsLine)
                     if (!closed && controller.currentTappedLineIdx == -1) {
                         updateCursor()
                     }
@@ -967,6 +994,9 @@ class OcrOverlayView(
         contentContainer.translationY = controller.currentTransY
         val clicksLayer = buildBoxLayers(controller.activeLineBoxes)
         val kept = controller.activeLineResults
+        // Same install loop as the pass, and the same contract: the globals are
+        // NOT refreshed per line here either. refitBoxes above owns that refresh
+        // (and a no-op re-fit, which it declines, has nothing to refresh).
         for (i in kept.indices) {
             kept[i]?.let { addLineToResults(this, clicksLayer, i, it) }
         }
@@ -975,10 +1005,29 @@ class OcrOverlayView(
         Log.i(
             "OcrOverlayView",
             "re-fitted in place: ${controller.activeLineBoxes.size} kept line boxes, " +
-                "${kept.count { it != null }} kept line results, no new pass"
+                "${kept.count { it != null }} kept line results, no new pass, " +
+                "globals refreshed ${controller.globalDataUpdates} time(s) so far"
         )
     }
 
+    /**
+     * Install one line's views and its state. Deliberately does NOT touch the
+     * page's derived globals ([OcrOverlayStateController.updateGlobalData]):
+     * it is called in a loop, once per line, and the update is O(page) — of the
+     * measured 19.7 ms for 17 prefix rebuilds, ~1.2 ms was each one, so this
+     * made an L-line page pay L prefix rebuilds and use one. Callers own the
+     * refresh:
+     *
+     *  - [startOcr] calls it once after the install loop, before the cursor and
+     *    the status line (both of which read derived data);
+     *  - [refitContent] gets it from `controller.refitBoxes`, which is its
+     *    first statement and is the only thing in that path that can change the
+     *    globals. A no-op re-fit changes nothing, so it correctly has nothing to
+     *    refresh.
+     *
+     * Everything below is per-line and reads `activeLineResults` (which this
+     * fills) rather than the globals, so it is unaffected by the deferral.
+     */
     private fun addLineToResults(rootLayout: FrameLayout, clicksLayer: FrameLayout, lineIdx: Int, lineIn: LineResult) {
         if (closed) return
         // #44 Feature 2: materialise measured gaps as tappable placeholders *before* the click
@@ -986,7 +1035,6 @@ class OcrOverlayView(
         // only and idempotent — see BlankGaps for the measured trigger.
         val line = BlankGaps.applyIfEnabled(context, lineIn)
         controller.activeLineResults[lineIdx] = line
-        controller.updateGlobalData()
         // What the overlay actually renders (post-BlankGaps): text, columns and
         // boxes per line, so placement can be diagnosed from logcat.
         Log.d("LineBoxes", "v=${line.isVertical} crop=${line.cropX},${line.cropY},${line.cropW},${line.cropH} seq=${line.seqLenTotal} text=${line.text}")

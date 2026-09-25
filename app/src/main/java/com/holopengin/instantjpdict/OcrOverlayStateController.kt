@@ -250,7 +250,32 @@ class OcrOverlayStateController {
     var isDictionaryVisible = false
     var isAlternativesVisible = false
 
+    /**
+     * 2026-09-25 overlay-install perf pass: rebuild accounting, so "how often is
+     * the page's derived data recomputed" is a number in logcat instead of an
+     * inference from the source. [updateGlobalData] is O(page) — it re-derives
+     * [activeAllChars] and [activeAllAlternatives] and rebuilds the WHOLE nav
+     * graph — so a caller that runs it per installed line pays one prefix rebuild
+     * per line, ~21 ms of the ~892 ms page for a 17-line page, and throws all but
+     * the last away. `OcrOverlayView.startOcr` therefore calls it once after the
+     * install loop and logs the delta; `GlobalDataRebuildTest` pins the
+     * once-per-page contract and that the three other call sites still refresh.
+     *
+     * Cumulative for the life of the object and deliberately NOT reset by
+     * [resetState]: the interesting number is a per-page delta, and a counter
+     * that a clear could zero is one a log line can misread.
+     */
+    var globalDataUpdates = 0
+        private set
+
+    /** Nav-graph builds, counted apart from [globalDataUpdates] so a direct
+     *  [rebuildNavGraph] (there is none today, but it is public) cannot be
+     *  mistaken for a global refresh. One per [updateGlobalData]. */
+    var navGraphBuilds = 0
+        private set
+
     fun updateGlobalData() {
+        globalDataUpdates++
         activeAllChars.clear()
         activeAllAlternatives.clear()
         activeLineResults.forEach { line ->
@@ -263,6 +288,7 @@ class OcrOverlayStateController {
     }
 
     fun rebuildNavGraph() {
+        navGraphBuilds++
         val boxes = mutableListOf<BoundingBox>()
         for (line in activeLineResults) {
             line?.let {
