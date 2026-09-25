@@ -350,6 +350,39 @@ class OcrEngine(
         private val tlDetImgData = ThreadLocal<FloatArray>()
         private val tlDetPixels = ThreadLocal<IntArray>()
         private val tlDetLetterbox = ThreadLocal<android.graphics.Bitmap>()
+        /** The resized crop's pixels, for [DetNcnn.inferLetterboxed]. Exact-size
+         *  match like [tlDetImgData]: the native call indexes it as
+         *  resizeW×resizeH, so a 960-sized reuse under an 896 run must not
+         *  silently hand over the wrong stride (#51's reasoning, same shape). */
+        private val tlDetCrop = ThreadLocal<IntArray>()
+
+        /** Native (C++) letterbox + ImageNet normalisation, vs the Kotlin one
+         *  below. ON by default: the two are bit-identical (0 of 2,408,448
+         *  input floats differ, and the probability maps match exactly) and the
+         *  native one is 1.7x the whole preprocessing step — it does the pad,
+         *  the normalisation and the NCHW write in a single pass instead of
+         *  canvas → 896² getPixels → 2.4 M Kotlin LUT writes → 9.6 MB direct
+         *  ByteBuffer → ncnn's own `fill_input` copy.
+         *
+         *  Off restores the historical Kotlin path, which stays in the tree as
+         *  the reference implementation and as the fallback whenever the
+         *  native call declines (see [detProbMap]). The parity gate
+         *  (`DetLetterboxParityTest#boxesMatchThroughTheEngine`) flips this
+         *  field to compare both paths inside one build — hence `@Volatile`
+         *  and a plain var, not a pref. */
+        @Volatile @JvmStatic var useNativeLetterbox = true
+
+        /** Where Skia actually put the `(modelSize - content) / 2f` translate
+         *  that `drawBitmap` is given: it rounds that half pixel AWAY FROM ZERO,
+         *  so the content lands at `(modelSize - content + 1) / 2` — NOT at the
+         *  integer-division `(modelSize - content) / 2` that looks equivalent.
+         *  Measured on bookpage.png (896-403 = 493): the nearest-copy model at
+         *  247 explains all 361,088 content pixels, and at 246 it misses
+         *  28,787 of them. The native path re-lays the content at this offset,
+         *  so both paths have to agree on it exactly or the tensor shifts a
+         *  whole pixel inside the letterbox. */
+        private fun detLetterboxPad(modelSize: Int, content: Int): Int =
+            (modelSize - content + 1) / 2
     }
 
     // ——— Tunable getters (live SharedPreferences, defaults from companion) ———
@@ -455,26 +488,44 @@ class OcrEngine(
         val scaleY: Float get() = origH / resizeH.toFloat()
     }
 
-    /** Letterbox, det infer and prob-map stats — the part of detection that is
-     *  identical for the axis-aligned and rotated geometry paths. Returns null
-     *  when the net is not loaded or inference fails, the same bail-outs
-     *  [detect] has always had. */
-    private fun runDetMask(bitmap: Bitmap): DetMask? {
-        val det = detNcnn ?: return null
-        val origW = bitmap.width.toFloat()
-        val origH = bitmap.height.toFloat()
-
-        // 1. Resize keeping longest side = min(pref, modelSize), pad to
-        // modelSize×modelSize letterbox (#51: net runs at DET_MODEL_SIZE).
-        val modelSize = DET_MODEL_SIZE.coerceIn(320, 960)
-        val targetLong = minOf(detLongSide, modelSize)
-        Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize furigana=$detFurigana")
-        val scale = targetLong.toFloat() / maxOf(origW, origH)
-        val resizeW = maxOf((origW * scale).roundToInt(), 32)
-        val resizeH = maxOf((origH * scale).roundToInt(), 32)
-
+    /** Det preprocessing → probability map, i.e. steps 1b-3 of the old
+     *  runDetMask body, moved out so the two implementations sit side by side
+     *  instead of one sprawling behind an `if`. The Kotlin letterbox is
+     *  unchanged and remains the reference: the native path is chosen when it
+     *  is enabled and can serve this bitmap, and every failure — a null from
+     *  JNI, a non-opaque source, the toggle off — lands back in the Kotlin
+     *  path rather than returning fewer boxes. */
+    private fun detProbMap(det: DetNcnn, bitmap: Bitmap, resizeW: Int, resizeH: Int, modelSize: Int): FloatArray? {
+        // Skia owns the resize either way: its filter is the reference the net
+        // was tuned against, and moving it into C++ cannot be bit-exact.
         val resized = Bitmap.createScaledBitmap(bitmap, resizeW, resizeH, true)
 
+        if (useNativeLetterbox && !bitmap.hasAlpha()) {
+            // Only the pad + the normalisation move. `hasAlpha` is the guard for
+            // the one thing the native path cannot reproduce: the Canvas
+            // composites a translucent source over the 128-gray fill, and a
+            // share-image PNG with transparency would otherwise be fed raw RGB.
+            val needInts = resizeW * resizeH
+            val crop: IntArray = tlDetCrop.get()?.takeIf { it.size == needInts }
+                ?: IntArray(needInts).also { tlDetCrop.set(it) }
+            resized.getPixels(crop, 0, resizeW, 0, 0, resizeW, resizeH)
+            resized.recycle()
+            val padX = detLetterboxPad(modelSize, resizeW)
+            val padY = detLetterboxPad(modelSize, resizeH)
+            val prob = det.inferLetterboxed(crop, resizeW, resizeH, modelSize, padX, padY)
+            if (prob != null) {
+                Log.d(TAG, "detect: native letterbox content=${resizeW}x$resizeH pad=($padX,$padY) model=$modelSize")
+                return prob
+            }
+            Log.w(TAG, "detect: native letterbox returned null, using the Kotlin path")
+        }
+        return kotlinProbMap(det, resized, resizeW, resizeH, modelSize)
+    }
+
+    /** The historical Kotlin preprocessing, verbatim: letterbox onto a
+     *  128-gray square, read it back, write the NCHW tensor. Kept as the
+     *  reference implementation and the fallback path; recycles [resized]. */
+    private fun kotlinProbMap(det: DetNcnn, resized: Bitmap, resizeW: Int, resizeH: Int, modelSize: Int): FloatArray? {
         // Letterbox to modelSize × modelSize (pooled — fully repainted below, never recycled) #20
         val letterbox = tlDetLetterbox.get()
             ?.takeIf { !it.isRecycled && it.width == modelSize && it.height == modelSize }
@@ -512,7 +563,28 @@ class OcrEngine(
         }
 
         // 3. Run detection via ncnn.
-        val probArr = det.infer(imgData, modelSize, modelSize) ?: return null
+        return det.infer(imgData, modelSize, modelSize)
+    }
+
+    /** Letterbox, det infer and prob-map stats — the part of detection that is
+     *  identical for the axis-aligned and rotated geometry paths. Returns null
+     *  when the net is not loaded or inference fails, the same bail-outs
+     *  [detect] has always had. */
+    private fun runDetMask(bitmap: Bitmap): DetMask? {
+        val det = detNcnn ?: return null
+        val origW = bitmap.width.toFloat()
+        val origH = bitmap.height.toFloat()
+
+        // 1. Resize keeping longest side = min(pref, modelSize), pad to
+        // modelSize×modelSize letterbox (#51: net runs at DET_MODEL_SIZE).
+        val modelSize = DET_MODEL_SIZE.coerceIn(320, 960)
+        val targetLong = minOf(detLongSide, modelSize)
+        Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize furigana=$detFurigana")
+        val scale = targetLong.toFloat() / maxOf(origW, origH)
+        val resizeW = maxOf((origW * scale).roundToInt(), 32)
+        val resizeH = maxOf((origH * scale).roundToInt(), 32)
+
+        val probArr = detProbMap(det, bitmap, resizeW, resizeH, modelSize) ?: return null
         // probArr should be S×S float prob map; upsample a downsampled
         // square output (e.g. 240×240) via nearest.
         val outH: Int
