@@ -35,12 +35,20 @@ pub struct CtcDecode {
     remap: Vec<i32>,
 }
 
+/// Kotlin `Char` is one UTF-16 code unit, not a Unicode scalar value. This
+/// intentionally selects only the first unit, matching the old Kotlin vocab
+/// lookup (`String.first().code`) for both BMP and supplementary characters.
+fn to_kotlin_char(ch: char) -> i32 {
+    let mut code_units = [0u16; 2];
+    ch.encode_utf16(&mut code_units)[0] as i32
+}
+
 fn to_gap_cells(rows: Vec<Vec<(char, f32)>>) -> Vec<Vec<GapCell>> {
     rows.into_iter()
         .map(|row| {
             row.into_iter()
                 .map(|(ch, score)| GapCell {
-                    ch: ch as i32,
+                    ch: to_kotlin_char(ch),
                     score,
                 })
                 .collect()
@@ -108,9 +116,9 @@ impl CtcDecode {
         )
     }
 
-    /// Original class id -> first vocabulary character, as an `i32` code point.
+    /// Original class id -> first vocabulary character's UTF-16 code unit.
     pub fn decode_char(&self, class_idx: i32) -> i32 {
-        jpdict_core::ctc_decode::decode_char(&self.vocab, class_idx) as i32
+        to_kotlin_char(jpdict_core::ctc_decode::decode_char(&self.vocab, class_idx))
     }
 
     /// Pruned class id -> original class id, with identity fallback.
@@ -127,7 +135,7 @@ impl CtcDecode {
         top15_alternatives(&self.vocab, &self.remap, &logits)
             .into_iter()
             .map(|(ch, score)| GapCell {
-                ch: ch as i32,
+                ch: to_kotlin_char(ch),
                 score,
             })
             .collect()
@@ -175,6 +183,38 @@ mod tests {
         assert_eq!(d.decode_char(99), '\u{FFFD}' as i32);
         assert_eq!(d.remap_class(1), 2);
         assert_eq!(d.remap_class(9), 9);
+    }
+
+    #[test]
+    fn supplementary_vocab_chars_cross_as_kotlin_utf16_code_units() {
+        let supplementary = '\u{1F468}';
+        let expected = supplementary.to_string().encode_utf16().next().unwrap() as i32;
+        assert_eq!(expected, 0xD83D);
+        assert!(expected <= 0xFFFF);
+
+        let d = CtcDecode::new(
+            vec![supplementary.to_string(), "あ".to_string()],
+            vec![0, 1],
+        );
+
+        assert_eq!(d.decode_char(1), expected);
+
+        let mut row = vec![0.0f32; 20];
+        row[1] = 0.9;
+        let top = d.top15_alternatives(row);
+        assert_eq!(top[0].ch, expected);
+        assert!(top.iter().all(|cell| (0..=0xFFFF).contains(&cell.ch)));
+
+        let rows = [step15(1, 0.9)];
+        let decoded = d.decode_top_k(flatten(&rows), rows.len() as i64);
+        assert_eq!(decoded.alternatives[0][0].ch, expected);
+        assert_eq!(decoded.raw_alternatives[0][0].ch, expected);
+        assert!(decoded
+            .alternatives
+            .iter()
+            .flatten()
+            .chain(decoded.raw_alternatives.iter().flatten())
+            .all(|cell| (0..=0xFFFF).contains(&cell.ch)));
     }
 
     #[test]

@@ -2137,7 +2137,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_componenttable_kanji_with() != 32789.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char() != 29431.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char() != 60407.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full() != 29654.toShort()) {
@@ -3379,7 +3379,7 @@ public object FfiConverterTypeComponentTable: FfiConverter<ComponentTable, Point
 public interface CtcDecodeInterface {
     
     /**
-     * Original class id -> first vocabulary character, as an `i32` code point.
+     * Original class id -> first vocabulary character's UTF-16 code unit.
      */
     fun `decodeChar`(`classIdx`: kotlin.Int): kotlin.Int
     
@@ -3515,7 +3515,7 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
 
     
     /**
-     * Original class id -> first vocabulary character, as an `i32` code point.
+     * Original class id -> first vocabulary character's UTF-16 code unit.
      */override fun `decodeChar`(`classIdx`: kotlin.Int): kotlin.Int {
             return FfiConverterInt.lift(
     callWithPointer {
