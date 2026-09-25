@@ -1,9 +1,11 @@
-//! UniFFI shim over `jpdict_core::util::japanese` (#44, #55, #56, #63) —
-//! **WP-11a, the `JapaneseUtil` core and the furigana aligner.**
+//! UniFFI shim over `jpdict_core::util::japanese` (#44, #49, #55, #56, #63) —
+//! **WP-11a, the `JapaneseUtil` core, the OCR sizing helpers and the furigana
+//! aligner.**
 //!
 //! The OCR-text normalisation stages (width conversion → lookup-variant fold →
-//! combining characters), the vertical-punctuation substitutions, the KANJIDIC
-//! reading split and the dictionary-reading aligner have one source of truth in
+//! combining characters), the half-width/em sizing helpers, the
+//! vertical-punctuation substitutions, the KANJIDIC reading split and the
+//! dictionary-reading aligner have one source of truth in
 //! the PC crate now. This file is only the boundary: module-prefixed free
 //! functions plus the [`RubySegment`] record. See `char_lm.rs` for the `char` ↔
 //! `i32` convention this follows; nothing here implements a rule — the fold
@@ -19,7 +21,8 @@
 //! * **Strings cross owned, and count code points.** The algorithms index by
 //!   Unicode scalar value where the old Kotlin indexed UTF-16 units: identical
 //!   for BMP text (everything the recogniser emits), divergent only when a
-//!   supplementary-plane character precedes the position being folded.
+//!   supplementary-plane character precedes the position being folded or
+//!   measured.
 //! * **Tables do not cross.** `MEASURED_VARIANT_FOLD` is a private
 //!   `lazy_static` upstream with no public accessor, so the shim cannot
 //!   re-export it. The Kotlin facade keeps its pre-conversion literal as a
@@ -31,18 +34,21 @@
 //!
 //! ## Kotlin facade contract
 //!
-//! The generated Kotlin surface (`uniffi.nav_graph_core.japaneseNormalize`,
-//! `japaneseFoldLookupVariants`, `japaneseKatakanaToHiragana`,
-//! `japaneseCollapseEmphatic`, `japaneseVerticalPunctuation`,
-//! `japaneseVerticalPunctuationChar`, `japaneseSplitKanaList`,
-//! `japaneseAlignFurigana`, record `RubySegment`) is wrapped by the
-//! hand-written `com.holopengin.instantjpdict.util.JapaneseUtil` object and
+//! The JapaneseUtil portion of the generated Kotlin surface
+//! (`uniffi.nav_graph_core.japaneseNormalize`, `japaneseFoldLookupVariants`,
+//! `japaneseKatakanaToHiragana`, `japaneseCollapseEmphatic`,
+//! `japaneseVerticalPunctuation`, `japaneseVerticalPunctuationChar`,
+//! `japaneseSplitKanaList`, `japaneseAlignFurigana`, record `RubySegment`)
+//! is wrapped by the hand-written
+//! `com.holopengin.instantjpdict.util.JapaneseUtil` object and
 //! `...util.FuriganaAligner` object, which keep the pre-conversion API
 //! byte-for-byte (`normalize`, `verticalPunctuation`,
 //! `verticalPunctuationChar`, `splitKanaList`, `foldLookupVariants`,
 //! `katakanaToHiragana`, `collapseEmphatic`; `FuriganaAligner.align` /
-//! `Segment`) so no call site or test changes. The facades absorb all `Char` ↔
-//! `Int` conversion.
+//! `Segment`) so no call site or test changes. The two sizing exports,
+//! `japaneseIsHalfWidth` and `japaneseEstimateEm`, are consumed by the
+//! hand-written `OcrEngine` facade. All facades absorb their `Char` ↔ `Int`
+//! conversion at the boundary.
 
 use jpdict_core::util::japanese as pc;
 
@@ -158,6 +164,25 @@ pub fn japanese_vertical_punctuation_chars(chars: Vec<i32>) -> Vec<i32> {
         .collect()
 }
 
+/// Whether `ch` has the half-width advance used by the OCR line-layout helpers.
+///
+/// Delegates to `jpdict_core::util::japanese::is_half_width`; ASCII and
+/// half-width katakana are classified as half-width, while Japanese and
+/// full-width characters are not.
+#[uniffi::export]
+pub fn japanese_is_half_width(ch: i32) -> bool {
+    pc::is_half_width(char_from_codepoint(ch))
+}
+
+/// Estimate the line's em from width-normalized center-to-center pitches.
+///
+/// Delegates to `jpdict_core::util::japanese::estimate_em`; the result is `0.0`
+/// when the text and center list do not contain at least two usable pitches.
+#[uniffi::export]
+pub fn japanese_estimate_em(text: String, centers: Vec<f32>) -> f32 {
+    pc::estimate_em(&text, &centers)
+}
+
 /// Split a KANJIDIC kana list ("きみ -ぎみ", "クン キン") into readings: entries
 /// are whitespace-separated, a leading ASCII hyphen marks an okurigana-less
 /// stem and is stripped, empty entries are dropped.
@@ -186,13 +211,13 @@ pub fn japanese_align_furigana(term: String, reading: String) -> Option<Vec<Ruby
 
 #[cfg(test)]
 mod tests {
-    //! Mirror of the four JVM suites the swap must keep green
+    //! Mirror of the JVM suites the swap must keep green
     //! (`JapaneseUtilVariantFoldTest` 20, `JapaneseUtilVerticalPunctuationTest`
-    //! 6, `JapaneseUtilVerticalEllipsisTest` 7, `FuriganaAlignerTest` 12), run
-    //! through the exported surface — not the upstream module — so the shim's
-    //! `char` ↔ `i32` conversion and string handoff are covered too. The PC
-    //! module's own tests pin the same rules upstream; these are the JVM rows,
-    //! plus two boundary tests the JVM cannot express.
+    //! 6, `JapaneseUtilVerticalEllipsisTest` 7, `FuriganaAlignerTest` 12,
+    //! `UniformEmTest` 6), run through the exported surface — not the upstream
+    //! module — so the shim's `char` ↔ `i32` conversion and string handoff are
+    //! covered too. The PC module's own tests pin the same rules upstream;
+    //! these are the JVM rows, plus two boundary tests the JVM cannot express.
 
     use super::*;
     use std::collections::{HashMap, HashSet};
@@ -545,6 +570,42 @@ mod tests {
         assert_eq!(split("クン"), vec!["クン"]);
         assert_eq!(split(""), Vec::<String>::new());
         assert_eq!(split("   "), Vec::<String>::new());
+    }
+
+    // ── OcrEngine half-width and uniform-em tests ─────────────────────────
+
+    /// Mirrors mobile `OcrEngine.isHalfWidth` through the exported surface.
+    #[test]
+    fn halfwidth_classification_matches_mobile() {
+        assert!(japanese_is_half_width('A' as i32));
+        assert!(japanese_is_half_width('~' as i32));
+        assert!(japanese_is_half_width('\u{FF76}' as i32)); // ｶ halfwidth katakana
+        assert!(!japanese_is_half_width('あ' as i32));
+        assert!(!japanese_is_half_width('漢' as i32));
+        assert!(!japanese_is_half_width('。' as i32));
+    }
+
+    /// Mirrors mobile `UniformEmTest`: true em 20px in every estimable case.
+    #[test]
+    fn estimate_em_normalizes_halfwidth_advances() {
+        let assert_em = |got: f32| assert!((got - 20.0).abs() < 1e-3, "em={got}");
+        assert_em(japanese_estimate_em(
+            "AB日本CD".to_string(),
+            vec![5.0, 15.0, 30.0, 50.0, 65.0, 75.0],
+        ));
+        assert_em(japanese_estimate_em(
+            "日本語".to_string(),
+            vec![10.0, 30.0, 50.0],
+        ));
+        assert_em(japanese_estimate_em(
+            "ABCD".to_string(),
+            vec![5.0, 15.0, 25.0, 35.0],
+        ));
+        assert_em(japanese_estimate_em("ＡＢ".to_string(), vec![10.0, 30.0]));
+        assert_em(japanese_estimate_em("ｱｲ".to_string(), vec![5.0, 15.0]));
+        assert_eq!(japanese_estimate_em("あ".to_string(), vec![10.0]), 0.0);
+        assert_eq!(japanese_estimate_em(String::new(), Vec::new()), 0.0);
+        assert_eq!(japanese_estimate_em("あい".to_string(), vec![10.0]), 0.0);
     }
 
     #[test]

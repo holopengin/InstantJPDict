@@ -30,6 +30,11 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import uniffi.nav_graph_core.BoundingBox
 import uniffi.nav_graph_core.GapCell
+import uniffi.nav_graph_core.charBoxesPeakOffset
+import uniffi.nav_graph_core.japaneseEstimateEm
+import uniffi.nav_graph_core.japaneseIsHalfWidth
+import uniffi.nav_graph_core.mergeBoxesMerge
+import uniffi.nav_graph_core.mergeBoxesShouldMerge
 import uniffi.nav_graph_core.ocrEngineComputeCharBoxes
 import uniffi.nav_graph_core.ocrEngineReDecode
 import uniffi.nav_graph_core.ocrEngineSortOrder
@@ -123,8 +128,7 @@ class OcrEngine(
         /** Halfwidth test shared with the overlay renderer (#49): ASCII +
          * halfwidth katakana get 0.5em boxes and line-height-driven sizing. */
         internal fun isHalfWidth(ch: Char): Boolean {
-            val cp = ch.code
-            return cp <= 0x7E || (cp in 0xFF61..0xFFDC)
+            return japaneseIsHalfWidth(ch.code)
         }
 
         /** Consistent em from width-normalized pitches (#49): raw median
@@ -136,18 +140,7 @@ class OcrEngine(
          * regardless of script mix; em is the median of those. Pure
          * function for JVM unit tests. Returns 0f when unestimable. */
         internal fun estimateEm(text: String, centers: List<Float>): Float {
-            if (text.length != centers.size || centers.size < 2) return 0f
-            val norm = mutableListOf<Float>()
-            for (i in 0 until centers.size - 1) {
-                val gap = centers[i + 1] - centers[i]
-                if (gap <= 0f) continue
-                val units = ((if (isHalfWidth(text[i])) 0.5f else 1.0f) +
-                        (if (isHalfWidth(text[i + 1])) 0.5f else 1.0f)) / 2f
-                norm.add(gap / units)
-            }
-            if (norm.isEmpty()) return 0f
-            norm.sort()
-            return norm[norm.size / 2]
+            return japaneseEstimateEm(text, centers)
         }
         const val DEF_DET_THRESH = 0.25f
         const val DEF_DET_UNCLIP = 0.70f
@@ -851,53 +844,18 @@ class OcrEngine(
 
     private fun mergeOverlappingBoxes(boxes: List<JpDictRect>): List<JpDictRect> {
         if (boxes.size < 2) return boxes
-        val result = mutableListOf<JpDictRect>()
-        val handled = BooleanArray(boxes.size)
-        val sortedBoxes = boxes.withIndex().sortedByDescending { it.value.width() * it.value.height() }
-
-        for (i in sortedBoxes.indices) {
-            val idx = sortedBoxes[i].index
-            if (handled[idx]) continue
-            var current = sortedBoxes[i].value
-            handled[idx] = true
-
-            for (j in i + 1 until sortedBoxes.size) {
-                val jdx = sortedBoxes[j].index
-                if (handled[jdx]) continue
-
-                if (shouldMerge(current, sortedBoxes[j].value)) {
-                    current = JpDictRect(
-                        minOf(current.left, sortedBoxes[j].value.left),
-                        minOf(current.top, sortedBoxes[j].value.top),
-                        maxOf(current.right, sortedBoxes[j].value.right),
-                        maxOf(current.bottom, sortedBoxes[j].value.bottom)
-                    )
-                    handled[jdx] = true
-                }
-            }
-            result.add(current)
-        }
-        return result
+        return mergeBoxesMerge(
+            boxes.map { BoundingBox(x = it.left, y = it.top, w = it.width(), h = it.height()) },
+            xOverlapThresh,
+        ).map { JpDictRect(it.x, it.y, it.x + it.w, it.y + it.h) }
     }
 
-    private fun shouldMerge(a: JpDictRect, b: JpDictRect): Boolean {
-        val ix = maxOf(a.left, b.left)
-        val iy = maxOf(a.top, b.top)
-        val ix2 = minOf(a.right, b.right)
-        val iy2 = minOf(a.bottom, b.bottom)
-        if (ix >= ix2 || iy >= iy2) return false
-
-        val interArea = (ix2 - ix).toFloat() * (iy2 - iy)
-        val minArea = minOf(a.width() * a.height(), b.width() * b.height())
-        if (minArea <= 0) return false
-
-        val iom = interArea / minArea.toFloat()
-        if (iom < xOverlapThresh) return false
-
-        val yDiff = abs((a.top + a.bottom) / 2f - (b.top + b.bottom) / 2f)
-        val avgH = (a.height() + b.height()) / 2f
-        return yDiff <= avgH
-    }
+    private fun shouldMerge(a: JpDictRect, b: JpDictRect): Boolean =
+        mergeBoxesShouldMerge(
+            BoundingBox(x = a.left, y = a.top, w = a.width(), h = a.height()),
+            BoundingBox(x = b.left, y = b.top, w = b.width(), h = b.height()),
+            xOverlapThresh,
+        )
 
     /** Keep-flags for likely-furigana boxes. raw/uncl are index-aligned (raw contours
      * vs unclipped detect boxes). #28
@@ -1044,15 +1002,8 @@ class OcrEngine(
      * peaks to integers (up to 0.5 col ≈ 0.2em error); the fractional peak
      * recovers most of it. Returns 0 when the peak is flat, at a boundary,
      * or neighbor values are unavailable. */
-    private fun peakOffset(v0: Float, v1: Float, v2: Float): Float {
-        val denom = v0 - 2f * v1 + v2
-        if (denom >= -1e-6f) return 0f
-        // Prominence gate (#49): on flat plateaus any nonzero offset is noise
-        // (it regressed clean truth boxes 0.7 -> 1.6px). Fire only when the
-        // peak stands clearly above BOTH neighbors.
-        if (minOf(v1 - v0, v1 - v2) <= 1.0f) return 0f
-        return (0.5f * (v0 - v2) / denom).coerceIn(-0.5f, 0.5f)
-    }
+    private fun peakOffset(v0: Float, v1: Float, v2: Float): Float =
+        charBoxesPeakOffset(v0, v1, v2)
 
     /** Pruned-out id -> orig class id (#39); identity fallback if remap failed to load. */
     private fun remapClass(prunedIdx: Int): Int = classRemap.getOrElse(prunedIdx) { prunedIdx }
