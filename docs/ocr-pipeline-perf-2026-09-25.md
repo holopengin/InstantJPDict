@@ -9,6 +9,7 @@ logcat (`PPOCREngine`, `PpocrNcnn`, `BookDump`) on a warm engine.
 
 | | before | after (this pass) |
 |---|---:|---:|
+
 | detect (net / post) | 614 ms (546 / 68) | **349 ms (248 / 52)** |
 | recognition, 18 lines | 638 ms | **543 ms** |
 | lines decoded | 16 / 18 (a batch threw) | **18 / 18** |
@@ -18,6 +19,29 @@ The wall clock is **native inference**, not FFI: two ncnn nets are ~90% of the
 page. The entire UniFFI + Android-frontend cost inside recognition is
 ~55-95 ms. FFI was worth fixing for correctness and for the overlay, not for
 the page number.
+
+## Model precision — rec is already INT8
+
+Both nets are quantized, just differently:
+
+* **`rec_dyn.bin` is INT8.** Its first four bytes are `38 4b 0d 00` =
+  ncnn's int8 model magic `0x000D4B38`, and `docs/ncnn-conversion.md`
+  records it as the renamed `rec_w480` INT8 bin (full-INT8 via
+  `ncnn2table`/`ncnn2int8`, calibration via `tools/gen_rec_calib_npy.py`;
+  parity vs fp16 93.3 % / CER 0.007 at w480, and full-INT8 never lost on
+  speed for any bucket).
+* **`det.bin` is FP16-storage** (magic `0x01306B47`). Detector INT8 was
+  tried (#16/#22) and rejected: box mean-IoU 0.61 calib / 0.89 bench vs the
+  0.95 gate, damage distributed across the backbone; per-layer exclusions
+  did not recover it.
+
+So the `use_fp16_*` sweep was **not** about weight precision. In ncnn those
+options select activation storage/arithmetic for the non-int8 parts of the
+graph (Gemm, LayerNorm, Swish, the dequant/requant edges); enabling them on
+the int8 rec net changed decoded text (18→17 lines) and was slower, which is
+why `rec_create` keeps them off while `use_packing_layout = true` stays on
+(required for packed int8). Nothing was lost when the bucketed models were
+replaced by the single dynamic-width model.
 
 ## Root causes by layer
 
