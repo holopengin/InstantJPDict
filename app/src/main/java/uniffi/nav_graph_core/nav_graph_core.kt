@@ -1014,6 +1014,30 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1063,6 +1087,22 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_method_componenttable_kanji_count(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     fun uniffi_nav_graph_core_fn_method_componenttable_kanji_with(`ptr`: Pointer,`all`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_clone_ctcdecode(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_ctcdecode(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_ctcdecode_new(`vocab`: RustBuffer.ByValue,`remap`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_char(`ptr`: Pointer,`classIdx`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_full(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`leftScores`: RustBuffer.ByValue,`rightScores`: RustBuffer.ByValue,`seqLen`: Long,`seqLenTotal`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`seqLen`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_remap_class(`ptr`: Pointer,`prunedIdx`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_top15_alternatives(`ptr`: Pointer,`logits`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_clone_deinflector(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Pointer
@@ -1178,6 +1218,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_catalog_parse(`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_boxes_peak_offset(`v0`: Float,`v1`: Float,`v2`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
     fun uniffi_nav_graph_core_fn_func_char_lm_from_bytes(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_lm_max_order(uniffi_out_err: UniffiRustCallStatus, 
@@ -1222,8 +1264,12 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_japanese_collapse_emphatic(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_japanese_estimate_em(`text`: RustBuffer.ByValue,`centers`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
     fun uniffi_nav_graph_core_fn_func_japanese_fold_lookup_variants(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_japanese_is_half_width(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_nav_graph_core_fn_func_japanese_katakana_to_hiragana(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_japanese_measured_variant_fold(uniffi_out_err: UniffiRustCallStatus, 
@@ -1264,6 +1310,10 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_lookup_process_results(`rows`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,`followingText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_merge_boxes_merge(`boxes`: RustBuffer.ByValue,`xOverlapThresh`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_merge_boxes_should_merge(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,`xOverlapThresh`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_nav_graph_core_fn_func_navigate(`graph`: RustBuffer.ByValue,`idx`: Int,`dir`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropX`: Int,`cropY`: Int,`cropW`: Int,`cropH`: Int,`isVertical`: Byte,`pixels`: RustBuffer.ByValue,`pixW`: Int,`pixH`: Int,`snap`: Byte,`uniform`: Byte,`inkHalfWidths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1478,6 +1528,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_catalog_parse(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_boxes_peak_offset(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_from_bytes(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_lm_max_order(
@@ -1522,7 +1574,11 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_japanese_collapse_emphatic(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_japanese_estimate_em(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_japanese_fold_lookup_variants(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_japanese_is_half_width(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_japanese_katakana_to_hiragana(
     ): Short
@@ -1563,6 +1619,10 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_lookup_prepare_candidates(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_lookup_process_results(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_merge_boxes_merge(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_merge_boxes_should_merge(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_navigate(
     ): Short
@@ -1654,6 +1714,16 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_method_componenttable_kanji_with(
     ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_remap_class(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_top15_alternatives(
+    ): Short
     fun uniffi_nav_graph_core_checksum_method_deinflector_deinflect(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_deinflector_rule_count(
@@ -1691,6 +1761,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_method_oovcandidates_neighbours_of(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_componenttable_parse(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_ctcdecode_new(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_deinflector_empty(
     ): Short
@@ -1777,6 +1849,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_catalog_parse() != 6810.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_boxes_peak_offset() != 18592.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_char_lm_from_bytes() != 6307.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1843,7 +1918,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_japanese_collapse_emphatic() != 12506.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_japanese_estimate_em() != 2085.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_japanese_fold_lookup_variants() != 22157.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_japanese_is_half_width() != 3614.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_japanese_katakana_to_hiragana() != 4895.toShort()) {
@@ -1904,6 +1985,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_lookup_process_results() != 45133.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_merge_boxes_merge() != 7008.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_merge_boxes_should_merge() != 34101.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_navigate() != 60891.toShort()) {
@@ -2041,6 +2128,21 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_componenttable_kanji_with() != 32789.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char() != 29431.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full() != 29654.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k() != 23013.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_remap_class() != 58225.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_top15_alternatives() != 9607.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_method_deinflector_deinflect() != 19328.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2096,6 +2198,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_constructor_componenttable_parse() != 18278.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_ctcdecode_new() != 22753.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_constructor_deinflector_empty() != 60206.toShort()) {
@@ -3151,6 +3256,372 @@ public object FfiConverterTypeComponentTable: FfiConverter<ComponentTable, Point
     override fun allocationSize(value: ComponentTable) = 8UL
 
     override fun write(value: ComponentTable, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Immutable decoder tables shared by every line in one `OcrEngine`.
+ *
+ * Construct once after loading `vocab.json` and `rec_remap.txt`; the large
+ * tables then stay native and do not cross UniFFI again.
+ */
+public interface CtcDecodeInterface {
+    
+    /**
+     * Original class id -> first vocabulary character, as an `i32` code point.
+     */
+    fun `decodeChar`(`classIdx`: kotlin.Int): kotlin.Int
+    
+    /**
+     * Decode a pre-pruned full-logits line without crossing the full matrix.
+     *
+     * `left_scores[t]` / `right_scores[t]` are the current pruned winner's values
+     * in the adjacent full rows, or `NaN` when unavailable. With `packed`, these
+     * reproduce `ctc_decode_full` exactly, including interpolation from a class
+     * that fell outside the neighbour's top-15.
+     */
+    fun `decodeFull`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long): CtcDecodeResult
+    
+    /**
+     * Decode one native top-K line in a single call.
+     *
+     * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
+     * timestep (`classId, logit`, repeated 15 times, descending). Entry zero is
+     * the greedy winner. Invalid lengths/ids fail closed to an empty result.
+     */
+    fun `decodeTopK`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long): CtcDecodeResult
+    
+    /**
+     * Pruned class id -> original class id, with identity fallback.
+     */
+    fun `remapClass`(`prunedIdx`: kotlin.Int): kotlin.Int
+    
+    /**
+     * Top-15 alternatives for one full-logits timestep.
+     *
+     * This compatibility method intentionally has a per-timestep input shape,
+     * but production line decoding does not call it: [`Self::decode_top_k`] and
+     * [`Self::decode_full`] cross one compact table for the whole line.
+     */
+    fun `top15Alternatives`(`logits`: List<kotlin.Float>): List<GapCell>
+    
+    companion object
+}
+
+/**
+ * Immutable decoder tables shared by every line in one `OcrEngine`.
+ *
+ * Construct once after loading `vocab.json` and `rec_remap.txt`; the large
+ * tables then stay native and do not cross UniFFI again.
+ */
+open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    constructor(`vocab`: List<kotlin.String>, `remap`: List<kotlin.Int>) :
+        this(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_ctcdecode_new(
+        FfiConverterSequenceString.lower(`vocab`),FfiConverterSequenceInt.lower(`remap`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_ctcdecode(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_ctcdecode(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Original class id -> first vocabulary character, as an `i32` code point.
+     */override fun `decodeChar`(`classIdx`: kotlin.Int): kotlin.Int {
+            return FfiConverterInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_char(
+        it, FfiConverterInt.lower(`classIdx`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Decode a pre-pruned full-logits line without crossing the full matrix.
+     *
+     * `left_scores[t]` / `right_scores[t]` are the current pruned winner's values
+     * in the adjacent full rows, or `NaN` when unavailable. With `packed`, these
+     * reproduce `ctc_decode_full` exactly, including interpolation from a class
+     * that fell outside the neighbour's top-15.
+     */override fun `decodeFull`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long): CtcDecodeResult {
+            return FfiConverterTypeCtcDecodeResult.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_full(
+        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterSequenceFloat.lower(`leftScores`),FfiConverterSequenceFloat.lower(`rightScores`),FfiConverterLong.lower(`seqLen`),FfiConverterLong.lower(`seqLenTotal`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Decode one native top-K line in a single call.
+     *
+     * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
+     * timestep (`classId, logit`, repeated 15 times, descending). Entry zero is
+     * the greedy winner. Invalid lengths/ids fail closed to an empty result.
+     */override fun `decodeTopK`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long): CtcDecodeResult {
+            return FfiConverterTypeCtcDecodeResult.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(
+        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterLong.lower(`seqLen`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Pruned class id -> original class id, with identity fallback.
+     */override fun `remapClass`(`prunedIdx`: kotlin.Int): kotlin.Int {
+            return FfiConverterInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_remap_class(
+        it, FfiConverterInt.lower(`prunedIdx`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Top-15 alternatives for one full-logits timestep.
+     *
+     * This compatibility method intentionally has a per-timestep input shape,
+     * but production line decoding does not call it: [`Self::decode_top_k`] and
+     * [`Self::decode_full`] cross one compact table for the whole line.
+     */override fun `top15Alternatives`(`logits`: List<kotlin.Float>): List<GapCell> {
+            return FfiConverterSequenceTypeGapCell.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_top15_alternatives(
+        it, FfiConverterSequenceFloat.lower(`logits`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCtcDecode: FfiConverter<CtcDecode, Pointer> {
+
+    override fun lower(value: CtcDecode): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): CtcDecode {
+        return CtcDecode(value)
+    }
+
+    override fun read(buf: ByteBuffer): CtcDecode {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: CtcDecode) = 8UL
+
+    override fun write(value: CtcDecode, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -5364,6 +5835,54 @@ public object FfiConverterTypeCatalogEntryRecord: FfiConverterRustBuffer<Catalog
             FfiConverterBoolean.write(value.`recommended`, buf)
             FfiConverterString.write(value.`license`, buf)
             FfiConverterString.write(value.`source`, buf)
+    }
+}
+
+
+
+/**
+ * One decoded line. Kotlin converts `GapCell.ch` back to `Char` and carries
+ * `rawAlternatives` on `PPOcrResult` exactly as the old in-process path did.
+ */
+data class CtcDecodeResult (
+    var `text`: kotlin.String, 
+    var `alternatives`: List<List<GapCell>>, 
+    var `charCols`: List<kotlin.Float>, 
+    var `seqLenTotal`: kotlin.Long, 
+    var `rawAlternatives`: List<List<GapCell>>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCtcDecodeResult: FfiConverterRustBuffer<CtcDecodeResult> {
+    override fun read(buf: ByteBuffer): CtcDecodeResult {
+        return CtcDecodeResult(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CtcDecodeResult) = (
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterLong.allocationSize(value.`seqLenTotal`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`rawAlternatives`)
+    )
+
+    override fun write(value: CtcDecodeResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterLong.write(value.`seqLenTotal`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
     }
 }
 
@@ -8508,6 +9027,20 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * Sub-column peak offset (#49): parabolic interpolation of the winning
+         * class value across neighbouring timesteps. Returns 0 when the peak is
+         * flat, at a boundary, or prominence is below the mobile gate.
+         */ fun `charBoxesPeakOffset`(`v0`: kotlin.Float, `v1`: kotlin.Float, `v2`: kotlin.Float): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_boxes_peak_offset(
+        FfiConverterFloat.lower(`v0`),FfiConverterFloat.lower(`v1`),FfiConverterFloat.lower(`v2`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Wrap packed bytes. `None` when the header or length does not describe a
          * table (the blank's list then keeps its discovery order).
          *
@@ -8850,6 +9383,21 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * Estimate the line's em from width-normalized center-to-center pitches.
+         *
+         * Delegates to `jpdict_core::util::japanese::estimate_em`; the result is `0.0`
+         * when the text and center list do not contain at least two usable pitches.
+         */ fun `japaneseEstimateEm`(`text`: kotlin.String, `centers`: List<kotlin.Float>): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_japanese_estimate_em(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`centers`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Fold the variant characters of `LOOKUP_VARIANT_MAP` and expand the iteration
          * marks `ゝ`/`ゞ`/`ヽ`/`ヾ`, which repeat the preceding kana of their script.
          *
@@ -8861,6 +9409,22 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_japanese_fold_lookup_variants(
         FfiConverterString.lower(`text`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether `ch` has the half-width advance used by the OCR line-layout helpers.
+         *
+         * Delegates to `jpdict_core::util::japanese::is_half_width`; ASCII and
+         * half-width katakana are classified as half-width, while Japanese and
+         * full-width characters are not.
+         */ fun `japaneseIsHalfWidth`(`ch`: kotlin.Int): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_japanese_is_half_width(
+        FfiConverterInt.lower(`ch`),_status)
 }
     )
     }
@@ -9140,6 +9704,35 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_lookup_process_results(
         FfiConverterSequenceTypeDictionaryEntryRow.lower(`rows`),FfiConverterTypePreparedLookupCandidates.lower(`prepared`),FfiConverterString.lower(`followingText`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile `OcrEngine.mergeOverlappingBoxes`: largest box first, greedily
+         * unioning every later box the running union should merge with. Delegates to
+         * `jpdict_core::merge_boxes::merge_overlapping_boxes`.
+         */ fun `mergeBoxesMerge`(`boxes`: List<BoundingBox>, `xOverlapThresh`: kotlin.Float): List<BoundingBox> {
+            return FfiConverterSequenceTypeBoundingBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_merge_boxes_merge(
+        FfiConverterSequenceTypeBoundingBox.lower(`boxes`),FfiConverterFloat.lower(`xOverlapThresh`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile `OcrEngine.shouldMerge`: the intersection must cover at least
+         * `x_overlap_thresh` of the smaller box and the vertical centres must sit
+         * within one average height. Delegates to
+         * `jpdict_core::merge_boxes::should_merge`.
+         */ fun `mergeBoxesShouldMerge`(`a`: BoundingBox, `b`: BoundingBox, `xOverlapThresh`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_merge_boxes_should_merge(
+        FfiConverterTypeBoundingBox.lower(`a`),FfiConverterTypeBoundingBox.lower(`b`),FfiConverterFloat.lower(`xOverlapThresh`),_status)
 }
     )
     }
