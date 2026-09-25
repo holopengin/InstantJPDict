@@ -239,14 +239,15 @@ bool rec_infer_topk(RecNet* rec, const float* data, size_t dataFloats, int w, in
 DetNet* det_create(const char* paramPath, const char* binPath) {
     DetNet* det = new DetNet();
     ncnn::Option opt;
-    // 1 thread + fp16 throughout (#25 det tune): min-of-3 same-session —
-    // jpg 1522→892ms, screenshot 1396→855ms vs 4-thread fp32; box IoU ≥0.95
-    // holds (mean 0.99+, worst single-box 0.63). Det bin is fp16-storage already.
-    opt.num_threads = 1;
+    // 2 threads + fp16 throughout. Pixel 7a / Android 17, 1080x2400 bookpage,
+    // alternating load-time sweep: t1 medians 379/377/419/427ms, t2 237/265ms,
+    // t4 522ms. Every t2 cell kept the same 18 boxes and decoded all 18 lines.
+    // The earlier #25 tune compared t1 against 4-thread fp32, not t2 fp16.
+    opt.num_threads = 2;
     opt.use_fp16_packed = true;
     opt.use_fp16_storage = true;
     opt.use_fp16_arithmetic = true;
-    PPOCR_LOGI("DetNet threads=1 fp16=1");
+    PPOCR_LOGI("DetNet threads=2 fp16=1");
     opt.use_packing_layout = true;
     det->net.opt = opt;
     ncnn::set_cpu_powersave(0);
