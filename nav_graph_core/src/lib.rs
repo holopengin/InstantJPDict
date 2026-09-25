@@ -50,7 +50,7 @@ mod rotated_geometry;
 mod ruby_style;
 
 /// Bounding box for a detected character.
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
 pub struct BoundingBox {
     pub x: i32,
     pub y: i32,

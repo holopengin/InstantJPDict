@@ -20,7 +20,7 @@ uniffi = { version = "0.28", features = ["cli"] }
 # consumes (the shim's tests fail first if the pinned rev drifts).
 # Nav-only surface: no native inference stack, no C++ toolchain, no install
 # prefix.
-jpdict_core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "31b1b3031d7748879e3cd4f8c645c405ab1f892d", default-features = false }
+jpdict_core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "006cb04d77d685c9bb8522b1b6740041b3e2984e", default-features = false }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

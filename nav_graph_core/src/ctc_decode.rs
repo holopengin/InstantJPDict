@@ -2,9 +2,38 @@
 //!
 //! The object owns the immutable vocabulary and class remap so a recognition
 //! line crosses once as the recognizer's packed top-15 table, never as its
-//! full `seqLen × classes` logits. [`CtcDecode::decode_full`] accepts the same
-//! compact table plus the winning class's two neighbouring-row scores; those
-//! scores are the only full-row values the legacy full-logits decoder reads.
+//! full `seqLen × classes` logits. [`CtcDecode::decode_full_compact`] accepts
+//! the same compact table plus the winning class's two neighbouring-row scores;
+//! those scores are the only full-row values the legacy full-logits decoder
+//! reads.
+//!
+//! ## What the compact result carries, and why
+//!
+//! A recognised line's alternatives are `seqLen × topK` cells — the single
+//! largest per-line payload at this boundary. Two facts let the result cross
+//! without rebuilding that shape in Kotlin:
+//!
+//! * **The per-character list is a subset of the per-timestep one.** The greedy
+//!   walk pushes the row it just built into both, so the emitted rows are the
+//!   raw rows at [`CtcDecodeResult::alt_rows`]: strictly ascending, in range.
+//!   Carrying those indices instead of the rows themselves is one integer per
+//!   *character* instead of `top_k` cells per character.
+//! * **The rows do not need to be nested.** `raw_alternatives` is one flat
+//!   row-major cell list plus `raw_rows`, the row boundaries, so UniFFI lifts a
+//!   primitive-shaped list instead of allocating a list per timestep.
+//!
+//! [`CtcDecode::decode_top_k`] / [`CtcDecode::decode_full`] and the nested
+//! [`CtcDecodeResult`] are kept as the parity harness for the compact pair: same
+//! inputs, same answers, one crossing each. Production uses the compact ones.
+//!
+//! ## Vertical punctuation is folded in
+//!
+//! [`CtcDecode::decode_top_k_compact`] takes a `vertical` flag and applies
+//! [`CtcDecodeResult::apply_vertical_punctuation`] — the fixed 1:1 `?`→`？`,
+//! `…`→`︙`, `‥`→`︰` substitution of #56/#63 — while the rows are still being
+//! built. The host used to call three more exports per vertical line to do the
+//! same thing to the rows it had just received, crossing every character of the
+//! text and of both alternative lists a second time.
 
 use std::sync::Arc;
 
@@ -15,7 +44,7 @@ use jpdict_core::ctc_decode::{
 };
 
 /// One decoded line. Kotlin converts `GapCell.ch` back to `Char` and carries
-/// `rawAlternatives` on `PPOcrResult` exactly as the old in-process path did.
+/// `raw_alternatives` on `PPOcrResult` exactly as the old in-process path did.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CtcDecodeResult {
     pub text: String,
@@ -23,6 +52,27 @@ pub struct CtcDecodeResult {
     pub char_cols: Vec<f32>,
     pub seq_len_total: i64,
     pub raw_alternatives: Vec<Vec<GapCell>>,
+}
+
+/// One decoded line in the shape that crosses: `raw_alternatives` is one flat
+/// row-major cell list and `raw_rows` holds the row boundaries, so timestep `i`
+/// is `raw_alternatives[raw_rows[i] .. raw_rows[i + 1]]`.
+///
+/// `alt_rows[j]` is the timestep the `j`-th emitted character came from, so
+/// the per-character alternatives are *those* rows by index. Kotlin indexes
+/// the list it already has instead of receiving the cells twice; see the module
+/// docs for why the two facts hold.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct CompactCtcDecodeResult {
+    pub text: String,
+    /// The timestep each emitted character's alternatives came from; ascending.
+    pub alt_rows: Vec<i64>,
+    pub char_cols: Vec<f32>,
+    pub seq_len_total: i64,
+    /// Every timestep's top-K, row-major, `raw_rows.len() - 1` rows long.
+    pub raw_alternatives: Vec<GapCell>,
+    /// Row boundaries into `raw_alternatives`, starting at 0.
+    pub raw_rows: Vec<i64>,
 }
 
 /// Immutable decoder tables shared by every line in one `OcrEngine`.
@@ -66,6 +116,105 @@ fn to_boundary_result(result: CoreResult, seq_len_total: Option<usize>) -> CtcDe
     }
 }
 
+/// Flatten the rows into one cell list plus its row boundaries, applying the
+/// vertical-punctuation substitution to the nested result first when asked.
+///
+/// `emitted_rows` is the identity the host relies on when it indexes back: the
+/// pinned decoder builds both lists in the same loop iteration, so
+/// `alternatives[j] == raw_alternatives[t]`. The indices are recovered by
+/// *content* rather than assumed, which makes a shape change upstream show up
+/// as a failed identity here instead of as another timestep's characters — and
+/// a failed identity fails closed (an empty result, exactly like a malformed
+/// `packed` input) rather than crossing the wrong rows.
+fn to_compact_result(
+    mut result: CoreResult,
+    seq_len_total: Option<usize>,
+    vertical: bool,
+) -> CompactCtcDecodeResult {
+    // Recover the emitted-row identity before any folding: both sides must be
+    // compared in the shape the decoder produced.
+    let fallback_len = seq_len_total.unwrap_or(result.seq_len_total) as i64;
+    let Some(alt_rows) = emitted_rows(&result.alternatives, &result.raw_alternatives) else {
+        return CompactCtcDecodeResult {
+            text: String::new(),
+            alt_rows: Vec::new(),
+            char_cols: Vec::new(),
+            seq_len_total: fallback_len,
+            raw_alternatives: Vec::new(),
+            raw_rows: vec![0],
+        };
+    };
+
+    if vertical {
+        // The #56/#63 substitution, folded in by the crate while the rows are
+        // still the nested ones: the same 1:1 map the host used to apply to the
+        // text and both alternative lists in two more crossings per vertical
+        // line.
+        result.apply_vertical_punctuation();
+    }
+    let text = result.text;
+    let char_cols = result.char_cols;
+    let raw_alternatives = result.raw_alternatives;
+    let total = seq_len_total.unwrap_or(result.seq_len_total);
+
+    let cell_count: usize = raw_alternatives.iter().map(Vec::len).sum();
+    let mut cells: Vec<GapCell> = Vec::with_capacity(cell_count);
+    let mut rows: Vec<i64> = Vec::with_capacity(raw_alternatives.len() + 1);
+    rows.push(0);
+    for row in &raw_alternatives {
+        for (ch, score) in row {
+            cells.push(GapCell {
+                ch: to_kotlin_char(*ch),
+                score: *score,
+            });
+        }
+        rows.push(cells.len() as i64);
+    }
+
+    CompactCtcDecodeResult {
+        text,
+        alt_rows: alt_rows.iter().map(|t| *t as i64).collect(),
+        char_cols,
+        seq_len_total: total as i64,
+        raw_alternatives: cells,
+        raw_rows: rows,
+    }
+}
+
+/// The timestep each emitted row came from: `alternatives[j] ==
+/// raw_alternatives[out[j]]`, in order. `None` when the identity does not hold
+/// for every emitted row.
+///
+/// The decoder pushes one raw row per timestep and clones it into
+/// `alternatives` on the timesteps that emit, so the emitted rows appear in
+/// `raw_alternatives` in the same order — which is all this needs, and it
+/// recovers the indices *by content* rather than assuming them.
+///
+/// Why a content match is exact even when two timesteps carry the same row:
+/// every match is verified equal to the emitted row it stands for, so a match
+/// at a duplicate timestep hands the host a row whose cells are byte-identical.
+/// And the scan cannot run past a row it still needs: the raw row at emitted
+/// timestep `t_j` equals `alternatives[j]`, so the scan either reaches `t_j` and
+/// matches, or it already matched an earlier emitted row at a timestep `<= t_j`
+/// (the first match after the previous position is at most the previous
+/// timestep). Induction on `j` gives a match for every emitted row, so `None`
+/// is unreachable for a result this decoder produced — it is a fail-closed
+/// guard for a shape change upstream, not a normal outcome.
+fn emitted_rows(
+    alternatives: &[Vec<(char, f32)>],
+    raw_alternatives: &[Vec<(char, f32)>],
+) -> Option<Vec<usize>> {
+    let mut rows = Vec::with_capacity(alternatives.len());
+    let mut at = 0usize;
+    for (t, row) in raw_alternatives.iter().enumerate() {
+        if at < alternatives.len() && *row == alternatives[at] {
+            rows.push(t);
+            at += 1;
+        }
+    }
+    (at == alternatives.len()).then_some(rows)
+}
+
 #[uniffi::export]
 impl CtcDecode {
     #[uniffi::constructor]
@@ -83,6 +232,24 @@ impl CtcDecode {
         to_boundary_result(
             ctc_decode_topk(&self.vocab, &self.remap, &packed, seq_len, TOP_K),
             None,
+        )
+    }
+
+    /// [`Self::decode_top_k`] in the compact result shape, with the vertical
+    /// punctuation fold (`vertical`) applied to the text and both alternative
+    /// lists while the rows are built. Byte-identical to `decode_top_k`
+    /// followed by the host's own per-character mapping.
+    pub fn decode_top_k_compact(
+        &self,
+        packed: Vec<f32>,
+        seq_len: i64,
+        vertical: bool,
+    ) -> CompactCtcDecodeResult {
+        let seq_len = usize::try_from(seq_len).unwrap_or(0);
+        to_compact_result(
+            ctc_decode_topk(&self.vocab, &self.remap, &packed, seq_len, TOP_K),
+            None,
+            vertical,
         )
     }
 
@@ -113,6 +280,34 @@ impl CtcDecode {
                 TOP_K,
             ),
             seq_len_total,
+        )
+    }
+
+    /// [`Self::decode_full`] in the compact result shape, with the vertical
+    /// punctuation fold — see [`Self::decode_top_k_compact`].
+    pub fn decode_full_compact(
+        &self,
+        packed: Vec<f32>,
+        left_scores: Vec<f32>,
+        right_scores: Vec<f32>,
+        seq_len: i64,
+        seq_len_total: i64,
+        vertical: bool,
+    ) -> CompactCtcDecodeResult {
+        let seq_len = usize::try_from(seq_len).unwrap_or(0);
+        let seq_len_total = usize::try_from(seq_len_total).ok();
+        to_compact_result(
+            ctc_decode_full_packed(
+                &self.vocab,
+                &self.remap,
+                &packed,
+                &left_scores,
+                &right_scores,
+                seq_len,
+                TOP_K,
+            ),
+            seq_len_total,
+            vertical,
         )
     }
 
@@ -172,6 +367,43 @@ mod tests {
 
     fn flatten(rows: &[[f32; 30]]) -> Vec<f32> {
         rows.iter().flat_map(|row| row.iter().copied()).collect()
+    }
+
+    /// Re-expand a compact result into the nested rows a host would otherwise
+    /// have received, using `alt_rows` to index the flat cell list. This is
+    /// exactly the Kotlin the recognition path does, so comparing it against
+    /// [`CtcDecodeResult`] *is* the parity gate for the compact shape.
+    fn expand(c: &CompactCtcDecodeResult) -> (Vec<Vec<GapCell>>, Vec<Vec<GapCell>>) {
+        let rows: Vec<Vec<GapCell>> = c
+            .raw_rows
+            .windows(2)
+            .map(|w| c.raw_alternatives[w[0] as usize..w[1] as usize].to_vec())
+            .collect();
+        let alts = c
+            .alt_rows
+            .iter()
+            .map(|t| rows[*t as usize].clone())
+            .collect();
+        (alts, rows)
+    }
+
+    /// The host's own vertical-punctuation map, the operation the compact
+    /// `vertical` flag replaces: text plus every cell of both lists.
+    fn vertical_punctuate(r: &mut CtcDecodeResult) {
+        fn map(c: char) -> char {
+            match c {
+                '?' => '？',
+                '…' => '︙',
+                '‥' => '︰',
+                _ => c,
+            }
+        }
+        r.text = r.text.chars().map(map).collect();
+        for row in r.alternatives.iter_mut().chain(r.raw_alternatives.iter_mut()) {
+            for cell in row.iter_mut() {
+                cell.ch = map(char::from_u32(cell.ch as u32).unwrap_or('\u{FFFD}')) as i32;
+            }
+        }
     }
 
     #[test]
@@ -254,6 +486,177 @@ mod tests {
         assert_eq!(got.alternatives.len(), 4);
         assert_eq!(got.alternatives[0][0].ch, 'あ' as i32);
         assert_eq!(got.raw_alternatives[2][0].ch, '\u{3000}' as i32);
+    }
+
+    /// The compact result is the nested one, re-derived: the flat cell list
+    /// splits back into the same rows, `alt_rows` picks the same per-character
+    /// rows, and the columns, length and text are untouched. This is the whole
+    /// parity gate for the flat shape — the host's only job is indexing.
+    #[test]
+    fn compact_rows_expand_back_to_the_nested_result() {
+        let d = decoder((0..=20).collect());
+        let rows = [
+            step15(1, 0.9),
+            step15(1, 0.8),  // collapsed repeat: a raw row, no alt row
+            step15(0, 0.95), // blank resets
+            step15(3, 0.7),
+            step15(18709, 0.6), // space: emitted
+            step15(2, 0.9),
+        ];
+        let nested = d.decode_top_k(flatten(&rows), rows.len() as i64);
+        let compact = d.decode_top_k_compact(flatten(&rows), rows.len() as i64, false);
+        let (alts, raw) = expand(&compact);
+
+        assert_eq!(compact.text, nested.text);
+        assert_eq!(compact.char_cols, nested.char_cols);
+        assert_eq!(compact.seq_len_total, nested.seq_len_total);
+        assert_eq!(raw, nested.raw_alternatives);
+        assert_eq!(alts, nested.alternatives);
+        // `raw_rows` is the boundary list: it starts at 0, ends at the cell
+        // count, and has one more entry than there are rows.
+        assert_eq!(compact.raw_rows.first(), Some(&0));
+        assert_eq!(*compact.raw_rows.last().unwrap(), compact.raw_alternatives.len() as i64);
+        assert_eq!(compact.raw_rows.len(), nested.raw_alternatives.len() + 1);
+        // The emitted rows are the raw rows at `alt_rows`: ascending, in range,
+        // and as many as there are characters.
+        assert_eq!(compact.alt_rows, vec![0, 3, 4, 5]);
+        assert!(compact.alt_rows.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(compact.alt_rows.len(), nested.alternatives.len());
+        for (&t, row) in compact.alt_rows.iter().zip(&alts) {
+            assert!(raw[t as usize] == *row);
+        }
+    }
+
+    /// The vertical fold is the host's map, moved into the decode: the same
+    /// characters, the same cells, the same everything else. Three source
+    /// characters in one fixture, plus a fourth that is not substituted, and
+    /// the non-emitted timesteps so the raw rows are covered too.
+    #[test]
+    fn vertical_fold_matches_mapping_the_nested_result_afterwards() {
+        // class i+1 -> vocab[i]: 1='?', 2='…', 3='‥', 4='a', 5='あ'.
+        let d = CtcDecode::new(
+            ["?", "…", "‥", "a", "あ"]
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            (0..=5).collect(),
+        );
+        let rows = [
+            step15(1, 0.9),
+            step15(2, 0.85),
+            step15(3, 0.8),
+            step15(0, 0.95), // blank: no character, but its row is substituted
+            step15(4, 0.7),
+            step15(5, 0.6),
+        ];
+        let packed = flatten(&rows);
+
+        // Horizontal: the compact shape with the flag off is the plain decode.
+        let flat = d.decode_top_k_compact(packed.clone(), rows.len() as i64, false);
+        let (alts, raw) = expand(&flat);
+        let plain = d.decode_top_k(packed.clone(), rows.len() as i64);
+        assert_eq!(flat.text, plain.text);
+        assert_eq!(flat.text, "?…‥aあ");
+        assert_eq!(alts, plain.alternatives);
+        assert_eq!(raw, plain.raw_alternatives);
+
+        // Vertical: identical to `decode_top_k` + the host's own mapping.
+        let mut by_hand = d.decode_top_k(packed.clone(), rows.len() as i64);
+        vertical_punctuate(&mut by_hand);
+        let vertical = d.decode_top_k_compact(packed.clone(), rows.len() as i64, true);
+        let (v_alts, v_raw) = expand(&vertical);
+        assert_eq!(vertical.text, "？︙︰aあ");
+        assert_eq!(vertical.text, by_hand.text);
+        assert_eq!(v_alts, by_hand.alternatives);
+        assert_eq!(v_raw, by_hand.raw_alternatives);
+        assert_eq!(vertical.char_cols, by_hand.char_cols);
+        assert_eq!(vertical.alt_rows, vec![0, 1, 2, 4, 5]);
+        // Only the blank timestep's row carries a substitute with no character
+        // of its own, and it is substituted like every other cell.
+        assert_eq!(v_raw[3][0].ch, '\u{3000}' as i32);
+        assert_eq!(v_raw[0][0].ch, '？' as i32);
+        assert_eq!(v_raw[1][0].ch, '︙' as i32);
+        assert_eq!(v_raw[2][0].ch, '︰' as i32);
+        assert_eq!(v_raw[4][0].ch, 'a' as i32, "'a' is not a substitution");
+        assert_eq!(v_raw[5][0].ch, 'あ' as i32);
+        // Scores and columns never move.
+        for (v, p) in v_raw.iter().zip(plain.raw_alternatives.iter()) {
+            for (vc, pc) in v.iter().zip(p) {
+                assert_eq!(vc.score, pc.score);
+            }
+        }
+        assert_eq!(vertical.char_cols, plain.char_cols);
+        assert_eq!(vertical.seq_len_total, plain.seq_len_total);
+    }
+
+    /// The full-logits lane folds the same way and keeps its own
+    /// `seq_len_total` override.
+    #[test]
+    fn vertical_fold_also_covers_the_full_logits_lane() {
+        let d = decoder((0..20).collect());
+        let num_classes = 20;
+        let mut t0 = vec![0.0f32; num_classes];
+        t0[2] = 1.0;
+        for c in 3..18 {
+            t0[c] = 0.5;
+        }
+        t0[1] = 0.49;
+        let mut t1 = vec![0.05f32; num_classes];
+        t1[1] = 3.0;
+        let mut t2 = vec![0.05f32; num_classes];
+        t2[2] = 0.9;
+        t2[1] = 0.0;
+        let rows = vec![t0, t1, t2];
+        let mut packed = Vec::new();
+        for row in &rows {
+            let mut order: Vec<usize> = (0..num_classes).collect();
+            order.sort_by(|&a, &b| row[b].partial_cmp(&row[a]).unwrap());
+            for class in order.into_iter().take(TOP_K) {
+                packed.push(class as f32);
+                packed.push(row[class]);
+            }
+        }
+        let left = vec![f32::NAN, 0.49, 3.0];
+        let right = vec![3.0, 0.0, f32::NAN];
+
+        let nested = d.decode_full(packed.clone(), left.clone(), right.clone(), 3, 99);
+        let compact = d.decode_full_compact(packed.clone(), left.clone(), right.clone(), 3, 99, false);
+        let (alts, raw) = expand(&compact);
+        assert_eq!(compact.seq_len_total, 99);
+        assert_eq!(compact.text, nested.text);
+        assert_eq!(compact.char_cols, nested.char_cols);
+        assert_eq!(alts, nested.alternatives);
+        assert_eq!(raw, nested.raw_alternatives);
+
+        let mut by_hand = d.decode_full(packed.clone(), left.clone(), right.clone(), 3, 99);
+        vertical_punctuate(&mut by_hand);
+        let vertical = d.decode_full_compact(packed, left, right, 3, 99, true);
+        let (v_alts, v_raw) = expand(&vertical);
+        assert_eq!(vertical.text, by_hand.text);
+        assert_eq!(v_alts, by_hand.alternatives);
+        assert_eq!(v_raw, by_hand.raw_alternatives);
+        assert_eq!(vertical.seq_len_total, 99);
+    }
+
+    /// A malformed input still fails closed, in the compact shape: an empty
+    /// text, no cells, and row boundaries that still describe "no rows".
+    #[test]
+    fn malformed_compact_input_fails_closed() {
+        let d = decoder((0..20).collect());
+        let short = d.decode_top_k_compact(vec![0.0, 1.0], 1, true);
+        assert!(short.text.is_empty());
+        assert!(short.raw_alternatives.is_empty());
+        assert!(short.alt_rows.is_empty());
+        assert_eq!(short.raw_rows, vec![0]);
+
+        let bad_id = d.decode_top_k_compact(vec![f32::NAN; 30], 1, true);
+        assert!(bad_id.text.is_empty());
+        assert_eq!(bad_id.raw_rows, vec![0]);
+
+        let full = d.decode_full_compact(vec![0.0; 30], vec![0.0], vec![], 1, 7, true);
+        assert!(full.text.is_empty());
+        assert_eq!(full.seq_len_total, 7);
+        assert_eq!(full.raw_rows, vec![0]);
     }
 
     #[test]

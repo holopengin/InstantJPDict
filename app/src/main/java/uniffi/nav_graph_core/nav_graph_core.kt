@@ -1052,6 +1052,12 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1112,7 +1118,11 @@ internal interface UniffiLib : Library {
     ): Int
     fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_full(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`leftScores`: RustBuffer.ByValue,`rightScores`: RustBuffer.ByValue,`seqLen`: Long,`seqLenTotal`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_full_compact(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`leftScores`: RustBuffer.ByValue,`rightScores`: RustBuffer.ByValue,`seqLen`: Long,`seqLenTotal`: Long,`vertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`seqLen`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k_compact(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`seqLen`: Long,`vertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_ctcdecode_remap_class(`ptr`: Pointer,`prunedIdx`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
@@ -1219,6 +1229,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_blank_gap_timestep_columns(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_blank_gaps_apply(`line`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_blank_gaps_plan(`line`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_blank_gaps_with_gap_char_at(`line`: RustBuffer.ByValue,`index`: Long,`column`: Float,`gapAlternatives`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1544,6 +1556,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_blank_gaps_apply(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_blank_gaps_plan(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_blank_gaps_with_gap_char_at(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_build_nav_graph(
@@ -1760,7 +1774,11 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full(
     ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full_compact(
+    ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k_compact(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_remap_class(
     ): Short
@@ -1871,6 +1889,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_apply() != 50662.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_plan() != 53438.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_with_gap_char_at() != 26886.toShort()) {
@@ -2197,7 +2218,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full() != 29654.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full_compact() != 28659.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k() != 23013.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k_compact() != 6080.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_remap_class() != 58225.toShort()) {
@@ -3448,6 +3475,12 @@ public interface CtcDecodeInterface {
     fun `decodeFull`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long): CtcDecodeResult
     
     /**
+     * [`Self::decode_full`] in the compact result shape, with the vertical
+     * punctuation fold — see [`Self::decode_top_k_compact`].
+     */
+    fun `decodeFullCompact`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult
+    
+    /**
      * Decode one native top-K line in a single call.
      *
      * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
@@ -3455,6 +3488,14 @@ public interface CtcDecodeInterface {
      * the greedy winner. Invalid lengths/ids fail closed to an empty result.
      */
     fun `decodeTopK`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long): CtcDecodeResult
+    
+    /**
+     * [`Self::decode_top_k`] in the compact result shape, with the vertical
+     * punctuation fold (`vertical`) applied to the text and both alternative
+     * lists while the rows are built. Byte-identical to `decode_top_k`
+     * followed by the host's own per-character mapping.
+     */
+    fun `decodeTopKCompact`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult
     
     /**
      * Pruned class id -> original class id, with identity fallback.
@@ -3604,6 +3645,22 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
 
     
     /**
+     * [`Self::decode_full`] in the compact result shape, with the vertical
+     * punctuation fold — see [`Self::decode_top_k_compact`].
+     */override fun `decodeFullCompact`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult {
+            return FfiConverterTypeCompactCtcDecodeResult.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_full_compact(
+        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterSequenceFloat.lower(`leftScores`),FfiConverterSequenceFloat.lower(`rightScores`),FfiConverterLong.lower(`seqLen`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterBoolean.lower(`vertical`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Decode one native top-K line in a single call.
      *
      * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
@@ -3615,6 +3672,24 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(
         it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterLong.lower(`seqLen`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * [`Self::decode_top_k`] in the compact result shape, with the vertical
+     * punctuation fold (`vertical`) applied to the text and both alternative
+     * lists while the rows are built. Byte-identical to `decode_top_k`
+     * followed by the host's own per-character mapping.
+     */override fun `decodeTopKCompact`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult {
+            return FfiConverterTypeCompactCtcDecodeResult.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k_compact(
+        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterLong.lower(`seqLen`),FfiConverterBoolean.lower(`vertical`),_status)
 }
     }
     )
@@ -5904,8 +5979,75 @@ public object FfiConverterTypeCatalogEntryRecord: FfiConverterRustBuffer<Catalog
 
 
 /**
+ * One decoded line in the shape that crosses: `raw_alternatives` is one flat
+ * row-major cell list and `raw_rows` holds the row boundaries, so timestep `i`
+ * is `raw_alternatives[raw_rows[i] .. raw_rows[i + 1]]`.
+ *
+ * `alt_rows[j]` is the timestep the `j`-th emitted character came from, so
+ * the per-character alternatives are *those* rows by index. Kotlin indexes
+ * the list it already has instead of receiving the cells twice; see the module
+ * docs for why the two facts hold.
+ */
+data class CompactCtcDecodeResult (
+    var `text`: kotlin.String, 
+    /**
+     * The timestep each emitted character's alternatives came from; ascending.
+     */
+    var `altRows`: List<kotlin.Long>, 
+    var `charCols`: List<kotlin.Float>, 
+    var `seqLenTotal`: kotlin.Long, 
+    /**
+     * Every timestep's top-K, row-major, `raw_rows.len() - 1` rows long.
+     */
+    var `rawAlternatives`: List<GapCell>, 
+    /**
+     * Row boundaries into `raw_alternatives`, starting at 0.
+     */
+    var `rawRows`: List<kotlin.Long>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompactCtcDecodeResult: FfiConverterRustBuffer<CompactCtcDecodeResult> {
+    override fun read(buf: ByteBuffer): CompactCtcDecodeResult {
+        return CompactCtcDecodeResult(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceLong.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompactCtcDecodeResult) = (
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterSequenceLong.allocationSize(value.`altRows`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterLong.allocationSize(value.`seqLenTotal`) +
+            FfiConverterSequenceTypeGapCell.allocationSize(value.`rawAlternatives`) +
+            FfiConverterSequenceLong.allocationSize(value.`rawRows`)
+    )
+
+    override fun write(value: CompactCtcDecodeResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterSequenceLong.write(value.`altRows`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterLong.write(value.`seqLenTotal`, buf)
+            FfiConverterSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
+            FfiConverterSequenceLong.write(value.`rawRows`, buf)
+    }
+}
+
+
+
+/**
  * One decoded line. Kotlin converts `GapCell.ch` back to `Char` and carries
- * `rawAlternatives` on `PPOcrResult` exactly as the old in-process path did.
+ * `raw_alternatives` on `PPOcrResult` exactly as the old in-process path did.
  */
 data class CtcDecodeResult (
     var `text`: kotlin.String, 
@@ -6255,6 +6397,70 @@ public object FfiConverterTypeGapCell: FfiConverterRustBuffer<GapCell> {
 
 
 /**
+ * One placeholder the host inserts into its own lists, carrying everything the
+ * insertion needs: the index, the CTC column and the interpolated box.
+ */
+data class GapInsertion (
+    /**
+     * Character index in the **original** line text, as [`GapResult::insert_at`]
+     * reports it — so insert right-to-left, and a placeholder ends up at
+     * `index` plus one per earlier insertion.
+     */
+    var `index`: kotlin.Long, 
+    /**
+     * The CTC timestep column the placeholder takes.
+     */
+    var `column`: kotlin.Float, 
+    /**
+     * The box interpolated between the placeholder's two neighbours; read only
+     * when [`GapPlan::grows_char_boxes`].
+     */
+    var `placeholderBox`: BoundingBox, 
+    /**
+     * This pair's spacing over the line's median, and the spacing in pixels.
+     * Diagnostics only — neither affects the insertion.
+     */
+    var `ratio`: kotlin.Float, 
+    var `spanPx`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapInsertion: FfiConverterRustBuffer<GapInsertion> {
+    override fun read(buf: ByteBuffer): GapInsertion {
+        return GapInsertion(
+            FfiConverterLong.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterTypeBoundingBox.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapInsertion) = (
+            FfiConverterLong.allocationSize(value.`index`) +
+            FfiConverterFloat.allocationSize(value.`column`) +
+            FfiConverterTypeBoundingBox.allocationSize(value.`placeholderBox`) +
+            FfiConverterFloat.allocationSize(value.`ratio`) +
+            FfiConverterFloat.allocationSize(value.`spanPx`)
+    )
+
+    override fun write(value: GapInsertion, buf: ByteBuffer) {
+            FfiConverterLong.write(value.`index`, buf)
+            FfiConverterFloat.write(value.`column`, buf)
+            FfiConverterTypeBoundingBox.write(value.`placeholderBox`, buf)
+            FfiConverterFloat.write(value.`ratio`, buf)
+            FfiConverterFloat.write(value.`spanPx`, buf)
+    }
+}
+
+
+
+/**
  * The mobile `LineResult` subset the gap pipeline reads and writes.
  */
 data class GapLine (
@@ -6375,6 +6581,152 @@ public object FfiConverterTypeGapOverride: FfiConverterRustBuffer<GapOverride> {
             FfiConverterInt.write(value.`index`, buf)
             FfiConverterInt.write(value.`ch`, buf)
             FfiConverterFloat.write(value.`score`, buf)
+    }
+}
+
+
+
+/**
+ * The measured gaps on one line, plus which of its parallel per-character
+ * lists grow when they are materialised.
+ *
+ * Ascending `insertions`: insert right-to-left. The three flags are the
+ * "was this list full-length and non-empty?" guards the materialiser applies
+ * per insertion, hoisted so the host applies the same decision rather than
+ * measuring lengths in its own character units.
+ *
+ * `needs_raw_alternatives` says whether the detector's *last-resort* geometry
+ * source would have been read at all — the answer to "must I hand over the
+ * per-timestep top-K lists?". It is a property of the line's geometry, not of
+ * the call, so it holds on the retry too. A call made without the lists
+ * answers that, and because the walk is the only source that can find a gap it
+ * did not use, that plan comes back empty: **an empty plan plus this flag is
+ * exactly "ask again with the raw lists"**, so the host pays for them only on
+ * the lines that need them instead of on every call.
+ */
+data class GapPlan (
+    var `insertions`: List<GapInsertion>, 
+    var `growsCharBoxes`: kotlin.Boolean, 
+    var `growsAlternatives`: kotlin.Boolean, 
+    var `growsCharCols`: kotlin.Boolean, 
+    var `needsRawAlternatives`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapPlan: FfiConverterRustBuffer<GapPlan> {
+    override fun read(buf: ByteBuffer): GapPlan {
+        return GapPlan(
+            FfiConverterSequenceTypeGapInsertion.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapPlan) = (
+            FfiConverterSequenceTypeGapInsertion.allocationSize(value.`insertions`) +
+            FfiConverterBoolean.allocationSize(value.`growsCharBoxes`) +
+            FfiConverterBoolean.allocationSize(value.`growsAlternatives`) +
+            FfiConverterBoolean.allocationSize(value.`growsCharCols`) +
+            FfiConverterBoolean.allocationSize(value.`needsRawAlternatives`)
+    )
+
+    override fun write(value: GapPlan, buf: ByteBuffer) {
+            FfiConverterSequenceTypeGapInsertion.write(value.`insertions`, buf)
+            FfiConverterBoolean.write(value.`growsCharBoxes`, buf)
+            FfiConverterBoolean.write(value.`growsAlternatives`, buf)
+            FfiConverterBoolean.write(value.`growsCharCols`, buf)
+            FfiConverterBoolean.write(value.`needsRawAlternatives`, buf)
+    }
+}
+
+
+
+/**
+ * The detector's own inputs for [`blank_gaps_plan`]: everything
+ * [`GapDetector`] reads, and nothing else.
+ *
+ * One **record** rather than a positional argument list, deliberately: a record
+ * argument is lowered into a single indirect buffer while each vector argument
+ * is its own, and the fixed per-buffer cost is what a recognised page pays
+ * here. `GapLine` crosses the same way, and carries the same geometry.
+ */
+data class GapPlanLine (
+    var `text`: kotlin.String, 
+    var `isVertical`: kotlin.Boolean, 
+    /**
+     * Raw/unclipped character boxes, `x`/`y`/`w`/`h` — the first geometry source.
+     */
+    var `charBoxes`: List<BoundingBox>, 
+    /**
+     * CTC timestep column per emitted character, the second source.
+     */
+    var `charCols`: List<kotlin.Float>, 
+    /**
+     * The length of the host's per-character alternatives list; read only to
+     * decide whether a placeholder entry keeps it index-aligned.
+     */
+    var `alternativesLen`: kotlin.Long, 
+    /**
+     * The last-resort geometry source. Empty unless the plan came back
+     * `needs_raw_alternatives` — the first call, which is every line whose char
+     * boxes the layout stage already produced, never does.
+     */
+    var `rawAlternatives`: List<List<GapCell>>, 
+    var `cropW`: kotlin.Int, 
+    var `cropH`: kotlin.Int, 
+    var `seqLenTotal`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGapPlanLine: FfiConverterRustBuffer<GapPlanLine> {
+    override fun read(buf: ByteBuffer): GapPlanLine {
+        return GapPlanLine(
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeBoundingBox.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GapPlanLine) = (
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterBoolean.allocationSize(value.`isVertical`) +
+            FfiConverterSequenceTypeBoundingBox.allocationSize(value.`charBoxes`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterLong.allocationSize(value.`alternativesLen`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`rawAlternatives`) +
+            FfiConverterInt.allocationSize(value.`cropW`) +
+            FfiConverterInt.allocationSize(value.`cropH`) +
+            FfiConverterInt.allocationSize(value.`seqLenTotal`)
+    )
+
+    override fun write(value: GapPlanLine, buf: ByteBuffer) {
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterBoolean.write(value.`isVertical`, buf)
+            FfiConverterSequenceTypeBoundingBox.write(value.`charBoxes`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterLong.write(value.`alternativesLen`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
+            FfiConverterInt.write(value.`cropW`, buf)
+            FfiConverterInt.write(value.`cropH`, buf)
+            FfiConverterInt.write(value.`seqLenTotal`, buf)
     }
 }
 
@@ -8679,6 +9031,34 @@ public object FfiConverterSequenceTypeGapCell: FfiConverterRustBuffer<List<GapCe
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeGapInsertion: FfiConverterRustBuffer<List<GapInsertion>> {
+    override fun read(buf: ByteBuffer): List<GapInsertion> {
+        val len = buf.getInt()
+        return List<GapInsertion>(len) {
+            FfiConverterTypeGapInsertion.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GapInsertion>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGapInsertion.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GapInsertion>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGapInsertion.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeGapOverride: FfiConverterRustBuffer<List<GapOverride>> {
     override fun read(buf: ByteBuffer): List<GapOverride> {
         val len = buf.getInt()
@@ -9268,6 +9648,29 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gaps_apply(
         FfiConverterTypeGapLine.lower(`line`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Measure the gaps a materialisation would insert, without materialising them
+         * (mobile `BlankGaps.apply`, planning half).
+         *
+         * The policy is `apply_blank_gaps`' own: vertical lines only, idempotent, and
+         * no plan when nothing was measured.
+         *
+         * `line.raw_alternatives` may be empty, which is what the first call of a
+         * recognised line does: the plan then carries
+         * [`GapPlan::needs_raw_alternatives`], and only a line whose char boxes and CTC
+         * columns both fail to describe its text needs the second call. A gap the
+         * boxes *can* see is unaffected by the raw lists, so a non-empty plan is
+         * already the whole answer.
+         */ fun `blankGapsPlan`(`line`: GapPlanLine): GapPlan {
+            return FfiConverterTypeGapPlan.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gaps_plan(
+        FfiConverterTypeGapPlanLine.lower(`line`),_status)
 }
     )
     }

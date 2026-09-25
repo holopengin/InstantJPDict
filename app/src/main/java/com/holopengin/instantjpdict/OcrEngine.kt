@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import uniffi.nav_graph_core.BoundingBox
 import uniffi.nav_graph_core.CtcDecode as RustCtcDecode
-import uniffi.nav_graph_core.CtcDecodeResult
+import uniffi.nav_graph_core.CompactCtcDecodeResult
 import uniffi.nav_graph_core.GapCell
 import uniffi.nav_graph_core.gutterTrimFindRubyGutterCut
 import uniffi.nav_graph_core.japaneseEstimateEm
@@ -1173,17 +1173,49 @@ class OcrEngine(
         val rawAlternatives: List<List<Pair<Char, Float>>> = emptyList(),
     )
 
-    private fun List<List<GapCell>>.toKotlinAlternatives():
-        List<List<Pair<Char, Float>>> =
-        map { row -> row.map { Char(it.ch) to it.score } }
-
-    private fun CtcDecodeResult.toPpoResult(): PPOcrResult =
-        PPOcrResult(
+    /**
+     * The compact decode result as a [PPOcrResult]: one row list per timestep,
+     * sliced out of the flat cell list by the row boundaries, and the
+     * per-character alternatives *by index* into those same rows.
+     *
+     * The alternatives are the raw rows at `altRows` — the decoder pushes the
+     * row it built into both lists in the same iteration — so they are the same
+     * `Pair`s, shared rather than re-materialised, instead of a second crossing
+     * of `topK` cells per character.
+     */
+    private fun CompactCtcDecodeResult.toPpoResult(): PPOcrResult {
+        val rows = List(rawRows.size - 1) { i ->
+            val from = rawRows[i].toInt()
+            val to = rawRows[i + 1].toInt()
+            ArrayList<Pair<Char, Float>>(to - from).apply {
+                for (k in from until to) add(Char(rawAlternatives[k].ch) to rawAlternatives[k].score)
+            }
+        }
+        val alts = altRows.map { rows[it.toInt()] }
+        return PPOcrResult(
             text = text,
-            alternatives = alternatives.toKotlinAlternatives(),
+            alternatives = alts.map { it.toMutableList() },
             charCols = charCols.toFloatArray(),
             seqLenTotal = seqLenTotal.toInt(),
-            rawAlternatives = rawAlternatives.toKotlinAlternatives(),
+            rawAlternatives = rows,
+        )
+    }
+
+    /**
+     * The vertical-line punctuation map (#56, #63) applied once to a decoded
+     * line, for the paths that hand the decode's rows to Kotlin before the
+     * single-pass fold can (the long-line stitch paths merge alternatives across
+     * chunks, and the merge keys on the character — so it has to see the raw
+     * forms, exactly as it did when the map ran at emit).
+     */
+    private fun PPOcrResult.withVerticalPunctuation(vertical: Boolean): PPOcrResult =
+        if (!vertical) this else PPOcrResult(
+            text = JapaneseUtil.verticalPunctuation(text),
+            alternatives = JapaneseUtil.verticalPunctuationAlternatives(alternatives)
+                .map { it.toMutableList() },
+            charCols = charCols,
+            seqLenTotal = seqLenTotal,
+            rawAlternatives = JapaneseUtil.verticalPunctuationAlternatives(rawAlternatives),
         )
 
     /** Run dynamic-width rec + CTC-decode on a `targetW×targetH` bitmap that is
@@ -1197,8 +1229,14 @@ class OcrEngine(
      * mult-of-8 with zero padding; `actualSeqLen = ceil(targetW/8)` trims the
      * padding timesteps. Returns null when inference fails (callers fall back:
      * batch emits empty, stitch falls through to crush). Does NOT recycle
-     * [bitmap] — callers own their bitmaps. */
-    private suspend fun inferRecBitmap(bitmap: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null): PPOcrResult? {
+     * [bitmap] — callers own their bitmaps.
+     *
+     * [isVertical] is the *line's* orientation, not the input's aspect: it is the
+     * flag the vertical punctuation fold (#56, #63) keys on, so it is passed
+     * into the decode rather than applied to its output. `false` from the
+     * stitch chunk paths, which merge alternatives across chunks and therefore
+     * have to see the raw characters (they map the line once at the end). */
+    private suspend fun inferRecBitmap(bitmap: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null, isVertical: Boolean = false): PPOcrResult? {
         coroutineContext.ensureActive()
         val recNcnn = engine ?: recDynNcnn ?: return null
         val modelW = ((targetW + 7) / 8) * 8
@@ -1230,7 +1268,7 @@ class OcrEngine(
             // is the argmax. Trim padded model steps, then cross the packed line
             // once: no per-class FFI and no Kotlin raw-alternatives materialisation.
             val actualPacked = packed.copyOf(actualSeqLen * TOP_K * 2)
-            return ctcDecodeTopK(actualPacked, actualSeqLen)
+            return ctcDecodeTopK(actualPacked, actualSeqLen, isVertical)
         }
         if (packed != null) Log.w(TAG, "recNcnn w$modelW topK bad size ${packed.size} — full-logits fallback")
         if (packed != null) InferLog.add("rec w=$modelW topK BAD size=${packed.size} expect=${seqLen * TOP_K * 2}")
@@ -1250,20 +1288,23 @@ class OcrEngine(
         val cropLogits = Array(actualSeqLen) { t ->
             FloatArray(numOut) { c -> flatOutput[t * numOut + c] }
         }
-        return ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen)
+        return ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen, isVertical)
     }
 
     /** The historical per-line transform: `createScaledBitmap` to the net's
      *  input size, then [inferRecBitmap]. Kept as the reference implementation
      *  and as the path a portrait crop and the stitch chunks still take; the
-     *  horizontal single-pass path uses [drawRecInput] instead. */
-    private suspend fun inferResizedRec(src: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null): PPOcrResult? {
+     *  horizontal single-pass path uses [drawRecInput] instead.
+     *
+     *  [isVertical] forwards to [inferRecBitmap] for the same reason; the
+     *  stitch chunks keep the default `false`. */
+    private suspend fun inferResizedRec(src: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null, isVertical: Boolean = false): PPOcrResult? {
         coroutineContext.ensureActive()
         val t0 = System.nanoTime()
         val resized = Bitmap.createScaledBitmap(src, targetW, targetH, true)
         recPrepBitmapNanos += System.nanoTime() - t0
         return try {
-            inferRecBitmap(resized, targetW, targetH, engine)
+            inferRecBitmap(resized, targetW, targetH, engine, isVertical)
         } finally {
             resized.recycle()
         }
@@ -1286,6 +1327,16 @@ class OcrEngine(
         /** Non-null for a rotated Line: its upright local frame, which *is* the
          *  crop (the char-box stage works in that frame). */
         val frame: Bitmap? = null,
+        /** The **line's** orientation — [isVerticalLineBox] on the detector box,
+         *  quad first — carried here because the decode needs it and the source
+         *  is what a decode is asked to run. Default `false` so every existing
+         *  construction site stays a horizontal line.
+         *
+         *  Deliberately **not** [isPortrait]: that is a property of the rect the
+         *  net must turn 90°, which is the opposite question. A rotated Line's
+         *  source is already its upright frame, so [isPortrait] is false while
+         *  the line is very much vertical. */
+        val isVerticalLine: Boolean = false,
     ) {
         /** A portrait crop, i.e. one the net must see turned 90°. */
         val isPortrait: Boolean get() = h >= w * 3 / 2
@@ -1446,14 +1497,15 @@ class OcrEngine(
             val src = if (job.box.isRotated) {
                 val frame = warpRotatedCrop(bitmap, job.box.quad!!)
                 if (frame == null) null
-                else RecSource(frame, 0, 0, frame.width, frame.height, frame)
+                else RecSource(frame, 0, 0, frame.width, frame.height, frame, job.isVertical)
             } else {
                 val rect = job.box.rect
                 val cropX = maxOf(rect.left, 0)
                 val cropY = maxOf(rect.top, 0)
                 val cropW = minOf(bitmap.width - cropX, rect.width()).coerceAtLeast(1)
                 val cropH = minOf(bitmap.height - cropY, rect.height()).coerceAtLeast(1)
-                if (cropW < 4 || cropH < 4) null else RecSource(bitmap, cropX, cropY, cropW, cropH)
+                if (cropW < 4 || cropH < 4) null
+                else RecSource(bitmap, cropX, cropY, cropW, cropH, null, job.isVertical)
             }
             if (src == null) return@mapNotNull null
             if (src.w < 4 || src.h < 4) { src.frame?.recycle(); return@mapNotNull null }
@@ -1492,26 +1544,14 @@ class OcrEngine(
                     snapW = src.w; snapH = src.h
                     snapPx = src.evidencePixels()
                 }
-                // Vertical punctuation (#56, #63): PP-OCR emits ASCII `?` where
-                // JP wants fullwidth `？`, and horizontal `…`/`‥` where
-                // vertical text wants `︙`/`︰`. All three lack a `vert`
-                // alternate and mis-center in the vertical em box. Normalizes
-                // BEFORE char boxes so the substitutes get full-em metrics
-                // (lookup folds them back via JapaneseUtil.normalize, so
-                // dictionary search is unaffected).
-                // Covers single-pass and long-line stitch paths (both emit here).
-                val recText = if (job.isVertical) JapaneseUtil.verticalPunctuation(result.text) else result.text
-                val recAlts = if (job.isVertical) {
-                    JapaneseUtil.verticalPunctuationAlternatives(result.alternatives)
-                        .map { it.toMutableList() }
-                } else {
-                    result.alternatives.map { it.toMutableList() }
-                }
-                val recRaw = if (job.isVertical) {
-                    JapaneseUtil.verticalPunctuationAlternatives(result.rawAlternatives)
-                } else {
-                    result.rawAlternatives.map { it.toList() }
-                }
+                // Vertical punctuation (#56, #63) already ran inside the decode,
+                // keyed on the same `job.isVertical` (see `inferRecBitmap` /
+                // `ctcDecodeTopK`). Mapping the rows here as well crossed every
+                // character of the text and of both alternative lists a second
+                // time per vertical line, for the same bytes.
+                val recText = result.text
+                val recAlts = result.alternatives.map { it.toMutableList() }
+                val recRaw = result.rawAlternatives
                 val box = job.box
                 val quad = box.quad
                 val cropW: Int
@@ -1666,9 +1706,9 @@ class OcrEngine(
             if (isLongHoriz || isLongVert) {
                 val upright = src.uprightCrop() ?: return@async null
                 val stitched = if (isLongHoriz) {
-                    recognizeAndStitchLongHoriz(upright, targetH, engine)
+                    recognizeAndStitchLongHoriz(upright, targetH, engine, src.isVerticalLine)
                 } else {
-                    recognizeAndStitchLongVert(upright, targetH, engine)
+                    recognizeAndStitchLongVert(upright, targetH, engine, src.isVerticalLine)
                 }
                 if (upright !== src.frame) upright.recycle()
                 if (stitched != null) return@async stitched
@@ -1692,11 +1732,13 @@ class OcrEngine(
             // portrait line, a long line's chunks and the parity toggle's `off`
             // keep the historical chain, which is the bit-exact reference.
             val result = if (useFusedRecInput && !src.isPortrait) {
-                inferRecBitmap(drawRecInput(src, sqTarget, targetH), sqTarget, targetH, engine)
+                inferRecBitmap(
+                    drawRecInput(src, sqTarget, targetH), sqTarget, targetH, engine, src.isVerticalLine
+                )
             } else {
                 val upright = src.uprightCrop() ?: return@async null
                 try {
-                    inferResizedRec(upright, sqTarget, targetH, engine)
+                    inferResizedRec(upright, sqTarget, targetH, engine, src.isVerticalLine)
                 } finally {
                     if (upright !== src.frame) upright.recycle()
                 }
@@ -1775,9 +1817,16 @@ class OcrEngine(
      * append chars past the last global center (+10px), or single-char chunks
      * unconditionally; total stall → +1-timestep fallback offset. Double spaces
      * collapse at the end. `charCols` stay global timesteps scaled by
-     * `totalSeqLen = ceil(rw*48/rh/8)`. */
+     * `totalSeqLen = ceil(rw*48/rh/8)`.
+     *
+     *  [isVertical] is the *line's* orientation, and it is applied **here**
+     *  rather than folded into the chunk decodes: [interleaveAlternatives] keys
+     *  the merge on the character, so a chunk decoded already folded would merge
+     *  `?` with `？` into one entry where the old code kept two. Chunks decode
+     *  raw; each return maps the stitched line exactly once, where the map used
+     *  to run at emit. */
     private suspend fun recognizeAndStitchLongHoriz(
-        rotated: Bitmap, targetH: Int, engine: RecNcnn? = null
+        rotated: Bitmap, targetH: Int, engine: RecNcnn? = null, isVertical: Boolean = false
     ): PPOcrResult? {
         coroutineContext.ensureActive()
         val rw = rotated.width; val rh = rotated.height
@@ -1827,6 +1876,7 @@ class OcrEngine(
             val c = chunks[0]
             Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen} text=${c.text.take(40)}")
             return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, c.rawAltsPerTimestep)
+                .withVerticalPunctuation(isVertical)
         }
         // ——— Phase 2: stitch via anchor alignment with identical timestep size ———
         // Each timestep is rh/6 px source (48px height / stride 8); both chunks
@@ -1946,14 +1996,19 @@ class OcrEngine(
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
         Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen text=${finalText.take(40)}")
         return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, stitchedRawAll)
+            .withVerticalPunctuation(isVertical)
     }
 
     /** Stitch a long vertical line (rh*48/rw > 2000). Same algorithm as
      * [recognizeAndStitchLongHoriz] rotated 90°: chunk top→bottom with a
      * second-to-last-char anchor, then align by identical timestep size
-     * (`rw/6` px) with the same 30px / 0.4 / 0.3-0.7 best-pair rule. */
+     * (`rw/6` px) with the same 30px / 0.4 / 0.3-0.7 best-pair rule.
+     *
+     *  [isVertical] is the line's orientation, applied once per return exactly
+     *  as in [recognizeAndStitchLongHoriz] — the chunks decode raw so the
+     *  alternatives merge sees the characters the model emitted. */
     private suspend fun recognizeAndStitchLongVert(
-        rotated: Bitmap, targetH: Int, engine: RecNcnn? = null
+        rotated: Bitmap, targetH: Int, engine: RecNcnn? = null, isVertical: Boolean = false
     ): PPOcrResult? {
         coroutineContext.ensureActive()
         val rw = rotated.width; val rh = rotated.height
@@ -1997,6 +2052,7 @@ class OcrEngine(
             val c = chunks[0]
             Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen}")
             return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, c.rawAltsPerTimestep)
+                .withVerticalPunctuation(isVertical)
         }
         // ——— stitch via anchor alignment with identical timestep size (rw/6) ———
         val timestepPx = rw.toFloat() / 6f
@@ -2106,6 +2162,7 @@ class OcrEngine(
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
         Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen")
         return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, stitchedRawAll)
+            .withVerticalPunctuation(isVertical)
     }
 
     /** Prediction overlap 0–1 for a stitch candidate pair: 0.6–1.0 when top-1
@@ -2138,34 +2195,42 @@ class OcrEngine(
      * Decode full-logits fallback rows after compact Kotlin staging. The full
      * matrix stays on the JVM; Rust receives the top-15 table plus the two
      * neighbour values needed to reproduce whole-row peak interpolation.
-     */
+     *
+     *  [isVertical] folds the vertical punctuation (#56, #63) into the decode;
+     *  see [inferRecBitmap]. */
     private fun ctcDecode(
         cropLogits: Array<FloatArray>?,
         seqLen: Int,
         numClasses: Int,
         seqLenTotal: Int,
+        isVertical: Boolean = false,
     ): PPOcrResult {
         val rows = packCtcCandidateRows(cropLogits, seqLen, numClasses)
-        return checkNotNull(ctcDecoder).decodeFull(
+        return checkNotNull(ctcDecoder).decodeFullCompact(
             rows.packed.asList(),
             rows.leftScores.asList(),
             rows.rightScores.asList(),
             seqLen.toLong(),
             seqLenTotal.toLong(),
+            isVertical,
         ).toPpoResult()
     }
 
-    /** Decode one already-pruned native line across UniFFI exactly once. */
+    /** Decode one already-pruned native line across UniFFI exactly once.
+     *
+     *  [isVertical] folds the vertical punctuation (#56, #63) into the decode;
+     *  see [inferRecBitmap]. */
     private fun ctcDecodeTopK(
         packed: FloatArray,
         seqLen: Int,
+        isVertical: Boolean = false,
     ): PPOcrResult {
         check(seqLen >= 0) { "negative CTC sequence length: $seqLen" }
         check(packed.size == seqLen * TOP_K * 2) {
             "packed CTC row has ${packed.size} floats; expected ${seqLen * TOP_K * 2}"
         }
         return checkNotNull(ctcDecoder)
-            .decodeTopK(packed.asList(), seqLen.toLong())
+            .decodeTopKCompact(packed.asList(), seqLen.toLong(), isVertical)
             .toPpoResult()
     }
 
