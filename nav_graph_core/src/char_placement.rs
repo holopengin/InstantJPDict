@@ -43,7 +43,7 @@ use crate::blank_gaps::GapCell;
 
 /// One output box in crop pixels; the cross axis is the whole crop. The PC
 /// port returns `[f64; 4]`; the shim narrows to `f32` for the mobile shapes.
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct PlaceBox {
     pub left: f32,
     pub top: f32,
@@ -173,7 +173,237 @@ pub fn char_placement_place(
     let lum = pixels
         .as_deref()
         .and_then(|p| luminance_from_argb(p, crop_w, crop_h));
-    let core_steps: Option<Vec<Vec<(char, f64)>>> = steps.as_ref().map(|per_step| {
+    place_dispatch(
+        &text,
+        &char_cols,
+        seq_len_total,
+        crop_w,
+        crop_h,
+        vertical,
+        lum.as_ref().map(|l| (l.as_slice(), crop_w, crop_h)).as_ref(),
+        steps.as_deref(),
+        &options,
+        |text, cols, seq, w, h, vert, lum, steps, opts| {
+            jpdict_core::char_placement::place_with(
+                text,
+                cols,
+                seq,
+                w,
+                h,
+                vert,
+                lum.map(|(l, w, h)| (*l, *w, *h)),
+                steps,
+                opts,
+            )
+        },
+    )
+}
+
+/// The constants `jpdict_core::char_placement` reduces a crop with when it
+/// measures its ink evidence, published so the facade measures with the crate's
+/// numbers (thresholds, border stride, the band's minimum cross fraction)
+/// instead of restating them.
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct InkSpec {
+    pub ink_below: f32,
+    pub ink_above: f32,
+    pub bg_median_above: f32,
+    pub border_stride: i32,
+    /// The band's minimum cross fraction (`dominant_cross_band`'s `min_frac`).
+    pub band_min_frac: f64,
+    /// The profile box-blur radius (Rust-side; the facade never blurs).
+    pub profile_smooth: i32,
+    /// The largest ink count a count series can carry, so a cross axis thicker
+    /// than this keeps taking the mask.
+    pub max_count: i32,
+    /// The exclusive upper bound of the ink channel sums on a light background:
+    /// ink is `r + g + b < ink_below_sum`, identical to the float test over
+    /// every possible pixel (see `InkSpec`'s doc on `char_boxes::SnapSpec`).
+    pub ink_below_sum: i32,
+    /// The inclusive lower bound of the ink channel sums on a dark background.
+    pub ink_above_sum: i32,
+}
+
+/// The band the ink pass will use, plus the polarity that selects the count
+/// series. The answer to the band probe below, so a caller that wants the
+/// minimum evidence gets both facts in one crossing.
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct ProfileBand {
+    /// `true` when the border median says the background is light.
+    pub bg_light: bool,
+    /// First cross-axis index inside the band, inclusive.
+    pub lo: i32,
+    /// Last cross-axis index inside the band, exclusive.
+    pub hi: i32,
+}
+
+/// [`InkSpec`], Rust-sourced. Read once per process and cached by the facade.
+#[uniffi::export]
+pub fn char_placement_ink_spec() -> InkSpec {
+    let s = jpdict_core::char_placement::ink_spec();
+    InkSpec {
+        ink_below: s.ink_below,
+        ink_above: s.ink_above,
+        bg_median_above: s.bg_median_above,
+        border_stride: s.border_stride as i32,
+        band_min_frac: s.band_min_frac,
+        profile_smooth: s.profile_smooth,
+        max_count: s.max_count as i32,
+        ink_below_sum: s.ink_below_sum,
+        ink_above_sum: s.ink_above_sum,
+    }
+}
+
+/// Mobile `CharPlacement.place` on the crop's ink evidence reduced to the ink
+/// mask at 1 bit per pixel — the *whole* image input of the stage, so the
+/// placed boxes are identical to the pixel path by construction (the crate's
+/// `evidence_and_profile_entries_match_the_crop_entry_bit_for_bit` pins it).
+///
+/// `ink_bits` is row-major over the **global** pixel index `y * crop_w + x`,
+/// MSB-first within each byte: pixel `i` is bit `0x80 >> (i % 8)` of byte
+/// `i / 8`, so a byte can straddle a row boundary when `crop_w` is not a
+/// multiple of 8. A short buffer, a missing record or a sub-8px crop skips the
+/// ink pass, as the old short pixel array did.
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn char_placement_place_evidence(
+    text: String,
+    char_cols: Vec<f32>,
+    seq_len_total: i64,
+    crop_w: u32,
+    crop_h: u32,
+    vertical: bool,
+    bg_light: bool,
+    ink_bits: Option<Vec<u8>>,
+    steps: Option<Vec<Vec<GapCell>>>,
+    options: PlaceOptions,
+) -> Vec<PlaceBox> {
+    let seq_len_total = usize::try_from(seq_len_total).unwrap_or(0);
+    let evidence = ink_bits
+        .as_deref()
+        .and_then(|bits| {
+            jpdict_core::char_placement::InkEvidence::from_packed(bg_light, bits, crop_w, crop_h)
+        });
+    place_dispatch(
+        &text,
+        &char_cols,
+        seq_len_total,
+        crop_w,
+        crop_h,
+        vertical,
+        evidence.as_ref(),
+        steps.as_deref(),
+        &options,
+        |text, cols, seq, w, h, vert, ev, steps, opts| {
+            jpdict_core::char_placement::place_with_evidence(
+                text, cols, seq, w, h, vert, ev, steps, opts,
+            )
+        },
+    )
+}
+
+/// The band probe for the minimum-evidence path: the border sample's polarity
+/// plus the band the crate's `dominant_cross_band` picks for these cross-axis
+/// ink counts, as `[lo, hi)` cross-axis indices.
+///
+/// `cross_dark` / `cross_light` are the per-cross-position ink counts over the
+/// **whole** cross axis (pixels below `ink_below` / above `ink_above`); the
+/// polarity picks one. Both count series cross because the polarity is the
+/// crate's to decide. `lo`/`hi` are the rows (horizontal) or columns (vertical)
+/// the caller should measure the reading-axis profile in.
+#[uniffi::export]
+pub fn char_placement_profile_band(
+    border_rgb: Vec<u8>,
+    cross_dark: Vec<u8>,
+    cross_light: Vec<u8>,
+) -> ProfileBand {
+    let lum = jpdict_core::char_placement::luminance_from_rgb_samples(&border_rgb);
+    let bg_light = jpdict_core::char_placement::ink_polarity(&lum);
+    let picked: &[u8] = if bg_light { &cross_dark } else { &cross_light };
+    let cross: Vec<f64> = picked.iter().map(|&c| c as f64).collect();
+    let (lo, hi) = jpdict_core::char_placement::cross_band(
+        &cross,
+        jpdict_core::char_placement::ink_spec().band_min_frac,
+    );
+    ProfileBand {
+        bg_light,
+        lo: lo as i32,
+        hi: hi as i32,
+    }
+}
+
+/// Mobile `CharPlacement.place` on the minimum ink evidence: the background
+/// polarity plus the band-restricted, un-smoothed ink count per reading-axis
+/// position. The blur, the anchor refinement, the measured extents and the
+/// boundary pass are the crate's own, so identical counts give identical boxes.
+///
+/// The band itself is *not* an input (the crop path does not read it after
+/// `ink_profile` either) — get it from [`char_placement_profile_band`]. A
+/// series of the wrong length, a count at the `max_count` ceiling or a sub-8px
+/// crop skips the ink pass.
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn char_placement_place_profile(
+    text: String,
+    char_cols: Vec<f32>,
+    seq_len_total: i64,
+    crop_w: u32,
+    crop_h: u32,
+    vertical: bool,
+    bg_light: bool,
+    band: Option<Vec<u8>>,
+    steps: Option<Vec<Vec<GapCell>>>,
+    options: PlaceOptions,
+) -> Vec<PlaceBox> {
+    let seq_len_total = usize::try_from(seq_len_total).unwrap_or(0);
+    let profile = band.map(|b| jpdict_core::char_placement::InkProfile {
+        bg_light,
+        band: b.iter().map(|&c| c as f32).collect(),
+    });
+    place_dispatch(
+        &text,
+        &char_cols,
+        seq_len_total,
+        crop_w,
+        crop_h,
+        vertical,
+        profile.as_ref(),
+        steps.as_deref(),
+        &options,
+        |text, cols, seq, w, h, vert, p, steps, opts| {
+            jpdict_core::char_placement::place_with_profile(text, cols, seq, w, h, vert, p, steps, opts)
+        },
+    )
+}
+
+/// The shared tail of the placement entries: the `steps` conversion, the
+/// options mapping and the `f64` → `f32` narrowing, so no entry can drift from
+/// the others on any of them. The evidence differs per entry; everything after
+/// it is here.
+#[allow(clippy::too_many_arguments)]
+fn place_dispatch<T>(
+    text: &str,
+    char_cols: &[f32],
+    seq_len_total: usize,
+    crop_w: u32,
+    crop_h: u32,
+    vertical: bool,
+    evidence: Option<&T>,
+    steps: Option<&[Vec<GapCell>]>,
+    options: &PlaceOptions,
+    place: impl Fn(
+        &str,
+        &[f32],
+        usize,
+        u32,
+        u32,
+        bool,
+        Option<&T>,
+        Option<&[Vec<(char, f64)>]>,
+        &jpdict_core::char_placement::Options,
+    ) -> Vec<[f64; 4]>,
+) -> Vec<PlaceBox> {
+    let core_steps: Option<Vec<Vec<(char, f64)>>> = steps.map(|per_step| {
         per_step
             .iter()
             .map(|alts| {
@@ -183,15 +413,15 @@ pub fn char_placement_place(
             })
             .collect()
     });
-    let core_opts = to_core_options(&options);
-    jpdict_core::char_placement::place_with(
-        &text,
-        &char_cols,
+    let core_opts = to_core_options(options);
+    place(
+        text,
+        char_cols,
         seq_len_total,
         crop_w,
         crop_h,
         vertical,
-        lum.as_deref().map(|l| (l, crop_w, crop_h)),
+        evidence,
         core_steps.as_deref(),
         &core_opts,
     )
@@ -462,6 +692,367 @@ mod tests {
             luminance_from_argb(&px, 5, 1).is_none(),
             "a short array skips the ink pass"
         );
+    }
+
+    // ─── compact ink evidence: pixels vs. the mask vs. the minimum profile ────
+
+    /// The three 8-bit channel values of an ARGB int, summed — the numerator of
+    /// the reference's channel-mean luminance, and the only per-pixel
+    /// arithmetic the facade needs (an integer compare, no float division).
+    fn channel_sum(p: i32) -> i32 {
+        let p = p as u32;
+        ((p >> 16) & 0xFF) as i32 + ((p >> 8) & 0xFF) as i32 + (p & 0xFF) as i32
+    }
+
+    /// The border sample at the spec's stride, as raw RGB8 triples: the
+    /// top/bottom row pairs first, then the left/right column pairs.
+    fn border_rgb(argb: &[i32], w: usize, h: usize, stride: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut push = |p: i32| {
+            let p = p as u32;
+            out.push(((p >> 16) & 0xFF) as u8);
+            out.push(((p >> 8) & 0xFF) as u8);
+            out.push((p & 0xFF) as u8);
+        };
+        let mut i = 0usize;
+        while i < w {
+            push(argb[i]);
+            push(argb[(h - 1) * w + i]);
+            i += stride;
+        }
+        let mut j = 0usize;
+        while j < h {
+            push(argb[j * w]);
+            push(argb[j * w + w - 1]);
+            j += stride;
+        }
+        out
+    }
+
+    /// The facade's mask measurement, transcribed: the border sample, the
+    /// polarity (asked through the exported probe, so there is exactly one
+    /// median on the wire) and the mask packed MSB-first over the *global*
+    /// pixel index — a byte straddles a row boundary when `w % 8 != 0`, so the
+    /// bit comes from `idx % 8` and never from `x % 8`.
+    fn measure_mask(argb: &[i32], w: usize, h: usize) -> (bool, Vec<u8>) {
+        let spec = char_placement_ink_spec();
+        let border = border_rgb(argb, w, h, spec.border_stride as usize);
+        let bg_light = char_placement_profile_band(border, vec![0u8; 1], vec![0u8; 1]).bg_light;
+        let mut bits = vec![0u8; (w * h).div_ceil(8)];
+        for y in 0..h {
+            for x in 0..w {
+                let sum = channel_sum(argb[y * w + x]);
+                let ink = if bg_light {
+                    sum < spec.ink_below_sum
+                } else {
+                    sum >= spec.ink_above_sum
+                };
+                if ink {
+                    let idx = y * w + x;
+                    bits[idx / 8] |= 0x80u8 >> (idx % 8);
+                }
+            }
+        }
+        (bg_light, bits)
+    }
+
+    /// The facade's minimum measurement: the cross-axis counts over the whole
+    /// cross axis, the band the crate names in the probe's answer, then the
+    /// reading-axis counts inside it. Two crossings on a real boundary.
+    fn measure_profile(argb: &[i32], w: usize, h: usize, vertical: bool) -> (bool, Vec<u8>) {
+        let spec = char_placement_ink_spec();
+        let (cross, read) = if vertical { (w, h) } else { (h, w) };
+        let mut dark = vec![0u8; cross];
+        let mut light = vec![0u8; cross];
+        for c in 0..cross {
+            for r in 0..read {
+                let sum = channel_sum(argb[if vertical { r * w + c } else { c * w + r }]);
+                if sum < spec.ink_below_sum {
+                    dark[c] += 1;
+                }
+                if sum >= spec.ink_above_sum {
+                    light[c] += 1;
+                }
+            }
+        }
+        let border = border_rgb(argb, w, h, spec.border_stride as usize);
+        let band = char_placement_profile_band(border, dark, light);
+        let mut counts = vec![0u8; read];
+        for r in 0..read {
+            for c in band.lo as usize..(band.hi as usize).min(cross) {
+                let sum = channel_sum(argb[if vertical { r * w + c } else { c * w + r }]);
+                if if band.bg_light {
+                    sum < spec.ink_below_sum
+                } else {
+                    sum >= spec.ink_above_sum
+                } {
+                    counts[r] += 1;
+                }
+            }
+        }
+        (band.bg_light, counts)
+    }
+
+    /// A line crop whose ink runs along the *reading* axis: `glyphs` are
+    /// `(start, end)` spans of ink, `thickness` the cross-axis extent of each
+    /// (roughly the em). Ink also fills the two extreme cross-axis rows/columns,
+    /// so the band has a real choice to make.
+    fn reading_axis_crop(
+        w: usize,
+        h: usize,
+        vertical: bool,
+        glyphs: &[(usize, usize)],
+        thickness: usize,
+    ) -> Vec<i32> {
+        let mut px = vec![WHITE; w * h];
+        for &(c0, c1) in glyphs {
+            for r in c0..c1.min(if vertical { h } else { w }) {
+                for c in 0..thickness.min(if vertical { w } else { h }) {
+                    let idx = if vertical { r * w + c } else { c * w + r };
+                    px[idx] = INK;
+                }
+            }
+        }
+        for c in 0..w {
+            px[c] = INK;
+            px[(h - 1) * w + c] = INK;
+        }
+        px
+    }
+
+    /// A small deterministic LCG, so the sweep needs no dependency.
+    fn lcg(state: &mut u64) -> u32 {
+        *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (*state >> 33) as u32
+    }
+
+    /// Both compact entries are pure re-plumbing of the pixel entry: a crop
+    /// measured on the facade side must place *identical* boxes, on both
+    /// orientations, both polarities, over a sweep of crop shapes, glyph
+    /// layouts and column counts, with and without `steps`.
+    #[test]
+    fn evidence_entries_match_the_pixel_entry_bit_for_bit() {
+        let mut state = 0xc0ffee_99u64;
+        let mut moved = 0;
+        for case in 0..48usize {
+            let vertical = case % 4 == 0;
+            let read = 40 + (lcg(&mut state) as usize % 200);
+            let cross = 16 + (lcg(&mut state) as usize % 60);
+            let (w, h) = if vertical { (cross, read) } else { (read, cross) };
+            let n = 2 + (lcg(&mut state) as usize % 9);
+            let pitch = (read / n).max(6);
+            let glyphs: Vec<(usize, usize)> = (0..n)
+                .map(|i| (i * pitch + 1 + (lcg(&mut state) as usize % 3), i * pitch + pitch / 2))
+                .collect();
+            let mut px = reading_axis_crop(w, h, vertical, &glyphs, (cross * 2 / 3).max(3));
+            if case % 2 == 1 {
+                for p in px.iter_mut() {
+                    *p = !*p;
+                }
+            }
+            let text: String = "あいうえおかきくけこさしすせそ".chars().take(n).collect();
+            let cols: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            let steps: Option<Vec<Vec<GapCell>>> = if case % 3 == 0 {
+                None
+            } else {
+                Some(
+                    (0..(n + 2))
+                        .map(|t| {
+                            let ch = if t % 3 == 2 {
+                                '\u{3000}'
+                            } else {
+                                text.chars().nth(t % n).unwrap_or('\u{3000}')
+                            };
+                            vec![
+                                GapCell { ch: ch as i32, score: 4.0 - (t % 3) as f32 * 0.5 },
+                                GapCell { ch: 'あ' as i32, score: 1.0 },
+                            ]
+                        })
+                        .collect(),
+                )
+            };
+            let seq = (n + 2) as i64;
+            let (bg_light, bits) = measure_mask(&px, w, h);
+            let (prof_bg, band) = measure_profile(&px, w, h, vertical);
+            let via_pixels = char_placement_place(
+                text.clone(),
+                cols.clone(),
+                seq,
+                w as u32,
+                h as u32,
+                vertical,
+                Some(px.clone()),
+                steps.clone(),
+                default_options(),
+            );
+            let via_mask = char_placement_place_evidence(
+                text.clone(),
+                cols.clone(),
+                seq,
+                w as u32,
+                h as u32,
+                vertical,
+                bg_light,
+                Some(bits),
+                steps.clone(),
+                default_options(),
+            );
+            assert_eq!(
+                format!("{via_pixels:?}"),
+                format!("{via_mask:?}"),
+                "packed mask diverged: case {case} w={w} h={h} n={n} vert={vertical}"
+            );
+            let via_profile = char_placement_place_profile(
+                text.clone(),
+                cols.clone(),
+                seq,
+                w as u32,
+                h as u32,
+                vertical,
+                prof_bg,
+                Some(band),
+                steps.clone(),
+                default_options(),
+            );
+            assert_eq!(
+                format!("{via_pixels:?}"),
+                format!("{via_profile:?}"),
+                "minimum profile diverged: case {case} w={w} h={h} n={n} vert={vertical}"
+            );
+            let bare = char_placement_place(
+                text,
+                cols,
+                seq,
+                w as u32,
+                h as u32,
+                vertical,
+                None,
+                steps,
+                default_options(),
+            );
+            if via_pixels != bare {
+                moved += 1;
+            }
+        }
+        assert!(moved >= 16, "only {moved} cases moved boxes; the sweep is too weak");
+    }
+
+    /// The evidence boundary's guards through the exported conversion, and the
+    /// spec record as the crate's own.
+    #[test]
+    fn evidence_boundary_guards_and_spec_cross_intact() {
+        let (w, h) = (200usize, 44usize);
+        let glyphs = vec![(10usize, 14usize), (50, 54), (90, 94), (130, 134), (170, 174)];
+        let px = reading_axis_crop(w, h, false, &glyphs, h * 2 / 3);
+        let text = "あいうえお";
+        let cols = vec![0.0f32, 1.0, 2.0, 3.0, 4.0];
+        let inked = char_placement_place(
+            text.to_string(),
+            cols.clone(),
+            6,
+            w as u32,
+            h as u32,
+            false,
+            Some(px.clone()),
+            None,
+            default_options(),
+        );
+        let bare = char_placement_place(
+            text.to_string(),
+            cols.clone(),
+            6,
+            w as u32,
+            h as u32,
+            false,
+            None,
+            None,
+            default_options(),
+        );
+        assert_ne!(inked, bare, "the fixture must move boxes");
+        let (bg_light, bits) = measure_mask(&px, w, h);
+        let (prof_bg, band) = measure_profile(&px, w, h, false);
+        // The happy paths agree with the pixel entry.
+        assert_eq!(
+            char_placement_place_evidence(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, bg_light,
+                Some(bits.clone()), None, default_options(),
+            ),
+            inked
+        );
+        assert_eq!(
+            char_placement_place_profile(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, prof_bg,
+                Some(band.clone()), None, default_options(),
+            ),
+            inked
+        );
+        // A short mask, a missing mask, a wrong-shaped series and a saturated
+        // count all skip the ink pass: the template-only boxes, never a panic.
+        assert_eq!(
+            char_placement_place_evidence(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, bg_light,
+                Some(bits[..bits.len() - 1].to_vec()), None, default_options(),
+            ),
+            bare
+        );
+        assert_eq!(
+            char_placement_place_evidence(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, bg_light,
+                None, None, default_options(),
+            ),
+            bare
+        );
+        let mut short = band.clone();
+        short.pop();
+        assert_eq!(
+            char_placement_place_profile(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, prof_bg,
+                Some(short), None, default_options(),
+            ),
+            bare
+        );
+        let mut sat = band.clone();
+        sat[3] = 255;
+        assert_eq!(
+            char_placement_place_profile(
+                text.to_string(), cols.clone(), 6, w as u32, h as u32, false, prof_bg,
+                Some(sat), None, default_options(),
+            ),
+            bare
+        );
+        // The spec record is the crate's, field for field.
+        let s = char_placement_ink_spec();
+        let core = jpdict_core::char_placement::ink_spec();
+        assert_eq!(s.ink_below, core.ink_below);
+        assert_eq!(s.ink_above, core.ink_above);
+        assert_eq!(s.bg_median_above, core.bg_median_above);
+        assert_eq!(s.border_stride, core.border_stride as i32);
+        assert_eq!(s.band_min_frac, core.band_min_frac);
+        assert_eq!(s.profile_smooth, core.profile_smooth);
+        assert_eq!(s.max_count, core.max_count as i32);
+        assert_eq!(s.ink_below_sum, core.ink_below_sum);
+        assert_eq!(s.ink_above_sum, core.ink_above_sum);
+        // The integer test is the crate's float test, for every pixel.
+        for sum in 0..=765i32 {
+            let lum = sum as f32 / 3.0;
+            assert_eq!(jpdict_core::char_placement::is_ink_sum(sum, true), lum < s.ink_below);
+            assert_eq!(jpdict_core::char_placement::is_ink_sum(sum, false), lum > s.ink_above);
+        }
+        // The band probe never panics on degenerate input, and its answer is
+        // the crate's own band for the same counts.
+        let empty = char_placement_profile_band(vec![], vec![], vec![]);
+        assert_eq!(empty.lo, 0);
+        let cross: Vec<u8> = vec![0, 0, 9, 8, 0];
+        let (lo, hi) = jpdict_core::char_placement::cross_band(
+            &cross.iter().map(|&c| c as f64).collect::<Vec<_>>(),
+            core.band_min_frac,
+        );
+        let probe = char_placement_profile_band(
+            border_rgb(&reading_axis_crop(5, 20, false, &[(4, 8)], 5), 5, 20, core.border_stride),
+            cross.clone(),
+            cross,
+        );
+        assert_eq!((probe.lo as usize, probe.hi as usize), (lo, hi));
     }
 
     /// The `steps` boundary: `Char.code` ints decode to chars and the f32

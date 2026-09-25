@@ -1040,6 +1040,18 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1228,7 +1240,15 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_nav_graph_core_fn_func_char_placement_blank(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    fun uniffi_nav_graph_core_fn_func_char_placement_ink_spec(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_placement_place(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`pixels`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_placement_place_evidence(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`bgLight`: Byte,`inkBits`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_placement_place_profile(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`bgLight`: Byte,`band`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_placement_profile_band(`borderRgb`: RustBuffer.ByValue,`crossDark`: RustBuffer.ByValue,`crossLight`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_definition_format_parse(`glossaryJson`: RustBuffer.ByValue,`separator`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1322,11 +1342,15 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropX`: Int,`cropY`: Int,`cropW`: Int,`cropH`: Int,`isVertical`: Byte,`pixels`: RustBuffer.ByValue,`pixW`: Int,`pixH`: Int,`snap`: Byte,`uniform`: Byte,`inkHalfWidths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes_evidence(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropX`: Int,`cropY`: Int,`cropW`: Int,`cropH`: Int,`isVertical`: Byte,`borderRgb`: RustBuffer.ByValue,`inkDark`: RustBuffer.ByValue,`inkLight`: RustBuffer.ByValue,`pixW`: Int,`pixH`: Int,`snap`: Byte,`uniform`: Byte,`inkHalfWidths`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_closing_punct(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_nav_graph_core_fn_func_ocr_engine_is_vertical_opening_punct(`ch`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_nav_graph_core_fn_func_ocr_engine_re_decode(`raw`: RustBuffer.ByValue,`isVertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_ocr_engine_snap_spec(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_ocr_engine_sort_order(`boxes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1540,7 +1564,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_blank(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_ink_spec(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_place(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_place_evidence(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_place_profile(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_profile_band(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_definition_format_parse(
     ): Short
@@ -1634,11 +1666,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes(
     ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes_evidence(
+    ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_closing_punct(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_opening_punct(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_re_decode(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_ocr_engine_snap_spec(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_ocr_engine_sort_order(
     ): Short
@@ -1867,7 +1903,19 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_blank() != 48053.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_ink_spec() != 58440.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_place() != 60789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_place_evidence() != 4708.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_place_profile() != 29711.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_profile_band() != 47454.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_definition_format_parse() != 30188.toShort()) {
@@ -2008,6 +2056,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes() != 18671.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_compute_char_boxes_evidence() != 2265.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_is_vertical_closing_punct() != 750.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2015,6 +2066,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_re_decode() != 57610.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_snap_spec() != 54589.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_ocr_engine_sort_order() != 21483.toShort()) {
@@ -6367,6 +6421,90 @@ public object FfiConverterTypeGapResult: FfiConverterRustBuffer<GapResult> {
 
 
 /**
+ * The constants `jpdict_core::char_placement` reduces a crop with when it
+ * measures its ink evidence, published so the facade measures with the crate's
+ * numbers (thresholds, border stride, the band's minimum cross fraction)
+ * instead of restating them.
+ */
+data class InkSpec (
+    var `inkBelow`: kotlin.Float, 
+    var `inkAbove`: kotlin.Float, 
+    var `bgMedianAbove`: kotlin.Float, 
+    var `borderStride`: kotlin.Int, 
+    /**
+     * The band's minimum cross fraction (`dominant_cross_band`'s `min_frac`).
+     */
+    var `bandMinFrac`: kotlin.Double, 
+    /**
+     * The profile box-blur radius (Rust-side; the facade never blurs).
+     */
+    var `profileSmooth`: kotlin.Int, 
+    /**
+     * The largest ink count a count series can carry, so a cross axis thicker
+     * than this keeps taking the mask.
+     */
+    var `maxCount`: kotlin.Int, 
+    /**
+     * The exclusive upper bound of the ink channel sums on a light background:
+     * ink is `r + g + b < ink_below_sum`, identical to the float test over
+     * every possible pixel (see `InkSpec`'s doc on `char_boxes::SnapSpec`).
+     */
+    var `inkBelowSum`: kotlin.Int, 
+    /**
+     * The inclusive lower bound of the ink channel sums on a dark background.
+     */
+    var `inkAboveSum`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeInkSpec: FfiConverterRustBuffer<InkSpec> {
+    override fun read(buf: ByteBuffer): InkSpec {
+        return InkSpec(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: InkSpec) = (
+            FfiConverterFloat.allocationSize(value.`inkBelow`) +
+            FfiConverterFloat.allocationSize(value.`inkAbove`) +
+            FfiConverterFloat.allocationSize(value.`bgMedianAbove`) +
+            FfiConverterInt.allocationSize(value.`borderStride`) +
+            FfiConverterDouble.allocationSize(value.`bandMinFrac`) +
+            FfiConverterInt.allocationSize(value.`profileSmooth`) +
+            FfiConverterInt.allocationSize(value.`maxCount`) +
+            FfiConverterInt.allocationSize(value.`inkBelowSum`) +
+            FfiConverterInt.allocationSize(value.`inkAboveSum`)
+    )
+
+    override fun write(value: InkSpec, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`inkBelow`, buf)
+            FfiConverterFloat.write(value.`inkAbove`, buf)
+            FfiConverterFloat.write(value.`bgMedianAbove`, buf)
+            FfiConverterInt.write(value.`borderStride`, buf)
+            FfiConverterDouble.write(value.`bandMinFrac`, buf)
+            FfiConverterInt.write(value.`profileSmooth`, buf)
+            FfiConverterInt.write(value.`maxCount`, buf)
+            FfiConverterInt.write(value.`inkBelowSum`, buf)
+            FfiConverterInt.write(value.`inkAboveSum`, buf)
+    }
+}
+
+
+
+/**
  * Result of one correction pass.
  */
 data class KanaSizeCorrection (
@@ -7036,6 +7174,56 @@ public object FfiConverterTypeProcessedLookupResults: FfiConverterRustBuffer<Pro
 
 
 /**
+ * The band the ink pass will use, plus the polarity that selects the count
+ * series. The answer to the band probe below, so a caller that wants the
+ * minimum evidence gets both facts in one crossing.
+ */
+data class ProfileBand (
+    /**
+     * `true` when the border median says the background is light.
+     */
+    var `bgLight`: kotlin.Boolean, 
+    /**
+     * First cross-axis index inside the band, inclusive.
+     */
+    var `lo`: kotlin.Int, 
+    /**
+     * Last cross-axis index inside the band, exclusive.
+     */
+    var `hi`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeProfileBand: FfiConverterRustBuffer<ProfileBand> {
+    override fun read(buf: ByteBuffer): ProfileBand {
+        return ProfileBand(
+            FfiConverterBoolean.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ProfileBand) = (
+            FfiConverterBoolean.allocationSize(value.`bgLight`) +
+            FfiConverterInt.allocationSize(value.`lo`) +
+            FfiConverterInt.allocationSize(value.`hi`)
+    )
+
+    override fun write(value: ProfileBand, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`bgLight`, buf)
+            FfiConverterInt.write(value.`lo`, buf)
+            FfiConverterInt.write(value.`hi`, buf)
+    }
+}
+
+
+
+/**
  * Model-free re-decode output: text, fractional CTC columns and
  * per-emitted-character alternatives, ready to rebuild a `LineResult`.
  */
@@ -7306,6 +7494,112 @@ public object FfiConverterTypeRubyStyle: FfiConverterRustBuffer<RubyStyle> {
             FfiConverterSequenceFloat.write(value.`base`, buf)
             FfiConverterSequenceFloat.write(value.`ruby`, buf)
             FfiConverterBoolean.write(value.`bold`, buf)
+    }
+}
+
+
+
+/**
+ * The constants `jpdict_core::char_boxes` reduces a crop with when it measures
+ * the snap evidence, published so the Kotlin facade measures with the crate's
+ * numbers instead of restating them. A change to a threshold or to the band
+ * cannot silently desynchronise the boundary: the record moves with it.
+ */
+data class SnapSpec (
+    /**
+     * Ink is `lum < ink_below` when the background is light.
+     */
+    var `inkBelow`: kotlin.Float, 
+    /**
+     * Ink is `lum > ink_above` when the background is dark.
+     */
+    var `inkAbove`: kotlin.Float, 
+    /**
+     * The border median above `bg_median_above` means a light background.
+     */
+    var `bgMedianAbove`: kotlin.Float, 
+    /**
+     * The border sampling stride, in pixels.
+     */
+    var `borderStride`: kotlin.Int, 
+    /**
+     * The central cross band's lower edge, as a fraction of the cross axis.
+     */
+    var `bandLo`: kotlin.Float, 
+    /**
+     * …and its upper edge.
+     */
+    var `bandHi`: kotlin.Float, 
+    /**
+     * The profile box-blur radius (Rust-side; the facade never blurs).
+     */
+    var `blurRadius`: kotlin.Int, 
+    /**
+     * The largest ink count a count series can carry, so a cross axis thicker
+     * than this keeps taking the pixel path.
+     */
+    var `maxCount`: kotlin.Int, 
+    /**
+     * The exclusive upper bound of the ink channel sums on a light background:
+     * ink is `r + g + b < ink_below_sum`. Luminance is the channel mean of
+     * 8-bit channels and both thresholds are exact multiples of three, so this
+     * integer test is *identical* to the float one over every possible pixel —
+     * the facade counts ink without a float division per pixel.
+     */
+    var `inkBelowSum`: kotlin.Int, 
+    /**
+     * The inclusive lower bound of the ink channel sums on a dark background:
+     * ink is `r + g + b >= ink_above_sum`.
+     */
+    var `inkAboveSum`: kotlin.Int
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSnapSpec: FfiConverterRustBuffer<SnapSpec> {
+    override fun read(buf: ByteBuffer): SnapSpec {
+        return SnapSpec(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SnapSpec) = (
+            FfiConverterFloat.allocationSize(value.`inkBelow`) +
+            FfiConverterFloat.allocationSize(value.`inkAbove`) +
+            FfiConverterFloat.allocationSize(value.`bgMedianAbove`) +
+            FfiConverterInt.allocationSize(value.`borderStride`) +
+            FfiConverterFloat.allocationSize(value.`bandLo`) +
+            FfiConverterFloat.allocationSize(value.`bandHi`) +
+            FfiConverterInt.allocationSize(value.`blurRadius`) +
+            FfiConverterInt.allocationSize(value.`maxCount`) +
+            FfiConverterInt.allocationSize(value.`inkBelowSum`) +
+            FfiConverterInt.allocationSize(value.`inkAboveSum`)
+    )
+
+    override fun write(value: SnapSpec, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`inkBelow`, buf)
+            FfiConverterFloat.write(value.`inkAbove`, buf)
+            FfiConverterFloat.write(value.`bgMedianAbove`, buf)
+            FfiConverterInt.write(value.`borderStride`, buf)
+            FfiConverterFloat.write(value.`bandLo`, buf)
+            FfiConverterFloat.write(value.`bandHi`, buf)
+            FfiConverterInt.write(value.`blurRadius`, buf)
+            FfiConverterInt.write(value.`maxCount`, buf)
+            FfiConverterInt.write(value.`inkBelowSum`, buf)
+            FfiConverterInt.write(value.`inkAboveSum`, buf)
     }
 }
 
@@ -7595,6 +7889,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
+    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterByteArray.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ByteArray?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterByteArray.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterByteArray.write(value, buf)
         }
     }
 }
@@ -9095,6 +9421,18 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * [`InkSpec`], Rust-sourced. Read once per process and cached by the facade.
+         */ fun `charPlacementInkSpec`(): InkSpec {
+            return FfiConverterTypeInkSpec.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_ink_spec(
+        _status)
+}
+    )
+    }
+    
+
+        /**
          * Place one line's characters (mobile `CharPlacement.place`).
          *
          * Delegates to `jpdict_core::char_placement::place_with`; see its docs for
@@ -9106,6 +9444,67 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_place(
         FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),FfiConverterBoolean.lower(`vertical`),FfiConverterOptionalSequenceInt.lower(`pixels`),FfiConverterOptionalSequenceSequenceTypeGapCell.lower(`steps`),FfiConverterTypePlaceOptions.lower(`options`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile `CharPlacement.place` on the crop's ink evidence reduced to the ink
+         * mask at 1 bit per pixel — the *whole* image input of the stage, so the
+         * placed boxes are identical to the pixel path by construction (the crate's
+         * `evidence_and_profile_entries_match_the_crop_entry_bit_for_bit` pins it).
+         *
+         * `ink_bits` is row-major over the **global** pixel index `y * crop_w + x`,
+         * MSB-first within each byte: pixel `i` is bit `0x80 >> (i % 8)` of byte
+         * `i / 8`, so a byte can straddle a row boundary when `crop_w` is not a
+         * multiple of 8. A short buffer, a missing record or a sub-8px crop skips the
+         * ink pass, as the old short pixel array did.
+         */ fun `charPlacementPlaceEvidence`(`text`: kotlin.String, `charCols`: List<kotlin.Float>, `seqLenTotal`: kotlin.Long, `cropW`: kotlin.UInt, `cropH`: kotlin.UInt, `vertical`: kotlin.Boolean, `bgLight`: kotlin.Boolean, `inkBits`: kotlin.ByteArray?, `steps`: List<List<GapCell>>?, `options`: PlaceOptions): List<PlaceBox> {
+            return FfiConverterSequenceTypePlaceBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_place_evidence(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),FfiConverterBoolean.lower(`vertical`),FfiConverterBoolean.lower(`bgLight`),FfiConverterOptionalByteArray.lower(`inkBits`),FfiConverterOptionalSequenceSequenceTypeGapCell.lower(`steps`),FfiConverterTypePlaceOptions.lower(`options`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Mobile `CharPlacement.place` on the minimum ink evidence: the background
+         * polarity plus the band-restricted, un-smoothed ink count per reading-axis
+         * position. The blur, the anchor refinement, the measured extents and the
+         * boundary pass are the crate's own, so identical counts give identical boxes.
+         *
+         * The band itself is *not* an input (the crop path does not read it after
+         * `ink_profile` either) — get it from [`char_placement_profile_band`]. A
+         * series of the wrong length, a count at the `max_count` ceiling or a sub-8px
+         * crop skips the ink pass.
+         */ fun `charPlacementPlaceProfile`(`text`: kotlin.String, `charCols`: List<kotlin.Float>, `seqLenTotal`: kotlin.Long, `cropW`: kotlin.UInt, `cropH`: kotlin.UInt, `vertical`: kotlin.Boolean, `bgLight`: kotlin.Boolean, `band`: kotlin.ByteArray?, `steps`: List<List<GapCell>>?, `options`: PlaceOptions): List<PlaceBox> {
+            return FfiConverterSequenceTypePlaceBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_place_profile(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),FfiConverterBoolean.lower(`vertical`),FfiConverterBoolean.lower(`bgLight`),FfiConverterOptionalByteArray.lower(`band`),FfiConverterOptionalSequenceSequenceTypeGapCell.lower(`steps`),FfiConverterTypePlaceOptions.lower(`options`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The band probe for the minimum-evidence path: the border sample's polarity
+         * plus the band the crate's `dominant_cross_band` picks for these cross-axis
+         * ink counts, as `[lo, hi)` cross-axis indices.
+         *
+         * `cross_dark` / `cross_light` are the per-cross-position ink counts over the
+         * **whole** cross axis (pixels below `ink_below` / above `ink_above`); the
+         * polarity picks one. Both count series cross because the polarity is the
+         * crate's to decide. `lo`/`hi` are the rows (horizontal) or columns (vertical)
+         * the caller should measure the reading-axis profile in.
+         */ fun `charPlacementProfileBand`(`borderRgb`: kotlin.ByteArray, `crossDark`: kotlin.ByteArray, `crossLight`: kotlin.ByteArray): ProfileBand {
+            return FfiConverterTypeProfileBand.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_profile_band(
+        FfiConverterByteArray.lower(`borderRgb`),FfiConverterByteArray.lower(`crossDark`),FfiConverterByteArray.lower(`crossLight`),_status)
 }
     )
     }
@@ -9797,6 +10196,34 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     
 
         /**
+         * The mobile `OcrEngine.computeCharBoxes` legacy chain with the snap stage's
+         * ink evidence measured by the facade instead of shipped as pixels.
+         *
+         * The evidence is three byte arrays, all bulk-copied by the FFI layer (no
+         * per-element boxing, unlike the `List<Int>` pixel list it replaces):
+         *
+         * * `border_rgb` — the stride-`border_stride` border sample, top/bottom row
+         * pairs then left/right column pairs, as raw RGB8 triples. Rust takes the
+         * median and decides the polarity, so the rule stays in the crate.
+         * * `ink_dark` — ink count per reading-axis position inside the central band,
+         * counting pixels darker than `ink_below`.
+         * * `ink_light` — the same count for pixels lighter than `ink_above`.
+         *
+         * The facade sends both count series because the polarity is Rust's to decide;
+         * it selects here. Missing evidence, a count at the `max_count` ceiling (a
+         * cross axis too thick to reduce) and a wrong-shaped series all skip the snap
+         * stage, exactly as the old missing/short pixel array did.
+         */ fun `ocrEngineComputeCharBoxesEvidence`(`text`: kotlin.String, `charCols`: List<kotlin.Float>, `seqLenTotal`: kotlin.Long, `cropX`: kotlin.Int, `cropY`: kotlin.Int, `cropW`: kotlin.Int, `cropH`: kotlin.Int, `isVertical`: kotlin.Boolean, `borderRgb`: kotlin.ByteArray?, `inkDark`: kotlin.ByteArray?, `inkLight`: kotlin.ByteArray?, `pixW`: kotlin.Int, `pixH`: kotlin.Int, `snap`: kotlin.Boolean, `uniform`: kotlin.Boolean, `inkHalfWidths`: List<kotlin.Float>): List<BoundingBox> {
+            return FfiConverterSequenceTypeBoundingBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_compute_char_boxes_evidence(
+        FfiConverterString.lower(`text`),FfiConverterSequenceFloat.lower(`charCols`),FfiConverterLong.lower(`seqLenTotal`),FfiConverterInt.lower(`cropX`),FfiConverterInt.lower(`cropY`),FfiConverterInt.lower(`cropW`),FfiConverterInt.lower(`cropH`),FfiConverterBoolean.lower(`isVertical`),FfiConverterOptionalByteArray.lower(`borderRgb`),FfiConverterOptionalByteArray.lower(`inkDark`),FfiConverterOptionalByteArray.lower(`inkLight`),FfiConverterInt.lower(`pixW`),FfiConverterInt.lower(`pixH`),FfiConverterBoolean.lower(`snap`),FfiConverterBoolean.lower(`uniform`),FfiConverterSequenceFloat.lower(`inkHalfWidths`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Mobile vertical closing punctuation (`OcrEngine.computeCharBoxes`): marks
          * that shrink onto the next box's start. Exported so the JVM suite can pin
          * the set; the box path itself applies it internally.
@@ -9834,6 +10261,18 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_re_decode(
         FfiConverterSequenceSequenceTypeGapCell.lower(`raw`),FfiConverterBoolean.lower(`isVertical`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * [`SnapSpec`], Rust-sourced. Read once per process and cached by the facade.
+         */ fun `ocrEngineSnapSpec`(): SnapSpec {
+            return FfiConverterTypeSnapSpec.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_ocr_engine_snap_spec(
+        _status)
 }
     )
     }

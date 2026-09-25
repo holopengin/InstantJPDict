@@ -1937,25 +1937,30 @@ class OcrEngine(
 
         // Legacy chain (#49) now lives in jpdict_core::char_boxes — same
         // columns, snap, ink resolve and uniform sizing, with the ink widths
-        // measured above and the layout prefs passed explicitly.
+        // measured above and the layout prefs passed explicitly. The snap
+        // stage's ink evidence is measured here (a polarity plus one count per
+        // reading-axis position) instead of shipped as the whole ARGB crop: a
+        // `List<Int>` of 31k pixels per line was the most expensive marshalling
+        // on the page, and the evidence is ~1.7 kB of byte arrays. Identical
+        // boxes; a crop that cannot be reduced falls back to the pixel call.
         val inkHalf = if (!isVertical) {
             measureInkHalfWidths(text, n, cropH.toFloat() * 0.90f)
         } else FloatArray(0)
-        return ocrEngineComputeCharBoxes(
+        return ocrEngineCharBoxesWithEvidence(
             text = text,
-            charCols = charCols.toList(),
-            seqLenTotal = seqLenTotal.toLong(),
+            charCols = charCols,
+            seqLenTotal = seqLenTotal,
             cropX = cropX,
             cropY = cropY,
             cropW = cropW,
             cropH = cropH,
             isVertical = isVertical,
-            pixels = pixels?.toList(),
+            pixels = pixels,
             pixW = pixW,
             pixH = pixH,
             snap = BOX_LAYOUT_MODE == BOX_SNAP,
             uniform = BOX_UNIFORM_SIZE,
-            inkHalfWidths = inkHalf.toList(),
+            inkHalfWidths = inkHalf,
         ).map { JpDictRect(it.x, it.y, it.x + it.w, it.y + it.h) }
     }
 
