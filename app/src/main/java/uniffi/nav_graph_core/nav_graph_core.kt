@@ -1038,6 +1038,8 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1259,6 +1261,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_gap_kana_defaults(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_gap_punct_defaults(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_gutter_trim_find_ruby_gutter_cut(`bboxInCrop`: RustBuffer.ByValue,`pixels`: RustBuffer.ByValue,`cropWidth`: Int,`cropHeight`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_japanese_align_furigana(`term`: RustBuffer.ByValue,`reading`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1569,6 +1573,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_gap_kana_defaults(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_gap_punct_defaults(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_gutter_trim_find_ruby_gutter_cut(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_japanese_align_furigana(
     ): Short
@@ -1910,6 +1916,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_gap_punct_defaults() != 19173.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_gutter_trim_find_ruby_gutter_cut() != 47911.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_japanese_align_furigana() != 10450.toShort()) {
@@ -9348,6 +9357,23 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gap_punct_defaults(
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * Evaluate the shared gutter cut/fallback rule for one candidate crop.
+         *
+         * `bbox_in_crop` uses crop-local coordinates and `pixels` is exactly the
+         * corresponding `crop_width * crop_height` row-major ARGB crop.  The
+         * returned x coordinate is also crop-local; the Android facade translates
+         * it back to image coordinates after adding its crop origin.
+         */ fun `gutterTrimFindRubyGutterCut`(`bboxInCrop`: BoundingBox, `pixels`: List<kotlin.Int>?, `cropWidth`: kotlin.Int, `cropHeight`: kotlin.Int): kotlin.Int? {
+            return FfiConverterOptionalInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_gutter_trim_find_ruby_gutter_cut(
+        FfiConverterTypeBoundingBox.lower(`bboxInCrop`),FfiConverterOptionalSequenceInt.lower(`pixels`),FfiConverterInt.lower(`cropWidth`),FfiConverterInt.lower(`cropHeight`),_status)
 }
     )
     }

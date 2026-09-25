@@ -29,8 +29,10 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import uniffi.nav_graph_core.BoundingBox
+import uniffi.nav_graph_core.CtcDecode as RustCtcDecode
+import uniffi.nav_graph_core.CtcDecodeResult
 import uniffi.nav_graph_core.GapCell
-import uniffi.nav_graph_core.charBoxesPeakOffset
+import uniffi.nav_graph_core.gutterTrimFindRubyGutterCut
 import uniffi.nav_graph_core.japaneseEstimateEm
 import uniffi.nav_graph_core.japaneseIsHalfWidth
 import uniffi.nav_graph_core.mergeBoxesMerge
@@ -63,6 +65,8 @@ class OcrEngine(
     private var detNcnn: DetNcnn? = null
     private var ppocrVocab: List<String> = emptyList()
     private var classRemap: IntArray = IntArray(0) // pruned-out -> orig class id (#39)
+    /** Rust-owned immutable decode tables; one UniFFI call decodes each line. */
+    private var ctcDecoder: RustCtcDecode? = null
     /** Pruned CTC-head width, derived from rec_remap.txt when it loads (#44). */
     private var recNumOutputs = 0
     private var recDynNcnn: RecNcnn? = null
@@ -268,6 +272,78 @@ class OcrEngine(
             return inputFloats
         }
 
+        /** Full rows plus the two whole-row values needed beyond their top-K. */
+        internal data class CtcCandidateRows(
+            val packed: FloatArray,
+            val leftScores: FloatArray,
+            val rightScores: FloatArray,
+        )
+
+        /**
+         * Stage the full-logits fallback into the exact compact representation
+         * understood by `jpdict_core::ctc_decode::ctc_decode_full_packed`.
+         *
+         * The upstream caller has already proved every row has at least
+         * [numClasses] entries. Keeping those rows in Kotlin is deliberate: the
+         * alternative is copying several MiB through UniFFI. Only 15 candidates
+         * and the winning class's two neighbour scores cross to Rust.
+         */
+        internal fun packCtcCandidateRows(
+            cropLogits: Array<FloatArray>?,
+            seqLen: Int,
+            numClasses: Int,
+        ): CtcCandidateRows {
+            check(seqLen >= 0) { "negative CTC sequence length: $seqLen" }
+            check(numClasses >= TOP_K) { "CTC head has only $numClasses classes" }
+            val rows = checkNotNull(cropLogits) { "full CTC logits are missing" }
+            val packed = FloatArray(seqLen * TOP_K * 2)
+            val winners = IntArray(seqLen) { -1 }
+
+            for (t in 0 until seqLen) {
+                val slice = checkNotNull(rows.getOrNull(t)) { "missing CTC row $t" }
+                check(slice.size >= numClasses) { "short CTC row $t: ${slice.size} < $numClasses" }
+
+                // Strict `>` preserves the legacy lowest-id-wins argmax tie.
+                var maxIdx = 0
+                var maxVal = Float.NEGATIVE_INFINITY
+                for (c in slice.indices) {
+                    if (slice[c] > maxVal) {
+                        maxVal = slice[c]
+                        maxIdx = c
+                    }
+                }
+                winners[t] = maxIdx
+
+                // Java PriorityQueue + stable descending sort is part of the
+                // observable tie order, so retain it while staging candidates.
+                val pq = java.util.PriorityQueue<Int>(TOP_K + 1, compareBy { slice[it] })
+                for (c in slice.indices) {
+                    pq.add(c)
+                    if (pq.size > TOP_K) pq.poll()
+                }
+                val order = pq.toList().sortedByDescending { slice[it] }
+                check(order.size >= TOP_K) { "CTC row $t has only ${order.size} classes" }
+                for (k in 0 until TOP_K) {
+                    val c = order[k]
+                    packed[(t * TOP_K + k) * 2] = c.toFloat()
+                    packed[(t * TOP_K + k) * 2 + 1] = slice[c]
+                }
+            }
+
+            fun scoreAt(row: Int, prunedClass: Int): Float? =
+                rows.getOrNull(row)?.getOrNull(prunedClass)
+
+            val leftScores = FloatArray(seqLen) { Float.NaN }
+            val rightScores = FloatArray(seqLen) { Float.NaN }
+            for (t in 0 until seqLen) {
+                val winner = winners[t]
+                if (winner < 0) continue
+                leftScores[t] = scoreAt(t - 1, winner) ?: Float.NaN
+                rightScores[t] = scoreAt(t + 1, winner) ?: Float.NaN
+            }
+            return CtcCandidateRows(packed, leftScores, rightScores)
+        }
+
         // Pooled det buffers — same ThreadLocal pattern as RecNcnn.tlBuffer. detect()
         // repaints the letterbox fully (opaque gray drawColor) and overwrites both
         // arrays end-to-end every call, so reuse is stale-safe. Sized by modelSize (#20, #51).
@@ -335,6 +411,11 @@ class OcrEngine(
                 .mapNotNull { it.trim().takeIf(String::isNotEmpty)?.toIntOrNull() }
                 .toList().toIntArray()
             recNumOutputs = classRemap.size
+            try {
+                ctcDecoder = RustCtcDecode(ppocrVocab, classRemap.toList())
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Rust CTC decoder unavailable", e)
+            }
             Log.d(TAG, "Class remap loaded: ${classRemap.size} entries (head width $recNumOutputs)")
             // Also into the in-app log: a native/model width disagreement (the #44 re-prune
             // left a hardcoded 13193 in ncnn_jni.cpp for a while) showed up as plausible-
@@ -348,7 +429,8 @@ class OcrEngine(
     }
 
     fun isReady(): Boolean =
-        detNcnn != null && recDynNcnn != null && ppocrVocab.isNotEmpty() && recNumOutputs > 0
+        detNcnn != null && recDynNcnn != null && ctcDecoder != null &&
+            ppocrVocab.isNotEmpty() && recNumOutputs > 0
 
     // ═════════════════════════════════════════════════════════════════════════
     //  Detect — DB segmentation → contours → boxes (#28 furigana, unclip)
@@ -916,48 +998,16 @@ class OcrEngine(
         } catch (_: Exception) {
             return null
         }
-        val lum = FloatArray(bw * bh) { i ->
-            (((px[i] shr 16) and 0xFF) + (((px[i] shr 8) and 0xFF)) + (px[i] and 0xFF)) / 3f
-        }
-        // Background polarity from border samples (shared with snapping).
-        val border = mutableListOf<Float>()
-        var bi = 0
-        while (bi < bw) {
-            border.add(lum[bi]); border.add(lum[(bh - 1) * bw + bi]); bi += 7
-        }
-        bi = 0
-        while (bi < bh) {
-            border.add(lum[bi * bw]); border.add(lum[bi * bw + bw - 1]); bi += 7
-        }
-        border.sort()
-        if (border.isEmpty()) return null
-        val bgLight = border[border.size / 2] > 128f
-        fun isInk(v: Float) = if (bgLight) v < 110f else v > 145f
-        // Per-column ink fraction over the full box height.
-        val frac = FloatArray(bw) { x ->
-            var m = 0
-            for (y in 0 until bh) if (isInk(lum[y * bw + x])) m++
-            m.toFloat() / bh.toFloat()
-        }
-        val lo = (bw * 0.40f).toInt().coerceIn(0, bw - 1)
-        val hi = (bw * 0.80f).toInt().coerceIn(lo + 1, bw)
-        // Leftmost clean gutter with ink following it (not trailing padding).
-        var x = lo
-        while (x + 2 < hi) {
-            if (frac[x] < 0.04f && frac[x + 1] < 0.04f && frac[x + 2] < 0.04f) {
-                var follows = false
-                for (k in x + 3 until minOf(x + 11, bw)) {
-                    if (frac[k] >= 0.04f) { follows = true; break }
-                }
-                if (follows) return x0 + x
-                x += 3
-            } else x++
-        }
-        // Touching-ruby fallback: thin spot → half width ("remove the right half").
-        var minF = Float.MAX_VALUE
-        for (k in lo until hi) minF = minOf(minF, frac[k])
-        if (minF < 0.06f) return x0 + bw / 2
-        return null
+        // Only the candidate crop crosses to the shared rust scan (the whole
+        // bitmap would be ~2.6M boxed ints on a full-res page); the returned
+        // cut is crop-local, so re-add the crop origin here.
+        val localCut = gutterTrimFindRubyGutterCut(
+            BoundingBox(x = 0, y = 0, w = bw, h = bh),
+            px.toList(),
+            bw,
+            bh,
+        ) ?: return null
+        return x0 + localCut
     }
 
     /** #53: the same reading-order rule on [LineBox]es (a rotated Line sorts by
@@ -989,24 +1039,18 @@ class OcrEngine(
         val rawAlternatives: List<List<Pair<Char, Float>>> = emptyList(),
     )
 
-    /** Top-15 char alternatives for one CTC timestep, descending by logit. Shared
-     * by the batch path, both stitch chunk paths, and [ctcDecode] (was 4 copies). */
-    private fun top15Alternatives(slice: FloatArray): List<Pair<Char, Float>> {
-        val pq = java.util.PriorityQueue<Int>(TOP_K + 1, compareBy { slice[it] })
-        for (k in slice.indices) { pq.add(k); if (pq.size > TOP_K) pq.poll() }
-        return pq.toList().sortedByDescending { slice[it] }.map { decodeChar(remapClass(it)) to slice[it] }
-    }
+    private fun List<List<GapCell>>.toKotlinAlternatives():
+        List<List<Pair<Char, Float>>> =
+        map { row -> row.map { Char(it.ch) to it.score } }
 
-    /** Sub-column peak offset (#49): parabolic interpolation of the winning
-     * class value across neighboring timesteps. CTC columns quantize truth
-     * peaks to integers (up to 0.5 col ≈ 0.2em error); the fractional peak
-     * recovers most of it. Returns 0 when the peak is flat, at a boundary,
-     * or neighbor values are unavailable. */
-    private fun peakOffset(v0: Float, v1: Float, v2: Float): Float =
-        charBoxesPeakOffset(v0, v1, v2)
-
-    /** Pruned-out id -> orig class id (#39); identity fallback if remap failed to load. */
-    private fun remapClass(prunedIdx: Int): Int = classRemap.getOrElse(prunedIdx) { prunedIdx }
+    private fun CtcDecodeResult.toPpoResult(): PPOcrResult =
+        PPOcrResult(
+            text = text,
+            alternatives = alternatives.toKotlinAlternatives(),
+            charCols = charCols.toFloatArray(),
+            seqLenTotal = seqLenTotal.toInt(),
+            rawAlternatives = rawAlternatives.toKotlinAlternatives(),
+        )
 
     /** Resize [src] to `targetW×targetH`, run dynamic-width rec, CTC-decode.
      *
@@ -1045,17 +1089,10 @@ class OcrEngine(
         }
         if (packedSized && idsInRange) {
             // Native emits descending top-15 with lowest-id-wins ties; entry 0
-            // is the argmax, so decode text is identical to the full-logits path.
-            val topPruned = Array(actualSeqLen) { t ->
-                IntArray(TOP_K) { k -> packed[(t * TOP_K + k) * 2].toInt() }
-            }
-            val rawAlts = (0 until actualSeqLen).map { t ->
-                (0 until TOP_K).map { k ->
-                    decodeChar(remapClass(topPruned[t][k])) to packed[(t * TOP_K + k) * 2 + 1]
-                }
-            }
-            val decoded = ctcDecodeTopK(topPruned, rawAlts, actualSeqLen)
-            return decoded.copy(rawAlternatives = rawAlts)
+            // is the argmax. Trim padded model steps, then cross the packed line
+            // once: no per-class FFI and no Kotlin raw-alternatives materialisation.
+            val actualPacked = packed.copyOf(actualSeqLen * TOP_K * 2)
+            return ctcDecodeTopK(actualPacked, actualSeqLen)
         }
         if (packed != null) Log.w(TAG, "recNcnn w$modelW topK bad size ${packed.size} — full-logits fallback")
         if (packed != null) InferLog.add("rec w=$modelW topK BAD size=${packed.size} expect=${seqLen * TOP_K * 2}")
@@ -1075,9 +1112,7 @@ class OcrEngine(
         val cropLogits = Array(actualSeqLen) { t ->
             FloatArray(numOut) { c -> flatOutput[t * numOut + c] }
         }
-        val rawAlts = (0 until actualSeqLen).map { t -> top15Alternatives(cropLogits[t]) }
-        val decoded = ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen)
-        return decoded.copy(rawAlternatives = rawAlts)
+        return ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen)
     }
 
     /**
@@ -1793,12 +1828,9 @@ class OcrEngine(
     }
 
     /**
-     * Greedy CTC decode: argmax per timestep, skip blank 0, collapse repeats,
-     * class 18709 → space. The A5/#86 audit deleted the `blankThreshold`
-     * surfacing path (see `docs/blank-recovery-findings.md`): every live caller
-     * passed 0, so this is pure greedy — the only decode the device ran. Emits
-     * per-char top-15 [alternatives] plus timestep columns; full per-timestep
-     * top-15 lives in [PPOcrResult.rawAlternatives] for cache re-decode.
+     * Decode full-logits fallback rows after compact Kotlin staging. The full
+     * matrix stays on the JVM; Rust receives the top-15 table plus the two
+     * neighbour values needed to reproduce whole-row peak interpolation.
      */
     private fun ctcDecode(
         cropLogits: Array<FloatArray>?,
@@ -1806,131 +1838,28 @@ class OcrEngine(
         numClasses: Int,
         seqLenTotal: Int,
     ): PPOcrResult {
-        val text = StringBuilder()
-        val alts = mutableListOf<MutableList<Pair<Char, Float>>>()
-        val charCols = mutableListOf<Float>()
-        var prevClass = 0
-
-        // Fractional peaks (#49): winner values at neighboring timesteps for
-        // sub-column interpolation (charCols carry fractions downstream).
-        fun wval(tt: Int, cls: Int): Float? {
-            if (tt < 0 || tt >= seqLen) return null
-            val s = cropLogits?.getOrNull(tt) as? FloatArray ?: return null
-            return s.getOrNull(cls)
-        }
-        for (t in 0 until seqLen) {
-            val slice = cropLogits?.getOrNull(t) as? FloatArray
-            if (slice == null || slice.size < numClasses) continue
-
-            // Argmax
-            var maxIdx = 0
-            var maxVal = Float.NEGATIVE_INFINITY
-            for (k in slice.indices) {
-                if (slice[k] > maxVal) { maxVal = slice[k]; maxIdx = k }
-            }
-            val w0 = wval(t - 1, maxIdx)
-            val w2 = wval(t + 1, maxIdx)
-            val tFrac = if (w0 != null && w2 != null) t + peakOffset(w0, maxVal, w2) else t.toFloat()
-
-            val classIdx = remapClass(maxIdx)
-
-            // Top-15 alternatives (shared helper).
-            val indexed = top15Alternatives(slice).toMutableList()
-
-            // CTC: skip blank (0). Collapse repeats.
-            when {
-                classIdx == 0 -> {
-                    prevClass = 0
-                }
-                classIdx == 18709 -> {
-                    text.append(' ')
-                    prevClass = 18709
-                    charCols.add(tFrac)
-                    alts.add(indexed)
-                }
-                classIdx == prevClass -> { /* collapse repeat */ }
-                else -> {
-                    val ch = decodeChar(classIdx)
-                    if (ch != '\uFFFD') {
-                        text.append(ch)
-                        charCols.add(tFrac)
-                        alts.add(indexed)
-                        prevClass = classIdx
-                    }
-                }
-            }
-        }
-
-        return PPOcrResult(text.toString(), alts, charCols.toFloatArray(), seqLenTotal)
+        val rows = packCtcCandidateRows(cropLogits, seqLen, numClasses)
+        return checkNotNull(ctcDecoder).decodeFull(
+            rows.packed.asList(),
+            rows.leftScores.asList(),
+            rows.rightScores.asList(),
+            seqLen.toLong(),
+            seqLenTotal.toLong(),
+        ).toPpoResult()
     }
 
-    /** Greedy CTC decode from native top-15 lists (#42): same collapse/blank/
-     * space rules as [ctcDecode], but the argmax comes from entry 0 (native
-     * emits descending, lowest-id-wins ties) and blank/space tests use the
-     * remapped pruned indices — decoded chars alone can't flag blanks. */
+    /** Decode one already-pruned native line across UniFFI exactly once. */
     private fun ctcDecodeTopK(
-        topPruned: Array<IntArray>,
-        topChars: List<List<Pair<Char, Float>>>,
+        packed: FloatArray,
         seqLen: Int,
     ): PPOcrResult {
-        val text = StringBuilder()
-        val alts = mutableListOf<MutableList<Pair<Char, Float>>>()
-        val charCols = mutableListOf<Float>()
-        var prevClass = 0
-
-        // Fractional peaks (#49): winner (entry 0) score at neighboring
-        // timesteps, matched by pruned class id (absent from top-15 → 0 offset).
-        fun wval(tt: Int, cls: Int): Float? {
-            val p = topPruned.getOrNull(tt) ?: return null
-            val c = topChars.getOrNull(tt) ?: return null
-            val k = p.indexOf(cls)
-            return if (k < 0) null else c.getOrNull(k)?.second
+        check(seqLen >= 0) { "negative CTC sequence length: $seqLen" }
+        check(packed.size == seqLen * TOP_K * 2) {
+            "packed CTC row has ${packed.size} floats; expected ${seqLen * TOP_K * 2}"
         }
-        for (t in 0 until seqLen) {
-            val pruned = topPruned.getOrNull(t) ?: continue
-            val indexed = topChars.getOrNull(t)?.toMutableList() ?: continue
-            if (pruned.isEmpty() || indexed.isEmpty()) continue
-            val maxVal = indexed[0].second
-            val classIdx = remapClass(pruned[0])
-            val w0 = wval(t - 1, pruned[0])
-            val w2 = wval(t + 1, pruned[0])
-            val tFrac = if (w0 != null && w2 != null) t + peakOffset(w0, maxVal, w2) else t.toFloat()
-
-            when {
-                classIdx == 0 -> {
-                    prevClass = 0
-                }
-                classIdx == 18709 -> {
-                    text.append(' ')
-                    prevClass = 18709
-                    charCols.add(tFrac)
-                    alts.add(indexed)
-                }
-                classIdx == prevClass -> { /* collapse repeat */ }
-                else -> {
-                    val ch = decodeChar(classIdx)
-                    if (ch != '\uFFFD') {
-                        text.append(ch)
-                        charCols.add(tFrac)
-                        alts.add(indexed)
-                        prevClass = classIdx
-                    }
-                }
-            }
-        }
-
-        return PPOcrResult(text.toString(), alts, charCols.toFloatArray(), seqLen)
-    }
-
-    private fun decodeChar(classIdx: Int): Char {        return when {
-            classIdx == 18709 -> ' '
-            classIdx == 18708 -> '\u3000' // full-width space for last vocab slot
-            classIdx in 1..18708 -> {
-                val s = ppocrVocab.getOrNull(classIdx - 1) ?: return '\uFFFD'
-                s.firstOrNull() ?: '\uFFFD'
-            }
-            else -> '\u3000'
-        }
+        return checkNotNull(ctcDecoder)
+            .decodeTopK(packed.asList(), seqLen.toLong())
+            .toPpoResult()
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -2168,6 +2097,7 @@ class OcrEngine(
     }
 
     fun close() {
+        try { ctcDecoder?.close() } catch (_: Exception) {}
         try { detNcnn?.close() } catch (_: Exception) {}
         try { recDynNcnn?.close() } catch (_: Exception) {}
     }
