@@ -207,7 +207,7 @@ class OcrEngine(
         // disable the engine silently via isReady().
         private const val REC_STRIDE = 8
         /** Streaming batch size (#58 retune knob; was const 4). Batches of line
-         * crops created/recycled per batch; per-batch concurrency = fanout. */
+         * lines prepared per batch; per-batch concurrency = fanout. */
         var REC_BATCH_SIZE = 4
         /** Rec ncnn thread count (#58 retune knob; was hardcoded 1, #20). */
         var REC_THREADS = 1
@@ -350,6 +350,17 @@ class OcrEngine(
         private val tlDetImgData = ThreadLocal<FloatArray>()
         private val tlDetPixels = ThreadLocal<IntArray>()
         private val tlDetLetterbox = ThreadLocal<android.graphics.Bitmap>()
+        /** Pooled rec-net input destination for the one-draw path
+         * ([drawRecInput]): a bitmap + its Canvas per thread, kept at the widest
+         * `contentW` seen. Sized by capacity, not exactly, because `contentW`
+         * ranges 34…1518 across a page and the read-back is the sub-rect — the
+         * same reasoning as [tlDetCrop]. */
+        private val tlRecInput = ThreadLocal<Pair<android.graphics.Bitmap, android.graphics.Canvas>>()
+        /** The one draw's Paint: filter on, dither off. `dither` matters — a
+         *  dithered draw differs from `createScaledBitmap`'s un-dithered one by
+         *  up to 15 levels on a text line. Never mutated, so one instance is
+         *  shared across the fan-out threads. */
+        private val recInputPaint = Paint(Paint.FILTER_BITMAP_FLAG)
         /** The resized crop's pixels, for [DetNcnn.inferLetterboxed]. Exact-size
          *  match like [tlDetImgData]: the native call indexes it as
          *  resizeW×resizeH, so a 960-sized reuse under an 896 run must not
@@ -371,6 +382,57 @@ class OcrEngine(
          *  field to compare both paths inside one build — hence `@Volatile`
          *  and a plain var, not a pref. */
         @Volatile @JvmStatic var useNativeLetterbox = true
+
+        /** One-draw rec preparation ([drawRecInput]) vs the historical
+         *  crop → `createScaledBitmap` chain, for a **horizontal** line.
+         *
+         *  **OFF by default, and it should stay off.** The one draw is the same
+         *  Skia scale without the copy in front of it, but it is not the same
+         *  pixels: with a src rect Skia resolves the sampling in fixed point and
+         *  the rect's origin shifts it, which is 2…1600 differing pixels per
+         *  line (±5…75 levels). The INT8 rec net turns that into output changes
+         *  on all three bench fixtures — text differs on 2 of 17 `bookpage.png`
+         *  lines, 4 of 37 `Screenshot_20260530-172718.png` and 8 of 70
+         *  `f5d7d08735383899.jpg` (`二`→`J`, `記者たの案`→`記者たちの案`,
+         *  `QCoogle`→`Q Coogle`), alternative counts on 1/1/5 of them and CTC
+         *  columns on 3/30/28 — in exchange for −8 ms/page on `bookpage.png` and
+         *  **+3 and +5 ms/page, i.e. slower**, on the other two. A changed
+         *  character per page is not worth a millisecond; see
+         *  `RecPrepParityTest.fusedRecInputMatchesTheChainOnEveryFixture` for the
+         *  table and `RecDrawParityTest` for the pixel-level split.
+         *
+         *  A parity toggle, not a preference: `@Volatile` and a plain var, not a
+         *  pref, so the test can flip it inside one build exactly as it does for
+         *  [useNativeLetterbox]. The shipped path is the chain; a portrait crop
+         *  and the long-line stitch chunks take the chain whatever this says. */
+        @Volatile @JvmStatic var useFusedRecInput = false
+
+        /**
+         * Recognition-preparation nanoseconds, the region between "we have a
+         * line box" and "the net has its input": the crop, the rotate, the
+         * resize (or the single [drawRecInput] draw) in [recPrepBitmapNanos]; the
+         * `getPixels` + [buildRecInput] tensor build in [recPrepTensorNanos]; and
+         * the char-box evidence read in [recPrepEvidenceNanos]. Deliberately
+         * *not* including inference or the CTC decode — the net is ~90% of the
+         * page and would hide the frontend entirely.
+         *
+         * Cumulative across the process and **summed per worker thread**, so with
+         * `fanout = 4` four lines' work accumulates into the same counter: read
+         * it as an upper bound and only ever compare it against itself, never as
+         * a page wall. The serial per-page numbers come from
+         * `RecDrawParityTest`, which times the same code shapes one line at a
+         * time. Two `System.nanoTime()` calls per line, same order as the
+         * per-line `InferLog` timing [RecNcnn.inferTopK] already does.
+         */
+        @Volatile @JvmStatic var recPrepBitmapNanos = 0L
+
+        @Volatile @JvmStatic var recPrepTensorNanos = 0L
+
+        /** The char-box evidence read ([RecSource.evidencePixels]), in its own
+         *  counter so the before/after table can show it: reading the rect out
+         *  of the page instead of out of a crop is ~3x cheaper and
+         *  pixel-identical, and it is the whole of the bit-exact saving. */
+        @Volatile @JvmStatic var recPrepEvidenceNanos = 0L
 
         /** Where Skia actually put the `(modelSize - content) / 2f` translate
          *  that `drawBitmap` is given: it rounds that half pixel AWAY FROM ZERO,
@@ -1124,23 +1186,27 @@ class OcrEngine(
             rawAlternatives = rawAlternatives.toKotlinAlternatives(),
         )
 
-    /** Resize [src] to `targetW×targetH`, run dynamic-width rec, CTC-decode.
+    /** Run dynamic-width rec + CTC-decode on a `targetW×targetH` bitmap that is
+     * already the net's input — the seam between *preparing* the input and
+     * *running* the net, so a caller can fill that bitmap however it likes
+     * ([drawRecInput]'s one draw, the historical `createScaledBitmap`, or a
+     * stitch chunk) and share the tensor build, the top-K check and the decode.
      *
-     * Shared single-crop inference for the batch path and both stitch chunk
-     * paths (was 3 copies). Model width snaps up to mult-of-8 with zero padding;
-     * `actualSeqLen = ceil(targetW/8)` trims the padding timesteps. Returns null
-     * when inference fails (callers fall back: batch emits empty, stitch falls
-     * through to crush). Does NOT recycle [src] — callers own their bitmaps.
-     * Cooperative cancellation via `coroutineContext.ensureActive()`. */
-    private suspend fun inferResizedRec(src: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null): PPOcrResult? {
+     * Reads only `[0,targetW) × [0,targetH)` of [bitmap], so a pooled buffer
+     * wider than this line's net input is safe. Model width snaps up to
+     * mult-of-8 with zero padding; `actualSeqLen = ceil(targetW/8)` trims the
+     * padding timesteps. Returns null when inference fails (callers fall back:
+     * batch emits empty, stitch falls through to crush). Does NOT recycle
+     * [bitmap] — callers own their bitmaps. */
+    private suspend fun inferRecBitmap(bitmap: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null): PPOcrResult? {
         coroutineContext.ensureActive()
         val recNcnn = engine ?: recDynNcnn ?: return null
         val modelW = ((targetW + 7) / 8) * 8
-        val resized = Bitmap.createScaledBitmap(src, targetW, targetH, true)
+        val tPrep = System.nanoTime()
         val pixels = IntArray(targetW * targetH)
-        resized.getPixels(pixels, 0, targetW, 0, 0, targetW, targetH)
-        resized.recycle()
+        bitmap.getPixels(pixels, 0, targetW, 0, 0, targetW, targetH)
         val inputFloats = buildRecInput(pixels, targetW, targetH, modelW)
+        recPrepTensorNanos += System.nanoTime() - tPrep
         val seqLen = modelW / REC_STRIDE
         val actualSeqLen = maxOf(1, ceil(targetW / REC_STRIDE.toFloat()).toInt())
         // Preferred path (#42): native top-15 per timestep — downloads
@@ -1187,6 +1253,169 @@ class OcrEngine(
         return ctcDecode(cropLogits, actualSeqLen, numOut, actualSeqLen)
     }
 
+    /** The historical per-line transform: `createScaledBitmap` to the net's
+     *  input size, then [inferRecBitmap]. Kept as the reference implementation
+     *  and as the path a portrait crop and the stitch chunks still take; the
+     *  horizontal single-pass path uses [drawRecInput] instead. */
+    private suspend fun inferResizedRec(src: Bitmap, targetW: Int, targetH: Int, engine: RecNcnn? = null): PPOcrResult? {
+        coroutineContext.ensureActive()
+        val t0 = System.nanoTime()
+        val resized = Bitmap.createScaledBitmap(src, targetW, targetH, true)
+        recPrepBitmapNanos += System.nanoTime() - t0
+        return try {
+            inferRecBitmap(resized, targetW, targetH, engine)
+        } finally {
+            resized.recycle()
+        }
+    }
+
+    /**
+     * One line's recognition source: the page, plus the clamped rect
+     * [processOneBatch] would have cut as its crop (or, for a #53 rotated
+     * Line, the unrotate [frame] the crop *was*). A source is a *description*,
+     * not a bitmap: a horizontal line never materialises its crop, it reads the
+     * rect's pixels straight out of the page — into the char-box evidence and,
+     * on the one-draw path, into the net's input.
+     */
+    private class RecSource(
+        val page: Bitmap,
+        val x: Int,
+        val y: Int,
+        val w: Int,
+        val h: Int,
+        /** Non-null for a rotated Line: its upright local frame, which *is* the
+         *  crop (the char-box stage works in that frame). */
+        val frame: Bitmap? = null,
+    ) {
+        /** A portrait crop, i.e. one the net must see turned 90°. */
+        val isPortrait: Boolean get() = h >= w * 3 / 2
+
+        /**
+         * The chain's crop, exactly as `Bitmap.createBitmap(page, rect)` built
+         * it: the reference the transforms below are measured against, and the
+         * input the long-line stitch path chunks. Null if the allocation is
+         * refused, which drops the line — the behaviour the crop-creating code
+         * this replaces had.
+         */
+        fun crop(): Bitmap? = frame ?: try {
+            Bitmap.createBitmap(page, x, y, w, h)
+        } catch (e: Exception) {
+            Log.e(TAG, "rec prep: crop of ${w}x$h@$x,$y failed", e)
+            null
+        }
+
+        /** The reference chain's next step for a portrait crop: the 270° turn,
+         *  a whole-pixel permutation of [crop].
+         *
+         *  Crop and turn are **one** `createBitmap(page, rect, matrix, filter)`
+         *  call — the same primitive the two-step chain makes twice, with the
+         *  crop's rect as the src rect instead of a whole-image src — and that
+         *  is bit-exact: 0 differing pixels on all 47 portrait lines of the
+         *  three bench fixtures (`RecDrawParityTest
+         *  .fusedCropAndRotateIsBitExact`). The reason the *scale* cannot be
+         *  folded the same way is [drawRecInput]: a 90° turn carries no scale,
+         *  so there is no fixed-point inverse for the rect's origin to shift,
+         *  while a scale has one and rounds it.
+         *
+         *  Saves an allocation and a recycle per portrait line, and portrait
+         *  lines are most of a text page (11 of 16 on `bookpage.png`, 34 of 70
+         *  on `f5d7d08735383899.jpg`). Falls back to the two-step chain if the
+         *  fused call is refused, and returns null (drop the line) if that is
+         *  refused too. */
+        fun uprightCrop(): Bitmap? {
+            val t0 = System.nanoTime()
+            if (!isPortrait) {
+                val c = crop()
+                recPrepBitmapNanos += System.nanoTime() - t0
+                return c
+            }
+            val out = try {
+                Bitmap.createBitmap(page, x, y, w, h, android.graphics.Matrix().apply { postRotate(270f) }, true)
+            } catch (e: Exception) {
+                Log.e(TAG, "rec prep: fused rotate-270 failed for ${w}x$h crop, falling back", e)
+                val c = crop() ?: return null.also { recPrepBitmapNanos += System.nanoTime() - t0 }
+                try {
+                    Bitmap.createBitmap(c, 0, 0, c.width, c.height, android.graphics.Matrix().apply { postRotate(270f) }, true)
+                } catch (e2: Exception) {
+                    Log.e(TAG, "rec prep: rotate-270 failed for ${w}x$h crop", e2)
+                    c
+                }
+            }
+            recPrepBitmapNanos += System.nanoTime() - t0
+            return out
+        }
+
+        /** The crop's own pixels, for the char-box evidence stage. Read from
+         *  the page rather than from a crop: the two are the same pixels — a 1:1
+         *  `drawBitmap(page, rect)` is identical to `createBitmap(page, rect)` on
+         *  every line of all three fixtures (`RecDrawParityTest
+         *  .evidenceReadFromPageIsBitExact`: 0 differing pixels on 18 + 37 + 72
+         *  lines) — and reading the rect off the page is ~3x cheaper than
+         *  reading a freshly cut crop (4.6 → 1.4 ms/page on `bookpage.png`). */
+        fun evidencePixels(): IntArray? {
+            val t0 = System.nanoTime()
+            return try {
+                val arr = IntArray(w * h)
+                if (frame != null) frame.getPixels(arr, 0, w, 0, 0, w, h)
+                else page.getPixels(arr, 0, w, x, y, w, h)
+                recPrepEvidenceNanos += System.nanoTime() - t0
+                arr
+            } catch (_: Exception) {
+                recPrepEvidenceNanos += System.nanoTime() - t0
+                null
+            }
+        }
+    }
+
+    /**
+     * The collapsed per-line transform: the source rect drawn **once**, by a
+     * single `Canvas.drawBitmap`, straight into the `sq × 48` bitmap the net
+     * consumes — no crop, no rotate, no resize bitmap, nothing to recycle. It
+     * buys 8.1 ms/page on `bookpage.png` (18 lines) and *costs* 3.2 and 5.3
+     * ms/page on the two line-dense screenshots, and it is not bit-exact, so it
+     * does not ship: see [useFusedRecInput] for the measured gate.
+     *
+     * Only meaningful for a **horizontal** source. A portrait crop still needs
+     * its 90° turn as a real bitmap ([uprightCrop]): folding the rotation into
+     * this draw moves the sampling grid as well as the scale, which shows up as
+     * thousands of pixels differing by up to ±75 levels.
+     *
+     * The destination is pooled per thread and only `[0,sq) × [0,48)` is ever
+     * read back, so a buffer wider than this line's net input is fine. It is
+     * repainted from a defined background first: an uncovered destination pixel
+     * then reads as black — exactly what the freshly allocated bitmap
+     * `createScaledBitmap` used to hand over — instead of silently carrying the
+     * previous line's ink into the net.
+     */
+    private fun drawRecInput(src: RecSource, contentW: Int, targetH: Int): Bitmap {
+        val t0 = System.nanoTime()
+        val (bmp, canvas) = recInputBuffer(contentW, targetH)
+        canvas.drawColor(Color.BLACK)
+        canvas.drawBitmap(
+            src.page,
+            android.graphics.Rect(src.x, src.y, src.x + src.w, src.y + src.h),
+            android.graphics.RectF(0f, 0f, contentW.toFloat(), targetH.toFloat()),
+            recInputPaint,
+        )
+        recPrepBitmapNanos += System.nanoTime() - t0
+        return bmp
+    }
+
+    /** Per-thread pooled `≥contentW × targetH` destination + its Canvas. */
+    private fun recInputBuffer(contentW: Int, targetH: Int): Pair<Bitmap, android.graphics.Canvas> {
+        val cur = tlRecInput.get()
+        if (cur != null && !cur.first.isRecycled && cur.first.width >= contentW && cur.first.height == targetH) {
+            return cur
+        }
+        // `hasAlpha = false`, the allocation `Bitmap.createBitmap(src, …, m,
+        // filter)` makes for an opaque source (its decompiled body passes
+        // `source.hasAlpha()` to the destination factory).
+        val bmp = Bitmap.createBitmap(contentW, targetH, Bitmap.Config.ARGB_8888, false)
+        val pair = bmp to android.graphics.Canvas(bmp)
+        tlRecInput.set(pair)
+        return pair
+    }
+
     /**
      * Run CTC recognition over dynamic-width ncnn rec.
      *
@@ -1196,8 +1425,9 @@ class OcrEngine(
      * applied pre-inference (#24). Cooperative cancellation: checks
      * coroutineContext.isActive.
      */
-    /** One batch end-to-end: crops, inference on [engine], emit, recycle.
-     * Cooperative cancellation via ensureActive; crops always recycled. */
+    /** One batch end-to-end: sources, inference on [engine], emit, recycle.
+     * Cooperative cancellation via ensureActive; a rotated Line's frame is
+     * always recycled. */
     private suspend fun processOneBatch(
         batchIdx: Int,
         batch: List<Job>,
@@ -1209,37 +1439,33 @@ class OcrEngine(
     ) {
         coroutineContext.ensureActive()
         val tBatch = System.nanoTime()
-        // Create crops per batch (4 bitmaps pinned at a time). Rotated Lines
-        // (#53) come from the unrotate warp; axis-aligned ones from the same
-        // clamped rect crop as before.
-        val cropsWithJobs = batch.mapNotNull { job ->
-            val crop = if (job.box.isRotated) {
-                warpRotatedCrop(bitmap, job.box.quad!!)
+        // Describe each line's rec input; only a rotated Line (#53) allocates,
+        // because its unrotate warp *is* the frame the char boxes work in. An
+        // axis-aligned Line stays a rect until the draw that consumes it.
+        val sourcesWithJobs = batch.mapNotNull { job ->
+            val src = if (job.box.isRotated) {
+                val frame = warpRotatedCrop(bitmap, job.box.quad!!)
+                if (frame == null) null
+                else RecSource(frame, 0, 0, frame.width, frame.height, frame)
             } else {
                 val rect = job.box.rect
                 val cropX = maxOf(rect.left, 0)
                 val cropY = maxOf(rect.top, 0)
                 val cropW = minOf(bitmap.width - cropX, rect.width()).coerceAtLeast(1)
                 val cropH = minOf(bitmap.height - cropY, rect.height()).coerceAtLeast(1)
-                if (cropW < 4 || cropH < 4) null
-                else try {
-                    Bitmap.createBitmap(bitmap, cropX, cropY, cropW, cropH)
-                } catch (e: Exception) {
-                    Log.e(TAG, "createBitmap failed for $job", e)
-                    null
-                }
+                if (cropW < 4 || cropH < 4) null else RecSource(bitmap, cropX, cropY, cropW, cropH)
             }
-            if (crop == null) return@mapNotNull null
-            if (crop.width < 4 || crop.height < 4) { crop.recycle(); return@mapNotNull null }
-            job to crop
+            if (src == null) return@mapNotNull null
+            if (src.w < 4 || src.h < 4) { src.frame?.recycle(); return@mapNotNull null }
+            job to src
         }
-        if (cropsWithJobs.isEmpty()) return
-        val crops = cropsWithJobs.map { it.second }
-        val batchJobs = cropsWithJobs.map { it.first }
+        if (sourcesWithJobs.isEmpty()) return
+        val sources = sourcesWithJobs.map { it.second }
+        val batchJobs = sourcesWithJobs.map { it.first }
         try {
             // Early exit if cancelled before batch
             if (!coroutineContext.isActive) {
-                crops.forEach { try { it.recycle() } catch (_: Exception) {} }
+                sources.forEach { it.frame?.let { f -> try { f.recycle() } catch (_: Exception) {} } }
                 return
             }
             // Stream per line as each infer completes (completion order, not
@@ -1247,29 +1473,24 @@ class OcrEngine(
             // result. Results stay keyed by job idx. #21
             var doneLines = 0
             val emitLine = emit@{ index: Int, result: PPOcrResult ->
-                // Aligned with `crops`: a crop that could not be created is not
-                // in the list, so the batch's own order cannot address it. (The
-                // unused `batch` lookup this replaces mis-keyed every result
+                // Aligned with `sources`: a Line whose source could not be built
+                // is not in the list, so the batch's own order cannot address it.
+                // (The unused `batch` lookup this replaces mis-keyed every result
                 // after a dropped crop.)
                 val job = batchJobs.getOrNull(index) ?: return@emit
                 if (result.text.isEmpty()) return@emit
 
-                // Crop pixels for idea-4 snapping / CAP ink evidence (crop alive
-                // until batch recycle below; null-safe when sizes mismatch).
-                val crop = crops.getOrNull(index)
+                // Crop pixels for idea-4 snapping / CAP ink evidence (read from
+                // the source rect, so it needs no crop to be alive; null-safe when
+                // sizes mismatch).
+                val src = sources.getOrNull(index)
                 var snapPx: IntArray? = null
                 var snapW = 0
                 var snapH = 0
                 val needCropPixels = BOX_LAYOUT_MODE == BOX_SNAP || capPlacement
-                if (needCropPixels && crop != null && !crop.isRecycled && crop.width >= 8 && crop.height >= 8) {
-                    try {
-                        snapW = crop.width; snapH = crop.height
-                        val arr = IntArray(snapW * snapH)
-                        crop.getPixels(arr, 0, snapW, 0, 0, snapW, snapH)
-                        snapPx = arr
-                    } catch (_: Exception) {
-                        snapPx = null
-                    }
+                if (needCropPixels && src != null && src.w >= 8 && src.h >= 8) {
+                    snapW = src.w; snapH = src.h
+                    snapPx = src.evidencePixels()
                 }
                 // Vertical punctuation (#56, #63): PP-OCR emits ASCII `?` where
                 // JP wants fullwidth `？`, and horizontal `…`/`‥` where
@@ -1352,16 +1573,18 @@ class OcrEngine(
                 InferLog.add("line idx=${job.idx} len=${lineResult.text.length} vert=${lineResult.isVertical}")
                 mainHandler.post { onLinesRecognized(listOf(job.idx to lineResult)) }
             }
-            recognizePpocrBatch(crops, engine, fanout) { index, result -> emitLine(index, result) }
+            recognizePpocrBatch(sources, engine, fanout) { index, result -> emitLine(index, result) }
             val elapsed = (System.nanoTime() - tBatch) / 1_000_000
             Log.d(TAG, "Batch $batchIdx ${batch.size} jobs → $doneLines lines in ${elapsed}ms")
             InferLog.add("batch $batchIdx jobs=${batch.size} lines=$doneLines ${elapsed}ms")
-            // Per-batch recycle.
-            crops.forEach { try { it.recycle() } catch (_: Exception) {} }
+            // Per-batch recycle: only a rotated Line still holds a bitmap.
+            sources.forEach { it.frame?.let { f -> try { f.recycle() } catch (_: Exception) {} } }
         } catch (e: Exception) {
             Log.e(TAG, "Batch $batchIdx failed", e)
-            // Ensure crops recycled even on failure
-            try { crops.forEach { it.recycle() } } catch (_: Exception) {}
+            // Ensure a rotated Line's frame is recycled even on failure
+            try {
+                sources.forEach { it.frame?.let { f -> f.recycle() } }
+            } catch (_: Exception) {}
         }
     }
 
@@ -1404,13 +1627,13 @@ class OcrEngine(
      * sequentially; completion-order streaming holds within a wave).
      */
     private suspend fun recognizePpocrBatch(
-        crops: List<Bitmap>,
+        sources: List<RecSource>,
         engine: RecNcnn? = null,
         fanout: Int = 4,
         onEach: ((index: Int, result: PPOcrResult) -> Unit)? = null,
     ): List<PPOcrResult> {
         coroutineContext.ensureActive()
-        val numCrops = crops.size
+        val numCrops = sources.size
         if (numCrops == 0 || ppocrVocab.isEmpty() || (engine ?: recDynNcnn) == null) return emptyList()
 
         val targetH = REC_TARGET_H
@@ -1422,16 +1645,17 @@ class OcrEngine(
             val deferreds = wave.map { ci ->
                 async(Dispatchers.Default) {
                     coroutineContext.ensureActive()
-                    val crop = crops[ci]
-                    val cw = crop.width; val ch = crop.height
+                    val src = sources[ci]
+                    val cw = src.w; val ch = src.h
                     if (cw < 4 || ch < 4) return@async null as PPOcrResult?
 
-            val rotated: Bitmap = if (ch >= cw * 3 / 2) {
-                val mat = android.graphics.Matrix().apply { postRotate(270f) }
-                Bitmap.createBitmap(crop, 0, 0, cw, ch, mat, true)
-            } else crop
-
-            val rw = rotated.width; val rh = rotated.height
+            // A portrait crop is turned 270° so the net sees horizontal text, so
+            // the net's view of the line is (ch × cw); a horizontal one is
+            // already the right way round. Both are pure arithmetic on the
+            // source's size — no bitmap yet, which is the point: the single-pass
+            // path never allocates a crop.
+            val rw = if (src.isPortrait) ch else cw
+            val rh = if (src.isPortrait) cw else ch
             // ——— Long-line split for extreme aspects (rw*48/rh>2000) — PP-OCR crush fix ———
             // Exact-width inference validated to aspect ~1992 on tategaki ebook lines (#24);
             // cap + gate rounded up to an 8-divisible 2000. Very long lines crush timesteps.
@@ -1440,15 +1664,14 @@ class OcrEngine(
             val isLongHoriz = rw >= rh * 3 / 2 && (rw.toFloat() * targetH / rh.toFloat() > LONG_LINE_GATE)
             val isLongVert = rh >= rw * 3 / 2 && (rh.toFloat() * targetH / rw.toFloat() > LONG_LINE_GATE)
             if (isLongHoriz || isLongVert) {
+                val upright = src.uprightCrop() ?: return@async null
                 val stitched = if (isLongHoriz) {
-                    recognizeAndStitchLongHoriz(rotated, targetH, engine)
+                    recognizeAndStitchLongHoriz(upright, targetH, engine)
                 } else {
-                    recognizeAndStitchLongVert(rotated, targetH, engine)
+                    recognizeAndStitchLongVert(upright, targetH, engine)
                 }
-                if (stitched != null) {
-                    if (rotated !== crop) rotated.recycle()
-                    return@async stitched
-                }
+                if (upright !== src.frame) upright.recycle()
+                if (stitched != null) return@async stitched
                 Log.w(TAG, "long-line stitch failed rw=$rw rh=$rh — falling through to crush")
             }
             // Dynamic width (#23): exact targetW capped at LONG_LINE_GATE (validated #24),
@@ -1464,8 +1687,20 @@ class OcrEngine(
                 if (it / REC_STRIDE < 32) targetW else it
             }
             InferLog.add("crop rw=$rw rh=$rh targetW=$targetW sq=$sqTarget seq=${sqTarget / REC_STRIDE}")
-            val result = inferResizedRec(rotated, sqTarget, targetH, engine)
-            if (rotated !== crop) rotated.recycle()
+            // The collapse: a horizontal line needs no crop and no rotate, so
+            // the source rect goes into the net's own bitmap in one draw. A
+            // portrait line, a long line's chunks and the parity toggle's `off`
+            // keep the historical chain, which is the bit-exact reference.
+            val result = if (useFusedRecInput && !src.isPortrait) {
+                inferRecBitmap(drawRecInput(src, sqTarget, targetH), sqTarget, targetH, engine)
+            } else {
+                val upright = src.uprightCrop() ?: return@async null
+                try {
+                    inferResizedRec(upright, sqTarget, targetH, engine)
+                } finally {
+                    if (upright !== src.frame) upright.recycle()
+                }
+            }
             if (result == null) {
                 Log.e(TAG, "recDynNcnn w$sqTarget infer failed — skip crop")
                 return@async null
@@ -2046,8 +2281,8 @@ class OcrEngine(
      * 270° pre-inference, char boxes compute on the x- vs y-axis post-inference.
      * Jobs sort into reading order (vertical right-to-left, then horizontal
      * top-to-bottom; results stay keyed by job idx so only arrival order
-     * changes), run in batches of [REC_BATCH_SIZE] with crops created per batch
-     * (4 bitmaps pinned at a time) and recycled after each batch. Within a
+     * changes), run in batches of [REC_BATCH_SIZE] with each line's rec input
+     * described up front and drawn inside the batch. Within a
      * batch, [recognizePpocrBatch] awaits via `select` over the deferreds so
      * each line emits as its infer completes; the callback re-posts to the main
      * thread. Cooperative cancellation (#18): overlay close cancels the job and
@@ -2065,7 +2300,8 @@ class OcrEngine(
         val startTime = System.currentTimeMillis()
         if (recDynNcnn == null || ppocrVocab.isEmpty()) return@coroutineScope
 
-        // Build job queue — no Bitmaps yet; crops are created per batch below.
+        // Build job queue — no Bitmaps yet; each line's rec input is described
+        // per batch below and only a rotated Line allocates up front.
 
         val jobs = lineBoxes.mapIndexedNotNull { i, box ->
             if (box.rect.width() < 4 || box.rect.height() < 4) null
