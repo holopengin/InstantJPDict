@@ -35,6 +35,13 @@ pub struct Deinflector {
     inner: jpdict_core::util::deinflector::Deinflector,
 }
 
+impl Deinflector {
+    /// Borrow the delegated engine (crate-internal; used by the lookup shim).
+    pub(crate) fn core_inner(&self) -> &jpdict_core::util::deinflector::Deinflector {
+        &self.inner
+    }
+}
+
 #[uniffi::export]
 impl Deinflector {
     /// An engine with no rules: every [`Deinflector::deinflect`] call returns
