@@ -23,3 +23,5 @@ release-keystore.properties
 # local scratch: raw books used for OCR bench work (copyrighted, never commit)
 tmp/
 tools/char_placement/real_dump/target/
+# delivered APKs parked here for the tailnet file server (never commit)
+*.apk
