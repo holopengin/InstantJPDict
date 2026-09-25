@@ -7,13 +7,17 @@ logcat (`PPOCREngine`, `PpocrNcnn`, `BookDump`) on a warm engine.
 
 ## Headline
 
-| | before | after (this pass) |
-|---|---:|---:|
+| | baseline | first pass | final |
+|---|---:|---:|---:|
+| detect (net / post) | 614 ms (546 / 68) | 349 ms (248 / 52) | **310 ms** |
+| recognition, 18 lines | 638 ms | 543 ms | **532 ms** |
+| lines decoded | 16 / 18 (a batch threw) | 18 / 18 | **18 / 18** |
+| page wall | **1252 ms** | 892 ms | **842 ms** |
 
-| detect (net / post) | 614 ms (546 / 68) | **349 ms (248 / 52)** |
-| recognition, 18 lines | 638 ms | **543 ms** |
-| lines decoded | 16 / 18 (a batch threw) | **18 / 18** |
-| page wall | **1252 ms** | **892 ms** |
+"First pass" = det threads=2 + the CTC char-contract fix. "Final" adds the
+native det letterbox, compact char-placement evidence, overlay globals-once,
+the rec-prep fold, punctuation folded into the decode, and the blank-gap plan:
+**~33% off the wall while recovering the two lines the crash dropped**.
 
 The wall clock is **native inference**, not FFI: two ncnn nets are ~90% of the
 page. The entire UniFFI + Android-frontend cost inside recognition is
@@ -108,19 +112,27 @@ recognition batch** — 4 of 18 lines silently missing. Fixed at the shim
 boundary (`to_kotlin_char`, first UTF-16 unit, matching the old
 `String.firstOrNull()`), with a regression test.
 
-## Remaining ranked fixes (not yet landed)
+## Status of the ranked fixes
 
-| fix | layer | expected |
-|---|---|---:|
-| snap profile instead of crop pixels | FFI | ~25 ms |
-| nav graph built once, not per line | frontend | ~20 ms |
-| one-shot crop/rotate/resize transform | frontend | ~20-30 ms |
-| vertical punctuation inside `decodeTopK` | FFI | ~7 ms |
-| cache `isHalfWidth` per char at line setup | frontend | ~5 ms **per redraw** |
-| patch-based blank-gap result | FFI | ~2-4 ms |
-| flat/compact CTC result, lazy alternatives | FFI | ~2-4 ms |
-| det input-size sweep (square 768/640) | native | unknown, quality-gated |
+| fix | layer | outcome |
+|---|---|---|
+| snap profile instead of crop pixels | FFI | **landed** (`0daeabd`): CAP 59.7 -> 21.5 ms, legacy 45.2 -> 13.3 ms, boxes bit-identical |
+| nav graph built once, not per line | frontend | **landed** (`f68e656`): 17 -> 1 rebuild, ~20 ms |
+| cache `isHalfWidth` per char | frontend | **landed** (`f68e656`): 0 crossings per redraw (was 4.3 ms) |
+| native det letterbox/normalise | native + frontend | **landed** (`08787a3`): 11.5 -> 7.0 ms warm, 19.4 -> 13.5 ms cold, bit-exact |
+| det input-size sweep (square 768/640) | native | **rejected**: 768 merges/loses real lines and substitutes characters; 896 is quality-bound, not size-bound |
+| one-shot crop/rotate/resize transform | frontend | **partly landed**: the portrait crop+rotate fold and the char-box evidence read off the page rect are bit-exact (~3-5 ms/page); the fully fused one-draw is **rejected** — not bit-exact (83 text/column divergences over three fixtures) and slower on line-dense pages |
+| vertical punctuation inside `decodeTopK` | FFI | **landed** (`8b2f135`): ~8 ms/page, one flag on the decode call |
+| patch-based blank-gap result | FFI | **landed** (`8b2f135`): 4.4-6.6 -> 2.3-3.0 ms, and it stops a lone surrogate degrading to U+FFFD |
+| flat/compact CTC result, lazy alternatives | FFI | **landed** (`8b2f135`) but **not a perf win on its own** (~0.3 ms) — it is where the punctuation fold lives. The real remaining win is in `LineResult`: carry `rawTopChars`/`rawTopScores` and make `rawAlternatives` lazy, since the page path only ever reads the per-timestep argmax (~4-5 ms). |
 
-Order by measured saving; the first two are the best value. The nav-graph
-change touches interaction globals (`activeAllChars`), so it needs care: the
-globals must stay correct for taps that land while lines are still streaming.
+Measurement corrections from the later passes:
+
+* the audit's "crop recycle 10.32 ms" was a batch-accounting artifact (the real
+  recycles are 0.6-1.6 ms/page), and `buildRecInput` is the largest single prep
+  stage (3.2/6.4/12.8 ms/page as line count grows), not the resize;
+* the `recTopK extract=/topk=` log is correct as printed —
+  `ncnn::get_current_time()` is ms, the `*1000` makes the timestamp microseconds
+  and the print divides back to ms — so the "1000x understated" note was wrong;
+* the det model must stay square: rectangles lose lines/IoU, and smaller squares
+  (768/640) do too.
