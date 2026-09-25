@@ -180,6 +180,14 @@ android {
     namespace = "com.holopengin.instantjpdict"
     compileSdk = 35
 
+    // On-device instrumentation tests run against the `benchmark` variant:
+    // initWith(release), minify off, isDebuggable = false, release-signing.
+    // A debuggable process badly inflates ART/JIT timing (the device decode
+    // benchmark read 447us in `debug` vs 105us in `benchmark`), so this is the
+    // only build type that produces meaningful device numbers. It also lets the
+    // benchmark install over a release install without an uninstall.
+    testBuildType = "benchmark"
+
     defaultConfig {
         applicationId = "com.holopengin.instantjpdict"
         minSdk = 30

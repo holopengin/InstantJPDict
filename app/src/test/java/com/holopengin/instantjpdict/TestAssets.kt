@@ -4,7 +4,7 @@ import java.io.File
 
 /**
  * Locate committed assets from a JVM unit test. Gradle's default working directory
- * for `:app:testDebugUnitTest` is the module directory, but a runner invoked from the
+ * for `:app:testBenchmarkUnitTest` is the module directory, but a runner invoked from the
  * repo root is plausible enough that both are tried — and a miss fails the test
  * loudly rather than skipping it, because a consistency test that silently vanishes
  * is worse than no test.

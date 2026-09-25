@@ -28,6 +28,6 @@ Byte-identical copies of the PC corpus cases, run from JVM host tests by
 1. Re-copy: `cp <pc-checkout>/accessibility_daemon/tests/conformance/cases/*.json app/src/test/resources/conformance/cases/`
    (plus any new `images/*.png` a case references) and confirm with `cmp`.
 2. Record the new PC commit hash at the top of this note.
-3. Re-run: `./gradlew :app:testDebugUnitTest --tests "*Conformance*"`.
+3. Re-run: `./gradlew :app:testBenchmarkUnitTest --tests "*Conformance*"`.
    A red case is drift until proven a platform substitution — record it in
    the ticket (`pipeline-sharing/01`), never hand-edit a copied expectation.

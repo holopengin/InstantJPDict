@@ -17,19 +17,13 @@ import uniffi.nav_graph_core.charBoxesPeakOffset
  * and JNA on real hardware, which is where the FFI marshalling cost lands.
  *
  * Run:
- *   ./gradlew :app:connectedReleaseAndroidTest \
+ *   ./gradlew :app:connectedBenchmarkAndroidTest \
  *     -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.CtcDecodeDeviceBenchmarkTest
  *
- * Build-type caveat: the project defaults `testBuildType` to `debug`, and an
- * instrumentation test runs in the app's process — a debuggable process
- * inflates the Kotlin lane badly (Pixel 7a: 447 us debug vs 105 us in the
- * non-debuggable `benchmark` variant). The `benchmark` build type is already
- * `initWith(release)`, minify-off, `isDebuggable = false`, i.e. exactly the
- * right target. To measure, set
- *   testBuildType = "benchmark"
- * and run `./gradlew :app:connectedBenchmarkAndroidTest` (or temporarily edit
- * the `android { }` block). The Rust `.so` is the same arm64 release build in
- * every variant, so only the Kotlin lane changes.
+ * The project sets `testBuildType = "benchmark"` (initWith(release), minify
+ * off, isDebuggable = false), so this runs in a non-debuggable process where
+ * ART/JIT timing is production-like. The Rust `.so` is the same arm64 release
+ * build that ships, so the Rust lane is exact and the Kotlin lane is fair.
  */
 @RunWith(AndroidJUnit4::class)
 class CtcDecodeDeviceBenchmarkTest {

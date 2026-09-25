@@ -18,8 +18,10 @@ import kotlin.math.roundToInt
  * Images: benchmark/Screenshot_20260530-172718.png (2400×1080) + benchmark/f5d7d08735383899.jpg (1366×768)
  * Also validates the 4813-line settings-screen macro baseline is reachable.
  *
- * Run:  ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.OcrBenchmarkTest
- * Release (real numbers): ./gradlew :app:connectedReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.OcrBenchmarkTest
+ * Run:  ./gradlew :app:connectedBenchmarkAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.OcrBenchmarkTest
+ * (`testBuildType = "benchmark"`: non-debuggable, minify off, release-signed —
+ * the only variant whose device timings are production-like. The former
+ * `connectedReleaseAndroidTest` never existed.)
  *
  * Output is deterministic (no wall-clock timestamps, only durations) for cron gating.
  * Part of #7 harness + #14 bench + #8 correctness gate (max abs <1e-3 + top-1);

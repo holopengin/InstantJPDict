@@ -103,7 +103,7 @@ python tools/verify_nccn_parity.py --buckets 64,128,256,480 --images benchmark/*
 
 # 5. Android
 ./gradlew :app:assembleDebug :app:assembleBenchmark
-# benchmark: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.OcrBenchmarkTest
+# benchmark: ./gradlew :app:connectedBenchmarkAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.holopengin.instantjpdict.OcrBenchmarkTest
 ```
 
 All pnnx outputs are committed verbatim — zero hand-edits (`#5`).
