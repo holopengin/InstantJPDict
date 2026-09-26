@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/holopengin/Projects/ijp-ncnn-exp/tools/ncnn-exp/build/build-bench/cmake_install.cmake",
-		"/home/holopengin/Projects/ijp-ncnn-exp/tools/ncnn-exp/build/build-bench/src/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
