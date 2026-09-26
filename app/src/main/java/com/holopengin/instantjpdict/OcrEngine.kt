@@ -1169,35 +1169,47 @@ class OcrEngine(
         val alternatives: List<List<Pair<Char, Float>>>,
         val charCols: FloatArray,   // CTC timestep positions
         val seqLenTotal: Int,
-        /** Top-15 alternatives for EVERY timestep (including blanks), for cache re-decode. */
-        val rawAlternatives: List<List<Pair<Char, Float>>> = emptyList(),
-    )
+        /**
+         * Top-15 alternatives for EVERY timestep (including blanks), for cache
+         * re-decode — kept **compact** (flat cells + row boundaries + a top-2
+         * table), so the page path never expands 15 `Pair` + `Float` objects per
+         * timestep. It *is* a `List<List<Pair<Char, Float>>>`, so every reader
+         * that wants the full rows — `reDecodeLineResult`, the stitch paths,
+         * `GapCandidates.generate` — sees exactly what it saw before; see
+         * [TimestepTopK] for the shape and why.
+         */
+        val rawTopK: TimestepTopK = TimestepTopK.EMPTY,
+    ) {
+        /** The nested form of [rawTopK], materialised row by row on access. */
+        val rawAlternatives: List<List<Pair<Char, Float>>> get() = rawTopK
+    }
 
     /**
-     * The compact decode result as a [PPOcrResult]: one row list per timestep,
-     * sliced out of the flat cell list by the row boundaries, and the
+     * The compact decode result as a [PPOcrResult]: the flat cell list and its
+     * row boundaries adopted as a [TimestepTopK] (never re-expanded), and the
      * per-character alternatives *by index* into those same rows.
      *
      * The alternatives are the raw rows at `altRows` — the decoder pushes the
      * row it built into both lists in the same iteration — so they are the same
-     * `Pair`s, shared rather than re-materialised, instead of a second crossing
+     * cells, indexed rather than re-materialised, instead of a second crossing
      * of `topK` cells per character.
      */
     private fun CompactCtcDecodeResult.toPpoResult(): PPOcrResult {
-        val rows = List(rawRows.size - 1) { i ->
-            val from = rawRows[i].toInt()
-            val to = rawRows[i + 1].toInt()
-            ArrayList<Pair<Char, Float>>(to - from).apply {
-                for (k in from until to) add(Char(rawAlternatives[k].ch) to rawAlternatives[k].score)
-            }
-        }
-        val alts = altRows.map { rows[it.toInt()] }
+        val topK = TimestepTopK.of(rawAlternatives, rawRows)
+        // The per-character list is the raw row **by index**, read through `get`,
+        // so the row is cached in `topK` and a later `rawAlternatives` read hands
+        // back the very same `Pair`s — no second crossing of `topK` cells per
+        // character, and only the *emitted* rows are materialised at all: the
+        // other ~90% of timesteps never build a list on the page path. The one
+        // mutable copy the gap filler grows in place is made by the emit path
+        // (`processOneBatch`), exactly as before.
+        val alts = altRows.map { t -> topK[t.toInt()] }
         return PPOcrResult(
             text = text,
-            alternatives = alts.map { it.toMutableList() },
+            alternatives = alts,
             charCols = charCols.toFloatArray(),
             seqLenTotal = seqLenTotal.toInt(),
-            rawAlternatives = rows,
+            rawTopK = topK,
         )
     }
 
@@ -1207,6 +1219,11 @@ class OcrEngine(
      * single-pass fold can (the long-line stitch paths merge alternatives across
      * chunks, and the merge keys on the character — so it has to see the raw
      * forms, exactly as it did when the map ran at emit).
+     *
+     * Only the stitch paths reach here: the single-pass path passes
+     * `isVertical` into the decode, which folds the map while the rows are still
+     * native. So re-slicing the compact table back into nested rows for
+     * [JapaneseUtil.verticalPunctuationAlternatives] costs the page nothing.
      */
     private fun PPOcrResult.withVerticalPunctuation(vertical: Boolean): PPOcrResult =
         if (!vertical) this else PPOcrResult(
@@ -1215,7 +1232,9 @@ class OcrEngine(
                 .map { it.toMutableList() },
             charCols = charCols,
             seqLenTotal = seqLenTotal,
-            rawAlternatives = JapaneseUtil.verticalPunctuationAlternatives(rawAlternatives),
+            rawTopK = TimestepTopK.of(
+                JapaneseUtil.verticalPunctuationAlternatives(rawAlternatives),
+            ),
         )
 
     /** Run dynamic-width rec + CTC-decode on a `targetW×targetH` bitmap that is
@@ -1551,7 +1570,11 @@ class OcrEngine(
                 // time per vertical line, for the same bytes.
                 val recText = result.text
                 val recAlts = result.alternatives.map { it.toMutableList() }
-                val recRaw = result.rawAlternatives
+                // The compact per-timestep table, handed on as-is: CAP's `steps`
+                // read its top-2 (see `TimestepTopK.capStepRows`) and
+                // `LineResult.rawAlternatives` materialises the full rows only
+                // when a rare reader actually asks for them.
+                val recRaw = result.rawTopK
                 val box = job.box
                 val quad = box.quad
                 val cropW: Int
@@ -1875,7 +1898,7 @@ class OcrEngine(
         if (chunks.size == 1) {
             val c = chunks[0]
             Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen} text=${c.text.take(40)}")
-            return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, c.rawAltsPerTimestep)
+            return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, TimestepTopK.of(c.rawAltsPerTimestep))
                 .withVerticalPunctuation(isVertical)
         }
         // ——— Phase 2: stitch via anchor alignment with identical timestep size ———
@@ -1995,7 +2018,7 @@ class OcrEngine(
         var finalText = finalTextRaw
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
         Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen text=${finalText.take(40)}")
-        return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, stitchedRawAll)
+        return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, TimestepTopK.of(stitchedRawAll))
             .withVerticalPunctuation(isVertical)
     }
 
@@ -2051,7 +2074,7 @@ class OcrEngine(
         if (chunks.size==1) {
             val c = chunks[0]
             Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen}")
-            return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, c.rawAltsPerTimestep)
+            return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, TimestepTopK.of(c.rawAltsPerTimestep))
                 .withVerticalPunctuation(isVertical)
         }
         // ——— stitch via anchor alignment with identical timestep size (rw/6) ———
@@ -2161,7 +2184,7 @@ class OcrEngine(
         var finalText = stitchedText.toString()
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
         Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen")
-        return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, stitchedRawAll)
+        return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, TimestepTopK.of(stitchedRawAll))
             .withVerticalPunctuation(isVertical)
     }
 
@@ -2272,7 +2295,7 @@ class OcrEngine(
         pixels: IntArray? = null,
         pixW: Int = 0,
         pixH: Int = 0,
-        steps: List<List<Pair<Char, Float>>>? = null,
+        steps: TimestepTopK? = null,
     ): List<JpDictRect> {
         val n = charCols.size
         if (n == 0 || seqLenTotal <= 0) return emptyList()
@@ -2282,6 +2305,14 @@ class OcrEngine(
         // when the top-K steps or the crop pixels are missing, so this branch is
         // safe on the re-decode path too; the shipped chain below stays as the
         // debug-screen kill switch (PREF_BOX_PLACEMENT_CAP off).
+        //
+        // `steps` arrives compact ([TimestepTopK]) and is truncated to the top
+        // **two** cells per timestep right here: `runs_from_steps` — the only
+        // reader of `steps` in `jpdict_core::char_placement` — walks on
+        // `alts[0].0`, takes the mean confidence from `alts[0].1` and the mean
+        // top1−top2 margin from `alts[1].1` (0.0 for a row with a single cell),
+        // and never looks at anything else. Building all 15 `Step`s per timestep
+        // was a second full copy of the page's top-15 table for two numbers.
         if (capPlacement) {
             val placed = CharPlacement.place(
                 text = text,
@@ -2291,9 +2322,7 @@ class OcrEngine(
                 cropH = cropH,
                 isVertical = isVertical,
                 pixels = pixels,
-                steps = steps?.map { alts ->
-                    alts.map { (c, s) -> CharPlacement.Step(c, s) }
-                },
+                steps = steps?.capStepRows(),
             )
             if (placed.isNotEmpty()) {
                 return placed.map { box ->
@@ -2422,11 +2451,17 @@ class OcrEngine(
      * boxes recompute when crop geometry is known; user
      * [overrides][LineResult.overrides] carry over. */
     fun reDecodeLineResult(oldLine: LineResult): LineResult {
-        val raw = oldLine.rawAlternatives
-        if (raw.isEmpty()) return oldLine
+        // The slider walk wants *every* cell of *every* timestep — it is the
+        // reference the collapse rules are written against — so this is one of
+        // the few readers that materialises the full nested rows. It crosses
+        // them as `GapCell`s straight out of the compact table
+        // ([TimestepTopK.gapCellRows]), without the intermediate `Pair`/`Float`
+        // boxes the nested form needs.
+        val topK = oldLine.rawTopK
+        if (topK.isEmpty()) return oldLine
 
         val re = ocrEngineReDecode(
-            raw.map { alts -> alts.map { g -> GapCell(ch = g.first.code, score = g.second) } },
+            topK.gapCellRows(),
             oldLine.isVertical,
         ) ?: return oldLine
         // The walk already applies the vertical punctuation normalisation to
@@ -2442,9 +2477,9 @@ class OcrEngine(
             // here, normalized like the emit path (no crop pixels survive, so
             // CAP runs its template without ink refinement).
             val steps = if (oldLine.isVertical) {
-                JapaneseUtil.verticalPunctuationAlternatives(oldLine.rawAlternatives)
+                TimestepTopK.of(JapaneseUtil.verticalPunctuationAlternatives(oldLine.rawAlternatives))
             } else {
-                oldLine.rawAlternatives
+                topK
             }
             val local = computeCharBoxes(
                 vertText, charCols, oldLine.seqLenTotal,

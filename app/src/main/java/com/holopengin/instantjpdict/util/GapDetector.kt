@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict.util
 
 import com.holopengin.instantjpdict.JpDictRect
 import com.holopengin.instantjpdict.LineResult
+import com.holopengin.instantjpdict.rawTopK
 import uniffi.nav_graph_core.BoundingBox
 import uniffi.nav_graph_core.GapCell
 import uniffi.nav_graph_core.GapLine
@@ -105,6 +106,11 @@ internal fun medianOf(values: FloatArray): Float = blankGapMedian(values.toList(
  * [LineResult.rawAlternatives] (`OcrEngine.kt`). The walk's assumptions (head is
  * the first entry, blank resets the repeat state, a space never collapses) live in
  * the Rust port; this forwards the data.
+ *
+ * The ported walk reads `alts.first()` and nothing else — the whole top-K behind
+ * a timestep is dead weight here, which is why a recognised line's rows stay
+ * compact ([com.holopengin.instantjpdict.rawTopK]) and why [toGapLine] hands the
+ * boundary the table's own `GapCell`s rather than building new ones per cell.
  */
 internal fun timestepColumns(raw: List<List<Pair<Char, Float>>>): FloatArray =
     blankGapTimestepColumns(raw.map { step -> step.map { (c, s) -> GapCell(c.code, s) } })
@@ -121,7 +127,8 @@ internal fun LineResult.toGapLine(): GapLine = GapLine(
     isVertical = isVertical,
     charBoxes = charBoxes.map { BoundingBox(it.left, it.top, it.right - it.left, it.bottom - it.top) },
     alternatives = alternatives.map { alts -> alts.map { (c, s) -> GapCell(c.code, s) } },
-    rawAlternatives = rawAlternatives.map { alts -> alts.map { (c, s) -> GapCell(c.code, s) } },
+    // The compact table's own `GapCell`s (see [com.holopengin.instantjpdict.rawTopK]).
+    rawAlternatives = rawTopK.gapCellRows(),
     charCols = charCols.toList(),
     overrides = overrides.map { (index, v) -> GapOverride(index, v.first.code, v.second) },
     cropW = cropW,

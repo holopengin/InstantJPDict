@@ -4,8 +4,8 @@ import android.content.Context
 import com.holopengin.instantjpdict.JpDictRect
 import com.holopengin.instantjpdict.LineResult
 import com.holopengin.instantjpdict.OcrEngine
+import com.holopengin.instantjpdict.rawTopK
 import uniffi.nav_graph_core.BoundingBox
-import uniffi.nav_graph_core.GapCell
 import uniffi.nav_graph_core.GapPlan
 import uniffi.nav_graph_core.GapPlanLine
 import uniffi.nav_graph_core.blankGapsPlan
@@ -114,11 +114,10 @@ internal fun LineResult.toGapPlanLine(includeRawAlternatives: Boolean): GapPlanL
     charBoxes = charBoxes.map { BoundingBox(it.left, it.top, it.right - it.left, it.bottom - it.top) },
     charCols = charCols.toList(),
     alternativesLen = alternatives.size.toLong(),
-    rawAlternatives = if (includeRawAlternatives) {
-        rawAlternatives.map { alts -> alts.map { (c, s) -> GapCell(c.code, s) } }
-    } else {
-        emptyList()
-    },
+    // The compact table's own `GapCell`s, aliased row by row: a recognised line
+    // keeps its top-15 as flat cells, so the rare second call no longer has to
+    // expand 15 `Pair` + boxed `Float` objects per timestep to cross them.
+    rawAlternatives = if (includeRawAlternatives) rawTopK.gapCellRows() else emptyList(),
     cropW = cropW,
     cropH = cropH,
     seqLenTotal = seqLenTotal,

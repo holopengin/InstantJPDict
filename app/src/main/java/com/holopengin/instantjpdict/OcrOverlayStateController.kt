@@ -26,7 +26,16 @@ data class LineResult(
     val alternatives: List<MutableList<Pair<Char, Float>>>,
     val isVertical: Boolean = false,
     val overrides: MutableMap<Int, Pair<Char, Float>> = mutableMapOf(),
-    /** Cached top-15 alternatives for EVERY timestep, for slider re-decode without re-running model. */
+    /**
+     * Cached top-15 alternatives for EVERY timestep, for slider re-decode without re-running model.
+     *
+     * Recognition stores a [TimestepTopK] here rather than the nested rows: it
+     * *is* a `List<List<Pair<Char, Float>>>`, so this field, `copy`, `equals`
+     * and every reader are unchanged, but the rows are built lazily from the
+     * decode's flat cell list the first time something reads one. The page path
+     * never does — only the slider re-decode, the blank-candidate list and the
+     * rare second gap plan call do.
+     */
     val rawAlternatives: List<List<Pair<Char, Float>>> = emptyList(),
     val seqLenTotal: Int = 0,
     val cropW: Int = 0,
