@@ -211,6 +211,13 @@ class OcrEngine(
         var REC_BATCH_SIZE = 4
         /** Rec ncnn thread count (#58 retune knob; was hardcoded 1, #20). */
         var REC_THREADS = 1
+        /** Max concurrent line infers per batch (was the literal 4 at both
+         *  call sites, #58 retune knob). Together with [REC_THREADS] this is
+         *  the page's total in-flight rec parallelism, so the two must be read
+         *  as a pair — on a big.LITTLE device the same 4-way work is not the
+         *  same cost split 4×1 (four lines, some on little cores) as 2×2
+         *  (pairs sharing a big core). Default 4 is the shipped behaviour. */
+        var REC_FANOUT = 4
         /** Alternative-list cap everywhere (per-timestep top-K, per-char alts, stitch merges). */
         private const val TOP_K = 15
         /** Single-pass targetW cap and stitch entry gate (targetW = rw*48/rh). #24 */
@@ -416,13 +423,13 @@ class OcrEngine(
          * *not* including inference or the CTC decode — the net is ~90% of the
          * page and would hide the frontend entirely.
          *
-         * Cumulative across the process and **summed per worker thread**, so with
-         * `fanout = 4` four lines' work accumulates into the same counter: read
-         * it as an upper bound and only ever compare it against itself, never as
-         * a page wall. The serial per-page numbers come from
-         * `RecDrawParityTest`, which times the same code shapes one line at a
-         * time. Two `System.nanoTime()` calls per line, same order as the
-         * per-line `InferLog` timing [RecNcnn.inferTopK] already does.
+         * Cumulative across the process and **summed per worker thread**, so at
+         * the default `REC_FANOUT = 4` four lines' work accumulates into the
+         * same counter: read it as an upper bound and only ever compare it
+         * against itself, never as a page wall. The serial per-page numbers
+         * come from `RecDrawParityTest`, which times the same code shapes one
+         * line at a time. Two `System.nanoTime()` calls per line, same order
+         * as the per-line `InferLog` timing [RecNcnn.inferTopK] already does.
          */
         @Volatile @JvmStatic var recPrepBitmapNanos = 0L
 
@@ -1547,7 +1554,7 @@ class OcrEngine(
         bitmap: Bitmap,
         mainHandler: android.os.Handler,
         onLinesRecognized: (List<Pair<Int, LineResult>>) -> Unit,
-        fanout: Int = 4,
+        fanout: Int = REC_FANOUT,
     ) {
         coroutineContext.ensureActive()
         val tBatch = System.nanoTime()
@@ -1736,7 +1743,7 @@ class OcrEngine(
     private suspend fun recognizePpocrBatch(
         sources: List<RecSource>,
         engine: RecNcnn? = null,
-        fanout: Int = 4,
+        fanout: Int = REC_FANOUT,
         onEach: ((index: Int, result: PPOcrResult) -> Unit)? = null,
     ): List<PPOcrResult> {
         coroutineContext.ensureActive()
@@ -2479,7 +2486,8 @@ class OcrEngine(
         val engine = recDynNcnn ?: return@coroutineScope
         for ((batchIdx, batch) in batches.withIndex()) {
             coroutineContext.ensureActive()
-            processOneBatch(batchIdx, batch, engine, bitmap, mainHandler, onLinesRecognized)
+            processOneBatch(batchIdx, batch, engine, bitmap, mainHandler,
+                onLinesRecognized, fanout = REC_FANOUT)
         }
         Log.d(TAG, "All batches finished")
 
