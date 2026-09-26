@@ -1,0 +1,10 @@
+# det per-class int8, x86 i5-8500, 896x896 real page, 2 threads, 5 iters x 5 repeats
+# bin sizes: fp16 4929604 B / int8-all 2537312 B / int8-1x1 2598876 B / int8-3x3 4898152 B / int8-dw 4901592 B / int8-2x2 4927456 B / no-1x1 4867992 B
+variant	min_ms	vs_base	bitident	maxabs	mask_iou@0.3
+fp16 baseline (shipped)	255.2	-	-	-1	-
+int8 all	238.0	-7.2%	0	0.985	0.28891
+int8 1x1 only	250.2	-2.5%	0	0.997	0.17810
+int8 3x3 only	241.6	-5.8%	0	0.997	0.21847
+int8 depthwise only	265.4	+3.4%	0	0.978	0.82898
+int8 2x2 only	248.0	-3.3%	0	0.911	0.89272
+int8 all-but-1x1	244.9	-4.5%	0	0.993	0.32963

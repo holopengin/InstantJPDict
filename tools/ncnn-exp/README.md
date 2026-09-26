@@ -55,9 +55,19 @@ app's `targetW = rw*48/rh` rule and zero-pads to the mult-of-8 width.
 4. det compares the DB probability map at the app's own 0.3 threshold as a mask
    IoU — the quantity the detector's quality gate is stated in (box IoU).
 
-## A measurement trap worth knowing
+## Two measurement traps, both hit while building this
 
-det at 896x896 costs **~268 ms on a synthetic letterbox and ~432 ms on a real
-page** on this host — 1.6x from the pixels alone (the graph is fixed, so this is
-data-dependent time: activations stop being zeros). Any det number is only
-comparable at identical input, so every config in a sweep gets the same one.
+1. **Contention on a shared VM, not the input, is what moves det.** An early
+   reading looked like "det costs 268 ms on a synthetic letterbox and 432 ms on
+   a real page" — a 1.6x swing that would have been a very interesting finding
+   about data-dependent kernels. It was a concurrent 6-core ncnn rebuild. With
+   the machine quiet, the two inputs are **256.0 ms vs 256.4 ms (0.15% apart)**:
+   the graph is fixed, so the time is not data-dependent. The lesson that
+   survives: `best_ms` (the minimum iteration) is the only statistic here worth
+   quoting, and nothing may be built while a sweep runs.
+2. **A synthetic rec input makes every parity check vacuous.** A bar pattern
+   decodes to blank at all 54 timesteps, so a config that scrambles the network
+   still "passes" a text comparison. The harness therefore defaults to real
+   pixels (`--input`, see `mkraw.py`); the synthetic path is a fallback for when
+   no image is available and says so.
+

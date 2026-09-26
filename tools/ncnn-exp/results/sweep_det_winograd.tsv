@@ -1,0 +1,7 @@
+model	width	config	best_ms	vs_base_pct	spread_pct	med_ms	bitident	maxabs	iou03
+det	896	baseline (app config)	256.257	-0.45	5.8	257.302	0	-1	-1.000000
+det	896	winograd off	274.028	6.45	0.5	275.217	0	5.36442e-06	1.000000
+det	896	winograd F2x3 only	264.428	2.72	0.6	265.22	0	2.5034e-06	1.000000
+det	896	winograd F4x3 only	255.533	-0.74	5.8	257.258	1	0	1.000000
+det	896	winograd F6x3 only	263.449	2.34	0.7	265.222	0	2.5034e-06	1.000000
+det	896	winograd all off	274.536	6.65	0.8	276.009	0	5.36442e-06	1.000000

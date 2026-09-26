@@ -532,6 +532,7 @@ int main(int argc, char** argv)
                 else if (k == "denormals") cfg.flush_denormals = atoi(v.c_str());
                 else if (k == "light") cfg.light = atoi(v.c_str());
                 else if (k == "blocktime") cfg.openmp_blocktime = atoi(v.c_str());
+                else if (k == "powersave") cfg.powersave = atoi(v.c_str());
                 else die("unknown --set key %s", k.c_str());
             }
         } else {

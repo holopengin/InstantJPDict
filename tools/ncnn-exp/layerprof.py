@@ -32,8 +32,8 @@ LINE = re.compile(
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=30)
-    ap.add_argument("--class", action="store_true", help="aggregate by layer type")
-    ap.add_argument("--runs", type=int, default=1, help="how many timed runs to average over")
+    ap.add_argument("--byclass", action="store_true", help="aggregate by layer type")
+    ap.add_argument("--runs", type=int, default=0, help="cap on how many runs to average over (0 = all in the stream)")
     a = ap.parse_args()
 
     per_run = []
@@ -43,26 +43,29 @@ def main():
         if not m:
             continue
         cur.append(m.groupdict())
-        # a run ends when the graph's last layer (Sigmoid for det, Softmax/Gemm
-        # for rec) shows up; simpler: ncnn prints one line per layer per run, so
-        # split on repeats of the first layer name
-        if per_run and cur and cur[0]["name"] == per_run[-1][0]["name"] and len(cur) > 1:
-            per_run.append(cur)
-            cur = []
     if cur:
         per_run.append(cur)
     if not per_run:
         print("no benchmark lines on stdin (did you link the NCNN_BENCHMARK build?)",
               file=sys.stderr)
         return 1
-    # keep only the last `--runs` complete runs
-    runs = per_run[-a.runs:] if len(per_run) > a.runs else per_run
+    lines = per_run[0]
+    # ncnn prints the whole graph once per extract; the number of times the
+    # graph's first layer shows up is the number of runs in the stream, which is
+    # what the per-layer sums have to be divided by. Averaging over runs is
+    # required: a `--warmup 1 --iters 2` invocation emits three graphs and the
+    # first one carries lazy weight packing.
+    nruns = sum(1 for d in lines if d["name"] == lines[0]["name"])
+    if a.runs > 0:
+        nruns = min(nruns, a.runs)
+    if nruns < 1:
+        nruns = 1
+    runs = [lines]
 
     by_layer = defaultdict(lambda: {"ms": 0.0, "type": "", "name": "", "shape": "", "kernel": ""})
     by_class = defaultdict(float)
-    n = 0
+    n = nruns
     for r in runs:
-        n += 1
         for d in r:
             by_layer[d["name"]]["ms"] += float(d["ms"])
             by_layer[d["name"]]["type"] = d["type"]
@@ -74,7 +77,7 @@ def main():
     total = sum(v["ms"] for _, v in rows)
 
     print("# %d run(s) averaged, %d layers, total %.1f ms" % (n, len(rows), total / n))
-    if a.class:
+    if a.byclass:
         print("type\tms_per_run\tshare_pct\tcalls")
         cnt = defaultdict(int)
         for dname, v in by_layer.items():

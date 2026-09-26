@@ -1,0 +1,16 @@
+# 3 run(s) averaged, 216 layers, total 373.2 ms
+type	ms_per_run	share_pct	calls
+Convolution	244.047	65.4	66
+ConvolutionDepthWise	33.900	9.1	17
+BinaryOp	27.023	7.2	43
+Deconvolution	20.433	5.5	2
+Concat	14.447	3.9	2
+GELU	12.837	3.4	13
+Pooling	6.577	1.8	9
+Interp	4.840	1.3	6
+Padding	4.137	1.1	1
+Reduction	3.650	1.0	5
+Sigmoid	1.200	0.3	1
+Reshape	0.060	0.0	8
+Split	0.003	0.0	30
+HardSigmoid	0.003	0.0	13

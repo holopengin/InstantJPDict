@@ -1,0 +1,18 @@
+model	width	config	best_ms	vs_base_pct	speedup	spread_pct	med_ms	worst_med_ms	stable	bitident	maxabs	iou03	argmax_diff	ck	text	error
+det	896	baseline (app config)	255.895	-0.16	1.002	6.5	258.773	272.592	ok	0	-1	-1.000000	-1	3cb0be304a678d5c		
+det	896	threads=1	381.129	48.71	0.672	17.3	386.009	446.945	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	threads=3	209.707	-18.18	1.222	6.0	211.325	222.218	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	threads=4	196.705	-23.25	1.303	9.7	200.107	215.874	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	threads=6	190.575	-25.64	1.345	10.2	198.437	209.99	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	fp32 (all fp16 off)	255.968	-0.13	1.001	1.6	258.798	260.028	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	fp16_storage off only	256.204	-0.04	1.0	6.2	259.247	272.152	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	fp16_arithmetic off only	256.116	-0.07	1.001	38.6	258.656	355.059	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	bf16_storage on	285.667	11.46	0.897	6.6	287.175	304.466	ok	0	0.0671313	0.994978	-1	763d22c5292c2b1f		
+det	896	winograd off	274.884	7.25	0.932	3.3	278.028	284.03	ok	0	5.36442e-06	1.000000	-1	47e958e6cb2fd22c		
+det	896	sgemm off	313.049	22.14	0.819	4.4	315.575	326.782	ok	0	2.47955e-05	1.000000	-1	ee3577d30574e088		
+det	896	packing off	414.039	61.55	0.619	3.7	421.251	429.164	ok	0	5.66244e-05	1.000000	-1	a1a86ea92ad202a0		
+det	896	int8 inference ON (weights are fp16)	256.415	0.05	1.0	3.6	259.418	265.557	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	a53a55 kernel on (arm-only knob)	256.539	0.09	0.999	12.8	258.413	289.471	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	denormals off (FTZ/DAZ=0)	256.653	0.14	0.999	6.5	258.957	273.234	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	light mode off	264.828	3.33	0.968	9.6	273.8	290.358	ok	1	0	1.000000	-1	3cb0be304a678d5c		
+det	896	cpu_powersave=1														bench: unknown --set key powersave

@@ -58,6 +58,10 @@ def configs(model):
             ("fp16_arithmetic off only", base + ",fp16_arithmetic=0"),
             ("bf16_storage on", base + ",bf16_storage=1"),
             ("winograd off", base + ",winograd=0"),
+            ("winograd F2x3 only", base + ",wino43=0,wino63=0"),
+            ("winograd F4x3 only", base + ",wino23=0,wino63=0"),
+            ("winograd F6x3 only", base + ",wino23=0,wino43=0"),
+            ("winograd all off", base + ",winograd=1,wino23=0,wino43=0,wino63=0"),
             ("sgemm off", base + ",sgemm=0"),
             ("packing off", base + ",packing=0"),
             ("int8 inference ON (weights are fp16)", base + ",int8=1"),
@@ -144,9 +148,10 @@ def main():
         if r is None:
             print("baseline failed: %s" % err, file=sys.stderr)
             return 1
-        base_med = float(r["med_ms"])
+        base_best = float(r["min_ms"])
 
         per = {label: [] for label, _ in cfgs}
+        per_min = {label: [] for label, _ in cfgs}
         meta = {}
         for rep in range(a.repeats):
             order = list(range(len(cfgs)))
@@ -158,6 +163,7 @@ def main():
                     meta[label] = {"error": err}
                     continue
                 per[label].append(float(res["med_ms"]))
+                per_min[label].append(float(res["min_ms"]))
                 meta[label] = res
 
         for label, _ in cfgs:
@@ -167,14 +173,22 @@ def main():
                              "med_ms": None, "error": m.get("error")})
                 continue
             meds = per[label]
+            mins = per_min[label]
             med = statistics.median(meds)
+            best = min(mins)
             rows.append({
                 "model": a.model, "width": width, "config": label,
+                # primary statistic: the fastest *iteration* seen in any repeat.
+                # This host is shared (other agents, an adb server, a gradle
+                # daemon), so sporadic interference inflates medians by 2-3x;
+                # the minimum is the closest available estimate of the
+                # interference-free cost. med_ms is kept for the noise picture.
+                "best_ms": round(best, 3),
                 "med_ms": round(med, 3),
-                "min_of_repeats": round(min(meds), 3),
-                "max_of_repeats": round(max(meds), 3),
-                "vs_base_pct": round(100.0 * (med - base_med) / base_med, 2),
-                "speedup": round(base_med / med, 3) if med > 0 else None,
+                "worst_med_ms": round(max(meds), 3),
+                "spread_pct": round(100.0 * (max(meds) - best) / best, 1) if best else None,
+                "vs_base_pct": round(100.0 * (best - base_best) / base_best, 2) if base_best else None,
+                "speedup": round(base_best / best, 3) if best > 0 else None,
                 "stable": m.get("stable"),
                 "bitident": m.get("bitident"),
                 "maxabs": m.get("maxabs"),
@@ -184,8 +198,9 @@ def main():
                 "ck": m.get("ck"),
             })
 
-    hdr = ["model", "width", "config", "med_ms", "vs_base_pct", "speedup", "stable",
-           "bitident", "maxabs", "iou03", "argmax_diff", "ck", "text", "error"]
+    hdr = ["model", "width", "config", "best_ms", "vs_base_pct", "speedup", "spread_pct",
+           "med_ms", "worst_med_ms", "stable", "bitident", "maxabs", "iou03",
+           "argmax_diff", "ck", "text", "error"]
     print("\t".join(hdr))
     for r in rows:
         print("\t".join("" if r.get(h) is None else str(r.get(h)) for h in hdr))
