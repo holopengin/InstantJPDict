@@ -469,6 +469,21 @@ class OcrEngine(
     val recSquish: Float
         get() = prefs.getFloat(PREF_REC_SQUISH, DEF_REC_SQUISH).coerceIn(0.2f, 1.0f)
 
+    /**
+     * The debug verbosity gate for the Kotlin log sites, hoisted to a
+     * process-wide volatile read ([NcnnVerboseLog.enabled]) so a per-box or
+     * per-line site costs a branch and nothing else.
+     *
+     * The *summary* lines never consult it — `detect: final N boxes`,
+     * `detectRotated: …`, `stream start`/`stream done`, `batch N … in Xms`, the
+     * head-width and top-K mismatch warnings, and the one-time load lines are
+     * what a normal run still says. This only gates the walk: the per-call
+     * shape/tunable detail the native `PPOCR_LOGI` lines mirror, and the
+     * per-box and per-line progress (`rubyTrim`, `line idx=`, `crop rw=`, the
+     * long-line stitch notes).
+     */
+    private val verboseLog: Boolean get() = NcnnVerboseLog.enabled
+
     init {
         try {
             val cacheDir = File(context.cacheDir, "model_cache")
@@ -576,7 +591,9 @@ class OcrEngine(
             val padY = detLetterboxPad(modelSize, resizeH)
             val prob = det.inferLetterboxed(crop, resizeW, resizeH, modelSize, padX, padY)
             if (prob != null) {
-                Log.d(TAG, "detect: native letterbox content=${resizeW}x$resizeH pad=($padX,$padY) model=$modelSize")
+                if (verboseLog) {
+                    Log.d(TAG, "detect: native letterbox content=${resizeW}x$resizeH pad=($padX,$padY) model=$modelSize")
+                }
                 return prob
             }
             Log.w(TAG, "detect: native letterbox returned null, using the Kotlin path")
@@ -641,7 +658,9 @@ class OcrEngine(
         // modelSize×modelSize letterbox (#51: net runs at DET_MODEL_SIZE).
         val modelSize = DET_MODEL_SIZE.coerceIn(320, 960)
         val targetLong = minOf(detLongSide, modelSize)
-        Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize furigana=$detFurigana")
+        if (verboseLog) {
+            Log.d(TAG, "detect tunables thresh=$detThresh unclip=$detUnclip longSide=$targetLong xOverlap=$xOverlapThresh modelSize=$modelSize furigana=$detFurigana")
+        }
         val scale = targetLong.toFloat() / maxOf(origW, origH)
         val resizeW = maxOf((origW * scale).roundToInt(), 32)
         val resizeH = maxOf((origH * scale).roundToInt(), 32)
@@ -671,7 +690,9 @@ class OcrEngine(
                         probArrNorm[y * modelSize + x] = probArr[sy * dim + sx]
                     }
                 }
-                Log.d(TAG, "detect: upsampled det output ${dim}x${dim} -> ${modelSize}x${modelSize}")
+                if (verboseLog) {
+                    Log.d(TAG, "detect: upsampled det output ${dim}x${dim} -> ${modelSize}x${modelSize}")
+                }
             } else {
                 // Fallback: treat as flat and use as is
                 val total = probArr.size
@@ -682,24 +703,38 @@ class OcrEngine(
                 Log.w(TAG, "detect: unexpected prob size $total, using ${outH}x${outW}")
             }
         }
-        Log.d(TAG, "detect: output size=${probArrNorm.size} expected=${modelSize * modelSize} out=${outW}x${outH}")
+        if (verboseLog) {
+            Log.d(TAG, "detect: output size=${probArrNorm.size} expected=${modelSize * modelSize} out=${outW}x${outH}")
+        }
+        // Summary, not walk: one line per detect, and the ring the user reads
+        // back when they ask "what did it see?".
         InferLog.add("detect out=${outW}x${outH} size=${probArrNorm.size}")
 
         val probArrFinal = probArrNorm
 
-        // Prob map stats.
-        var pMin = Float.MAX_VALUE
-        var pMax = Float.MIN_VALUE
-        var pSum = 0f
-        var pCount = 0
-        for (i in probArrFinal.indices) {
-            val v = probArrFinal[i]
-            pMin = minOf(pMin, v)
-            pMax = maxOf(pMax, v)
-            pSum += v
-            pCount++
+        // Prob map stats — this pass exists only for the `prob_map:` line below,
+        // so with the gate off it does not run at all: `modelSize²` floats (the
+        // 802,816 the book-page fixture runs at, up to 921,600 at the 960
+        // maximum) of min/max/add that nothing else reads — `DetMask` carries
+        // the map, not the stats. Gating the line without gating this would
+        // have kept the cost and dropped only the output; measured at 4-5 ms
+        // against the ~0.03 ms the four log writes around it cost
+        // (`KotlinVerboseBenchTest`, per-detect split), and at ~2 ms of the
+        // det call's own wall end to end.
+        if (verboseLog) {
+            var pMin = Float.MAX_VALUE
+            var pMax = Float.MIN_VALUE
+            var pSum = 0f
+            var pCount = 0
+            for (i in probArrFinal.indices) {
+                val v = probArrFinal[i]
+                pMin = minOf(pMin, v)
+                pMax = maxOf(pMax, v)
+                pSum += v
+                pCount++
+            }
+            Log.d(TAG, "prob_map: min=$pMin max=$pMax mean=${if (pCount > 0) pSum / pCount else 0f}")
         }
-        Log.d(TAG, "prob_map: min=$pMin max=$pMax mean=${if (pCount > 0) pSum / pCount else 0f}")
 
         return DetMask(probArrNorm, outW, outH, modelSize, resizeW, resizeH, bitmap.width, bitmap.height)
     }
@@ -828,7 +863,7 @@ class OcrEngine(
             }
         }
 
-        Log.d(TAG, "detect: raw ${rawBoxes.size} boxes")
+        if (verboseLog) Log.d(TAG, "detect: raw ${rawBoxes.size} boxes")
 
         // 6b. Furigana filter (#28) on RAW contour geometry (pre-unclip, pre-merge):
         // unclip padding inflates overlap and fabricates ruby matches out of stacked
@@ -840,7 +875,7 @@ class OcrEngine(
             BooleanArray(rawBoxes.size) { true }
         }
         val keptUnclipped = rawBoxes.filterIndexed { i, _ -> keepNonRuby.getOrElse(i) { true } }
-        if (keptUnclipped.size != rawBoxes.size) {
+        if (keptUnclipped.size != rawBoxes.size && verboseLog) {
             val dropped = rawPreBoxes.filterIndexed { i, _ -> !keepNonRuby.getOrElse(i) { true } }
             Log.d(TAG, "detect: furigana ${rawBoxes.size} → ${keptUnclipped.size} boxes, dropped=${
                 dropped.joinToString(";") { "${it.width()}x${it.height()}@${it.left},${it.top}" }
@@ -1103,6 +1138,11 @@ class OcrEngine(
         if (vertW.size < 2) return boxes
         val medW = vertW[vertW.size / 2]
         if (medW <= 0) return boxes
+        // Hoisted out of the per-box walk: this is the one site on the page path
+        // that fires *per box*, and a volatile read per box would be the gate
+        // costing what it exists to save. The trim itself is unconditional — it
+        // is geometry, not a diagnostic; only the two lines below it are gated.
+        val verbose = verboseLog
         return boxes.map { box ->
             if (!isVerticalBox(box)) return@map box
             val w = box.width()
@@ -1110,8 +1150,10 @@ class OcrEngine(
             val cut = findRubyGutterCut(box, bitmap) ?: return@map box
             if (cut <= box.left + 20 || cut >= box.right - 8) return@map box
             if (cut - box.left < (w * 0.4f).roundToInt()) return@map box
-            Log.d(TAG, "detect: rubyTrim ${box.width()}x${box.height()}@${box.left},${box.top} → w=${cut - box.left} (medW=$medW)")
-            InferLog.add("rubyTrim w=$w→${cut - box.left} @${box.left},${box.top}")
+            if (verbose) {
+                Log.d(TAG, "detect: rubyTrim ${box.width()}x${box.height()}@${box.left},${box.top} → w=${cut - box.left} (medW=$medW)")
+                InferLog.add("rubyTrim w=$w→${cut - box.left} @${box.left},${box.top}")
+            }
             JpDictRect(box.left, box.top, cut, box.bottom)
         }
     }
@@ -1571,9 +1613,9 @@ class OcrEngine(
                 val recText = result.text
                 val recAlts = result.alternatives.map { it.toMutableList() }
                 // The compact per-timestep table, handed on as-is: CAP's `steps`
-                // read its top-2 (see `TimestepTopK.capStepRows`) and
-                // `LineResult.rawAlternatives` materialises the full rows only
-                // when a rare reader actually asks for them.
+                // read its top-2 as the table's own `GapCell`s (see
+                // `TimestepTopK.capCellRows`) and `LineResult.rawAlternatives`
+                // materialises the full rows only when a rare reader asks.
                 val recRaw = result.rawTopK
                 val box = job.box
                 val quad = box.quad
@@ -1633,7 +1675,9 @@ class OcrEngine(
                     quad = quad,
                 )
                 doneLines++
-                InferLog.add("line idx=${job.idx} len=${lineResult.text.length} vert=${lineResult.isVertical}")
+                if (verboseLog) {
+                    InferLog.add("line idx=${job.idx} len=${lineResult.text.length} vert=${lineResult.isVertical}")
+                }
                 mainHandler.post { onLinesRecognized(listOf(job.idx to lineResult)) }
             }
             recognizePpocrBatch(sources, engine, fanout) { index, result -> emitLine(index, result) }
@@ -1749,7 +1793,9 @@ class OcrEngine(
                 // -> 23 steps for 16 chars) keep full resolution instead.
                 if (it / REC_STRIDE < 32) targetW else it
             }
-            InferLog.add("crop rw=$rw rh=$rh targetW=$targetW sq=$sqTarget seq=${sqTarget / REC_STRIDE}")
+            if (verboseLog) {
+                InferLog.add("crop rw=$rw rh=$rh targetW=$targetW sq=$sqTarget seq=${sqTarget / REC_STRIDE}")
+            }
             // The collapse: a horizontal line needs no crop and no rotate, so
             // the source rect goes into the net's own bitmap in one draw. A
             // portrait line, a long line's chunks and the parity toggle's `off`
@@ -1897,7 +1943,9 @@ class OcrEngine(
         if (chunks.isEmpty()) return null
         if (chunks.size == 1) {
             val c = chunks[0]
-            Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen} text=${c.text.take(40)}")
+            if (verboseLog) {
+                Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen} text=${c.text.take(40)}")
+            }
             return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, TimestepTopK.of(c.rawAltsPerTimestep))
                 .withVerticalPunctuation(isVertical)
         }
@@ -2017,7 +2065,9 @@ class OcrEngine(
         val finalTextRaw = stitchedText.toString()
         var finalText = finalTextRaw
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
-        Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen text=${finalText.take(40)}")
+        if (verboseLog) {
+            Log.d(TAG, "long-line stitch horiz rw=$rw rh=$rh chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen text=${finalText.take(40)}")
+        }
         return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, TimestepTopK.of(stitchedRawAll))
             .withVerticalPunctuation(isVertical)
     }
@@ -2073,7 +2123,9 @@ class OcrEngine(
         if (chunks.isEmpty()) return null
         if (chunks.size==1) {
             val c = chunks[0]
-            Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen}")
+            if (verboseLog) {
+                Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=1 stitchedLen=${c.text.length} seqLen=${c.actualSeqLen}")
+            }
             return PPOcrResult(c.text, c.altsPerChar, c.charCols, c.actualSeqLen, TimestepTopK.of(c.rawAltsPerTimestep))
                 .withVerticalPunctuation(isVertical)
         }
@@ -2183,7 +2235,9 @@ class OcrEngine(
         }
         var finalText = stitchedText.toString()
         while (finalText.contains("  ")) finalText = finalText.replace("  ", " ")
-        Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen")
+        if (verboseLog) {
+            Log.d(TAG, "long-line stitch vert rh=$rh rw=$rw chunks=${chunks.size} stitchedLen=${finalText.length} seqLen=$totalSeqLen")
+        }
         return PPOcrResult(finalText, stitchedAlts, stitchedCols.toFloatArray(), totalSeqLen, TimestepTopK.of(stitchedRawAll))
             .withVerticalPunctuation(isVertical)
     }
@@ -2312,9 +2366,12 @@ class OcrEngine(
         // `alts[0].0`, takes the mean confidence from `alts[0].1` and the mean
         // top1−top2 margin from `alts[1].1` (0.0 for a row with a single cell),
         // and never looks at anything else. Building all 15 `Step`s per timestep
-        // was a second full copy of the page's top-15 table for two numbers.
+        // was a second full copy of the page's top-15 table for two numbers, and
+        // `place`'s `Step`→`GapCell` conversion a third — the boundary itself
+        // takes `GapCell`s, so `placeCells` gets the table's own
+        // ([TimestepTopK.capCellRows]) and the page allocates no cell for it.
         if (capPlacement) {
-            val placed = CharPlacement.place(
+            val placed = CharPlacement.placeCells(
                 text = text,
                 charCols = charCols,
                 seqLenTotal = seqLenTotal,
@@ -2322,7 +2379,7 @@ class OcrEngine(
                 cropH = cropH,
                 isVertical = isVertical,
                 pixels = pixels,
-                steps = steps?.capStepRows(),
+                cells = steps?.capCellRows(),
             )
             if (placed.isNotEmpty()) {
                 return placed.map { box ->

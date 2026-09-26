@@ -27,7 +27,10 @@ import uniffi.nav_graph_core.GapCell
  * boxed `Float` per cell — and `computeCharBoxes` then expanded those rows
  * *again* into `CharPlacement.Step`s for CAP's `steps`. Both copies are gone: the
  * line carries a [TimestepTopK] (flat cells + row boundaries + a top-2 table)
- * and builds a row only when a reader asks for one.
+ * and builds a row only when a reader asks for one. And the `steps` themselves
+ * are now the table's own `GapCell`s, so the shim's boundary is handed the
+ * cells the decode already produced instead of a `Step` copy re-wrapped into
+ * `GapCell`s.
  *
  * Two kinds of evidence, over the three page fixtures:
  *
@@ -358,12 +361,36 @@ class LineResultLazyAlternativesTest {
             return sink
         }
 
+        /**
+         * The page path as it stands after the `GapCell` pass-through: the same
+         * top-2 truncation, but expressed as the table's own cells, so the
+         * `Step`s and the second `GapCell` row never exist and the boundary is
+         * handed the rows directly. This lane is the whole delta the
+         * pass-through is worth: what is left is one row list per timestep and
+         * no cell at all.
+         */
+        fun cellLane(): Any {
+            var sink = 0
+            for ((flat, starts) in payload) {
+                val cells = TimestepTopK.of(flat, starts).capCellRows()
+                sink += cells.size + cells.sumOf { it.size }
+            }
+            return sink
+        }
+
         val (o, n) = measurePair(samples = 40, warmups = 10, before = ::beforeLane, after = ::afterLane)
         Log.i(
             TAG,
             "BENCH item=page_alt_materialisation rows=$rows cells=$cells lines=${payload.size} " +
                 "oldP50Us=$o newP50Us=$n deltaP50Us=${"%.1f".format(n - o)} " +
                 "oldMsPerPage=${"%.3f".format(o / 1000.0)} newMsPerPage=${"%.3f".format(n / 1000.0)}",
+        )
+        val (p, c) = measurePair(samples = 40, warmups = 10, before = ::afterLane, after = ::cellLane)
+        Log.i(
+            TAG,
+            "BENCH item=page_cap_boundary rows=$rows lines=${payload.size} " +
+                "stepRowsP50Us=$p cellRowsP50Us=$c deltaP50Us=${"%.1f".format(c - p)} " +
+                "stepMsPerPage=${"%.3f".format(p / 1000.0)} cellMsPerPage=${"%.3f".format(c / 1000.0)}",
         )
 
         // Object counts, exact — what each shape allocates per page. The
@@ -399,6 +426,46 @@ class LineResultLazyAlternativesTest {
         assertTrue(
             "the after lane must allocate far less: before=$before after=$after",
             after * 4 < before,
+        )
+
+        // The `GapCell` pass-through, on top of the lazy table: the shim's
+        // boundary takes `GapCell`s, and the top-2 cells of a timestep are the
+        // first two cells of its slice, so the page hands over the table's own
+        // objects instead of building `Step`s and re-wrapping them.
+        //
+        // Per timestep the lazy-but-`Step` lane built two row lists and two
+        // row arrays (`capStepRows`, then `place`'s conversion) plus two
+        // `Step`s and two `GapCell`s. The cell lane builds one row list and
+        // one row array and no cell at all — the row is a view over cells the
+        // decode already produced.
+        val stepLists = 2 * rows        // capStepRows rows + place's converted rows
+        val stepArrays = 2 * rows       // each list's Object[]
+        val stepSteps = 2 * rows        // one CharPlacement.Step per cell
+        val stepGap = 2 * rows          // one GapCell per cell
+        val stepOuter = 2 * payload.size // the two outer List objects per line
+        val stepBoundary = stepLists + stepArrays + stepSteps + stepGap + stepOuter
+
+        val cellLists = rows            // one row list per timestep
+        val cellArrays = rows           // its Object[2] (the only row shape that allocates)
+        val cellOuter = payload.size    // one outer List per line
+        val cellTables = 2 * payload.size // the top-2 IntArray/FloatArray per line
+        val cellBoundary = cellLists + cellArrays + cellOuter + cellTables
+
+        Log.i(
+            TAG,
+            "OBJECTS cap_boundary stepRows=$stepBoundary cellRows=$cellBoundary " +
+                "drop=${stepBoundary - cellBoundary} " +
+                "pct=${"%.1f".format(100.0 * (stepBoundary - cellBoundary) / stepBoundary)} (rows=$rows)",
+        )
+        Log.i(
+            TAG,
+            "OBJECTS cap_boundary breakdown stepRows=[lists=$stepLists arrays=$stepArrays " +
+                "steps=$stepSteps gapcell=$stepGap outer=$stepOuter] " +
+                "cellRows=[lists=$cellLists arrays=$cellArrays outer=$cellOuter tables=$cellTables]",
+        )
+        assertTrue(
+            "the cell boundary must allocate far less: step=$stepBoundary cell=$cellBoundary",
+            cellBoundary * 2 < stepBoundary,
         )
     }
 

@@ -200,7 +200,8 @@ class DetNcnn private constructor(private val handle: Long) {
 }
 
 /**
- * The native kernel's verbose logging as a debug preference.
+ * The verbose OCR diagnostics, as a debug preference — the native kernel's
+ * `PPOCR_LOGI` lines *and* the Kotlin per-call ones they mirror.
  *
  * The core's informational lines are what a model/width mismatch is diagnosed
  * with, and they were unconditional: four of them on the det path and one per
@@ -210,10 +211,19 @@ class DetNcnn private constructor(private val handle: Long) {
  * inference result, only whether the line is printed.
  *
  * Measured on a Pixel 7a (warm, interleaved A/B, 60 paired repeats, with and
- * without a logcat reader): ~0.05-0.15 ms per line, so ~0.1-0.3 ms per detect
- * and ~0.1 ms per recognised line — about 2 ms a page. The `det` figure is
- * smaller than the noise of a single det wall, so it needs the paired design in
- * `NcnnVerboseBenchTest` to see at all; the `rec` one is clean.
+ * without a logcat reader): ~0.05-0.15 ms per native line, so ~0.1-0.3 ms per
+ * detect and ~0.1 ms per recognised line — about 2 ms a page. The `det` figure
+ * is smaller than the noise of a single det wall, so it needs the paired design
+ * in `NcnnVerboseBenchTest` to see at all; the `rec` one is clean.
+ *
+ * The Kotlin half is cheaper per line and far more expensive in one place: a
+ * `Log.d` is ~0.1 ms of write and an `InferLog.add` ~0.02 ms — 4-8× apart,
+ * with or without a logcat reader — while the reduction that fed `prob_map:`
+ * cost 4-5 ms a detect call by itself. `KotlinVerboseBenchTest` measures both
+ * and separates the sites by construction, because the end-to-end effect
+ * (~2 ms a detect call, 153 of 210 paired calls slower with the gate on) sits
+ * inside a 250-370 ms det wall's own noise, and a 1.2 s page wall cannot see
+ * the ~5 ms a page pays at all.
  *
  * **OFF by default**, which is the point: a normal run pays nothing but a
  * predictable branch. Both [DetNcnn.create] and [RecNcnn.create] push the
@@ -222,26 +232,86 @@ class DetNcnn private constructor(private val handle: Long) {
  * because the flag is process-global and not per-net.
  *
  * Errors are never gated — a failed load or an unusable output tensor always
- * prints.
+ * prints, on either side of the boundary.
+ *
+ * ## One switch, not two
+ *
+ * The Kotlin lines and the native lines are the same *kind* of line: a
+ * per-call informational diagnostic, in the same units, read for the same
+ * reason, by the same person, in the same log. A second switch would mean a
+ * reader who turns on "verbose native OCR logging" still sees a silently
+ * incomplete page — the Kotlin half's lines missing, with nothing saying so —
+ * and two prefs to keep in step for no diagnostic that only exists in one
+ * half. So [PREF_VERBOSE] gates both, and [isEnabled] is the single read.
+ *
+ * ## What is *not* behind it
+ *
+ * Every `Log.e` and every `Log.w`, on either side of the boundary; the
+ * per-call **summary** lines the debug story is made of (`detect: final N
+ * boxes`, `detectRotated: …`, `stream start`/`stream done`, `batch N … in
+ * Xms`, and their `InferLog` twins); the per-line rec timings in
+ * [RecNcnn.infer]/[RecNcnn.inferTopK]; and the one-time load lines. A page
+ * with the switch off still says how many boxes it found, how long each batch
+ * took and how long the page took — it just stops narrating the walk.
  */
 object NcnnVerboseLog {
     /** Stored in [OcrEngine.PREFS_NAME], alongside the other debug tunables. */
     const val PREF_VERBOSE = "ppocr_ncnn_verbose"
     const val DEF_VERBOSE = false
 
-    fun isEnabled(context: Context): Boolean =
-        context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
+    /**
+     * The switch, process-wide, as of the last [isEnabled], [setEnabled] or
+     * [applyFromPrefs].
+     *
+     * A hot-path gate cannot afford a `getSharedPreferences` + `getBoolean` per
+     * line (or worse, per box), so the read that already happens — the engine
+     * loads, and the debug screen toggles — leaves its answer here. A volatile
+     * read is a predictable, hoisted branch; that is the entire "off" cost.
+     * Nothing writes `PREF_VERBOSE` except [setEnabled], so the cache cannot
+     * drift from the pref within a process, and it starts at [DEF_VERBOSE].
+     */
+    @Volatile
+    private var cached = DEF_VERBOSE
+
+    /**
+     * Move the Kotlin half of the gate on its own, without touching the
+     * preference or native.
+     *
+     * The Kotlin sites are the `Log.d`/`InferLog` lines in [OcrEngine] and
+     * friends, which no `PPOCR_LOGV` can switch. Push the stored value with
+     * [applyFromPrefs] (or [setEnabled] for the whole thing); call this directly
+     * only to move the Kotlin sites alone, which is what
+     * `KotlinVerboseBenchTest` does, so its measurement is of the Kotlin lines
+     * and not the native ones.
+     */
+    @JvmStatic
+    fun setKotlinEnabled(on: Boolean) {
+        cached = on
+    }
+
+    /** The Kotlin half's gate — a volatile read, so a per-box or per-line site
+     *  costs a branch and nothing else. Refreshed by [isEnabled], [setEnabled]
+     *  and [applyFromPrefs]. */
+    val enabled: Boolean get() = cached
+
+    fun isEnabled(context: Context): Boolean {
+        val on = context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(PREF_VERBOSE, DEF_VERBOSE)
+        cached = on
+        return on
+    }
 
     /** Store the choice and push it into native in the same breath. */
     fun setEnabled(context: Context, on: Boolean) {
         context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(PREF_VERBOSE, on).apply()
+        setKotlinEnabled(on)
         DetNcnn.setVerboseLogging(on)
     }
 
     /** Push the stored value into native. Called from the *Ncnn.create paths. */
     fun applyFromPrefs(context: Context) {
-        DetNcnn.setVerboseLogging(isEnabled(context))
+        val on = isEnabled(context)
+        DetNcnn.setVerboseLogging(on)
     }
 }

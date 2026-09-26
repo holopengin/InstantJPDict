@@ -119,6 +119,18 @@ internal object CharPlacement {
         return Mask(bgLight, bits)
     }
 
+    /**
+     * The [Step]-shaped entry, kept for the callers that hold `Step`s (the
+     * committed placement fixtures, and anything a host builds by hand).
+     *
+     * It is a thin adapter over [placeCells]: the only thing it does is convert
+     * `Step(char, score)` into the `GapCell(ch, score)` the shim's boundary
+     * takes, and that conversion is the *second* re-wrap of the same numbers
+     * (the first being [TimestepTopK.capStepRows]). The page path no longer
+     * comes through here — it hands the table's own `GapCell` rows to
+     * [placeCells] — so this is off the hot path, where a fixture-shaped call
+     * can afford it.
+     */
     fun place(
         text: String,
         charCols: FloatArray,
@@ -129,8 +141,47 @@ internal object CharPlacement {
         pixels: IntArray? = null,
         steps: List<List<Step>>? = null,
         options: Options = Options(),
+    ): List<Box> = placeCells(
+        text = text,
+        charCols = charCols,
+        seqLenTotal = seqLenTotal,
+        cropW = cropW,
+        cropH = cropH,
+        isVertical = isVertical,
+        pixels = pixels,
+        // A `List<List<Step>>` that is not already a `List<List<GapCell>>`
+        // cannot be, so the conversion allocates — by design, and only here.
+        cells = steps?.map { alts -> alts.map { GapCell(ch = it.char.code, score = it.score) } },
+        options = options,
+    )
+
+    /**
+     * The entry the page path uses: [cells] are already the shim's own
+     * `List<List<GapCell>>` shape, so they cross the boundary **as they are** —
+     * no `Step`, no second `GapCell`, no per-row copy.
+     *
+     * [TimestepTopK] owns the flat cell list the compact decode produced and
+     * already knows each row's boundaries, so it can hand out the top-2 cells
+     * of every timestep as the very `GapCell` objects it holds
+     * ([TimestepTopK.capCellRows]) — the shim reads the same two records per
+     * timestep it read before, and the page allocates none of them. The
+     * truncation to two is not a saving of its own but the audited shape:
+     * `jpdict_core::char_placement::runs_from_steps` reads `alts[0].0`,
+     * `alts[0].1` and `alts[1].1` and nothing else, which is what
+     * `TimestepTopKTest.capSteps_place_the_same_boxes_as_the_full_top_k`
+     * proves over 64 shapes.
+     */
+    fun placeCells(
+        text: String,
+        charCols: FloatArray,
+        seqLenTotal: Int,
+        cropW: Int,
+        cropH: Int,
+        isVertical: Boolean,
+        pixels: IntArray? = null,
+        cells: List<List<GapCell>>? = null,
+        options: Options = Options(),
     ): List<Box> {
-        val stepsRust = steps?.map { alts -> alts.map { GapCell(ch = it.char.code, score = it.score) } }
         val opts = options.toRust()
         // The evidence path when the crop reduces; the pixel path otherwise.
         val m = pixels?.let { mask(it, cropW, cropH) }
@@ -144,7 +195,7 @@ internal object CharPlacement {
                 vertical = isVertical,
                 bgLight = m.bgLight,
                 inkBits = m.bits,
-                steps = stepsRust,
+                steps = cells,
                 options = opts,
             )
         } else {
@@ -156,7 +207,7 @@ internal object CharPlacement {
                 cropH = cropH.toUInt(),
                 vertical = isVertical,
                 pixels = pixels?.toList(),
-                steps = stepsRust,
+                steps = cells,
                 options = opts,
             )
         }

@@ -10,18 +10,20 @@ import org.junit.Test
 import uniffi.nav_graph_core.GapCell
 
 /**
- * [TimestepTopK] against the nested shape it replaces, and the two truncated
- * reads the page path takes from it.
+ * [TimestepTopK] against the nested shape it replaces, and the truncated reads
+ * the page path takes from it.
  *
  * The page-path claim this pins: the compact table **is** the nested
  * `List<List<Pair<Char, Float>>>` — same rows, same cells, same order, same
  * `equals`/`hashCode`/`toString` — it just builds a row the first time someone
- * asks for it. And the two eager consumers the page path *does* serve read the
+ * asks for it. And the eager consumers the page path *does* serve read the
  * same numbers they read before:
  *
- *  - CAP's `steps` from the top-2 truncation ([capStepRows_is_the_top_two_of_each_row],
+ *  - CAP's `steps` from the top-2 truncation ([capStepRows_are_the_top_two_of_each_row],
  *    and [capSteps_place_the_same_boxes_as_the_full_top_k] for the placement
- *    itself);
+ *    itself), in the shape the page really hands the shim — the table's own
+ *    `GapCell`s ([capCellRows_are_the_tables_own_first_two_cells],
+ *    [the_cell_path_places_the_same_boxes_as_the_full_top_k]);
  *  - the gap walk from the flat `GapCell` rows ([gapCellRows_are_the_flat_cells]).
  */
 class TimestepTopKTest {
@@ -242,8 +244,136 @@ class TimestepTopKTest {
         assertTrue("only $withInk of $total cases moved boxes; the sweep is too weak", withInk >= 16)
     }
 
-    // ── reader 2: the gap boundary's flat cells ──────────────────────────────
+    // ── the page path's own shape: CAP's steps as the table's GapCells ──────
 
+    /**
+     * [capCellRows] is what the page hands the shim, and the claim it rests on
+     * is that it needs **no** cell of its own: a row's top-2 cells are the
+     * first two cells of that row's slice, so the objects handed over are the
+     * flat list's own — asserted with [assertSame], not [assertEquals], because
+     * an equal-but-fresh `GapCell` would mean the allocation is still there.
+     *
+     * The values are also checked against [capStepRows], which is the audited
+     * `Step` truncation: the two must be the same `(ch, score)` pairs, or the
+     * page is no longer placing from what the test above proved.
+     */
+    @Test
+    fun capCellRows_are_the_tables_own_first_two_cells() {
+        val rows = listOf(
+            // 15 cells: the decode's real width.
+            List(15) { k -> (if (k == 0) 'あ' + k else 'か' + k) to (5f - k * 0.25f) },
+            // One cell: no runner-up, so the margin rule must not invent one.
+            listOf('い' to 4f),
+            // No cells at all: the decoder emitted a timestep with nothing.
+            emptyList(),
+            // Two cells exactly, and three, so the `else` branch is exercised
+            // at both its minimum and beyond.
+            listOf('う' to 3f, 'え' to 2f),
+            listOf('お' to 9f, 'か' to 8f, 'き' to 7f),
+        )
+        val (cells, starts) = table(rows)
+        val topK = TimestepTopK.of(cells, starts)
+        val cellRows = topK.capCellRows()
+        val stepRows = topK.capStepRows()
+
+        assertEquals(rows.size, cellRows.size)
+        for (t in rows.indices) {
+            val want = rows[t].take(2).map { GapCell(it.first.code, it.second) }
+            assertEquals("timestep $t values", want, cellRows[t])
+            assertEquals(
+                "timestep $t against the Step rows",
+                stepRows[t].map { GapCell(it.char.code, it.score) },
+                cellRows[t],
+            )
+            // The cells are the table's, not copies: a 1-cell and a 2-cell row
+            // both hand over the very objects the flat list holds.
+            for (k in cellRows[t].indices) {
+                assertSame("timestep $t cell $k is the flat list's own", cells[starts[t].toInt() + k], cellRows[t][k])
+            }
+        }
+        // An empty row is the shared `emptyList()` and a one-cell row a
+        // singleton: neither allocates a backing array, so the only row shape
+        // that allocates at all is the common two-cell one.
+        assertSame(emptyList<GapCell>(), cellRows[2])
+    }
+
+    /**
+     * The end-to-end statement of the new page path, as an executable claim:
+     * the boxes [CharPlacement.placeCells] produces from [capCellRows] are the
+     * boxes [CharPlacement.place] produced from the full top-15 `Step`s.
+     *
+     * The shapes are the [capSteps_place_the_same_boxes_as_the_full_top_k]
+     * sweep's 64 (crop, orientation, column-count) combinations, with one
+     * difference that sweep could not have: the rows are **mixed width** —
+     * 15, 1, 0, 2 and 3 cells — because the two paths build a differently
+     * shaped list for a short row and the decoder really does emit them.
+     */
+    @Test
+    fun the_cell_path_places_the_same_boxes_as_the_full_top_k() {
+        var withInk = 0
+        var total = 0
+        for (case in 0 until 64) {
+            val vertical = case % 3 == 0
+            val read = 40 + case % 120
+            val cross = 16 + (case * 7) % 48
+            val dims: Pair<Int, Int> = if (vertical) Pair(cross, read) else Pair(read, cross)
+            val w = dims.first
+            val h = dims.second
+            val n = 2 + case % 9
+            val pitch = (read / n).coerceAtLeast(6)
+            val text = buildString { for (i in 0 until n) append("あいうえおかきくけこ"[i]) }
+            val cols = FloatArray(n) { it.toFloat() }
+
+            val px = IntArray(w * h) { 0xFFFFFFFF.toInt() }
+            val thick = (cross * 2 / 3).coerceAtLeast(3)
+            for (i in 0 until n) {
+                val c0 = i * pitch + 1
+                val c1 = (c0 + pitch / 2).coerceAtMost(read)
+                for (r in c0 until c1) {
+                    for (c in 0 until thick) {
+                        val idx = if (vertical) r * w + c else c * w + r
+                        px[idx] = 0xFF202020.toInt()
+                    }
+                }
+            }
+            val steps = List(n + 2) { t ->
+                val ch = if (t % 3 == 2) '　' else "あいうえおかきくけこ"[t % n]
+                // Mixed widths on purpose: 0, 1, 2, 3 and the decode's 15.
+                val width = when (t % 5) {
+                    0 -> 0
+                    1 -> 1
+                    2 -> 2
+                    3 -> 3
+                    else -> 15
+                }
+                List(width) { k -> (if (k == 0) ch else 'か' + (t + k) % 80) to (4f - k * 0.2f) }
+            }
+            val topK = TimestepTopK.of(steps)
+            val full = steps.map { alts -> alts.map { (c, s) -> CharPlacement.Step(c, s) } }
+
+            val viaFull = CharPlacement.place(text, cols, n + 2, w, h, vertical, px, full)
+            val viaCells = CharPlacement.placeCells(text, cols, n + 2, w, h, vertical, px, topK.capCellRows())
+            assertEquals(
+                "case $case w=$w h=$h n=$n vertical=$vertical",
+                viaFull,
+                viaCells,
+            )
+            val template = CharPlacement.place(text, cols, n + 2, w, h, vertical, px, null)
+            if (template != viaFull) withInk++
+            total++
+        }
+        // The sweep-strength gate: how many of the 64 shapes the ink pass
+        // actually moved a box for. A template-only run would pass the parity
+        // assertion trivially, so the sweep has to be shown to bite. It bites
+        // slightly less here than in
+        // [capSteps_place_the_same_boxes_as_the_full_top_k] (15 rather than ≥16)
+        // because a 0- or 1-cell row contributes no top1−top2 margin for the
+        // template fit to move a box over — which is the whole point of the
+        // mixed widths — so the floor is set at 12 rather than copied.
+        assertTrue("only $withInk of $total cases moved boxes; the sweep is too weak", withInk >= 12)
+    }
+
+    // ── reader 2: the gap boundary's flat cells ──────────────────────────────
     @Test
     fun gapCellRows_are_the_flat_cells() {
         val rows = pageTable(6)

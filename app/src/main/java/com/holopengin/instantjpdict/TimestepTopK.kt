@@ -132,6 +132,10 @@ class TimestepTopK private constructor(
      * same numbers after truncation to `min(2, n)`, which is what makes the
      * placed boxes bit-identical while the page stops building `n − 2` `Step`
      * objects per timestep.
+     *
+     * The `Step`-shaped reference, kept for that comparison: the page path
+     * hands [capCellRows] to [CharPlacement.placeCells] — the same two cells,
+     * as the table's own `GapCell`s — and this is what it is checked against.
      */
     internal fun capStepRows(): List<List<CharPlacement.Step>> = List(size) { i ->
         when (minOf(2, rowStart[i + 1] - rowStart[i])) {
@@ -147,6 +151,48 @@ class TimestepTopK private constructor(
                 add(CharPlacement.Step(Char(cells[rowStart[i] + 1].ch), secondScore(i)))
             }
         }
+    }
+
+    /**
+     * CAP's `steps`, already in the shim's own `List<List<GapCell>>` shape.
+     *
+     * This is what the page path hands to [CharPlacement.placeCells] instead of
+     * [capStepRows]: the row's top-2 cells are the *first two cells of the row*,
+     * and the flat list already holds them as `GapCell`s in exactly that order,
+     * so each row is a two-element view over the table's own objects and the
+     * page allocates **no cell at all** on the way to the boundary. It saves,
+     * per timestep, the two `CharPlacement.Step`s [capStepRows] builds and the
+     * two `GapCell`s `place` re-wraps from them, plus one of the two row lists
+     * and one of the two row arrays — eight objects per timestep down to two.
+     *
+     * It is deliberately **not** [gapCellRows]' full-width rows. Those alias the
+     * same cells, so the Kotlin object count would be identical — but they push
+     * **fifteen** records per timestep across the FFI boundary instead of the
+     * two `runs_from_steps` reads, and on the book-page fixture that is ~9,500
+     * unneeded record lowerings a page to save nothing at all. The numbers are
+     * the same either way — that is what
+     * `TimestepTopKTest.capSteps_place_the_same_boxes_as_the_full_top_k` proves
+     * over 64 shapes — so the two cells are the cheap correct choice, not a
+     * different one.
+     *
+     * A row of one cell is a singleton list and an empty row is the shared
+     * `emptyList()`, neither of which allocates an array, so only the
+     * overwhelmingly common two-cell row pays anything at all.
+     */
+    internal fun capCellRows(): List<List<GapCell>> {
+        val n = size
+        val out = ArrayList<List<GapCell>>(n)
+        for (i in 0 until n) {
+            val from = rowStart[i]
+            out.add(
+                when (rowStart[i + 1] - from) {
+                    0 -> emptyList()
+                    1 -> listOf(cells[from])
+                    else -> listOf(cells[from], cells[from + 1])
+                },
+            )
+        }
+        return out
     }
 
     /**
