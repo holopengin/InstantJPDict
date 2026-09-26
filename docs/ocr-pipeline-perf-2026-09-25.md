@@ -124,7 +124,16 @@ boundary (`to_kotlin_char`, first UTF-16 unit, matching the old
 | one-shot crop/rotate/resize transform | frontend | **partly landed**: the portrait crop+rotate fold and the char-box evidence read off the page rect are bit-exact (~3-5 ms/page); the fully fused one-draw is **rejected** — not bit-exact (83 text/column divergences over three fixtures) and slower on line-dense pages |
 | vertical punctuation inside `decodeTopK` | FFI | **landed** (`8b2f135`): ~8 ms/page, one flag on the decode call |
 | patch-based blank-gap result | FFI | **landed** (`8b2f135`): 4.4-6.6 -> 2.3-3.0 ms, and it stops a lone surrogate degrading to U+FFFD |
-| flat/compact CTC result, lazy alternatives | FFI | **landed** (`8b2f135`) but **not a perf win on its own** (~0.3 ms) — it is where the punctuation fold lives. The real remaining win is in `LineResult`: carry `rawTopChars`/`rawTopScores` and make `rawAlternatives` lazy, since the page path only ever reads the per-timestep argmax (~4-5 ms). |
+| flat/compact CTC result | FFI | **landed** (`8b2f135`) but **not a perf win on its own** (~0.3 ms) — it is where the punctuation fold lives |
+| `LineResult` lazy alternatives | frontend | **landed** (`585ea8d`): `TimestepTopK` keeps the flat cells + a top-2 table and lazily materialises rows; materialisation 1.14 -> 0.27 ms/page and the page's object count 48,378 -> 5,900 (-87.8%), 74% of timesteps never materialised. Top-2 is provably enough (CAP reads `alts[0].0/.1` and `alts[1].1` only). Wall clock is unchanged — the win is allocation/GC, and the overlay TopK path is proven identical |
+| dead decode/gap exports | FFI surface | **landed** (`3eca372`): the shim drops `decodeTopK`/`decodeFull`/`CtcDecodeResult`/`blankGapsApply`; the PC crate keeps them for the desktop and as the parity oracle |
+| gate the per-call ncnn logs | native | **landed** (`b8f4d3d`): `PPOCR_LOGV` behind an off-by-default pref, ~0.05-0.15 ms per line (~2 ms/page). The earlier "2-3 ms per det call" did **not** reproduce — it was an unpaired-median artifact of the det wall's drift; the true figure is ~0.2 ms/det call |
+
+Open, in order of measured value:
+
+* **Kotlin-side per-line det progress** (`OcrEngine`'s per-box `Log.d` + `InferLog`) is unconditional and costs per box — the same treatment as the native lines.
+* **`CharPlacement.place`'s `Step` wrapping** could take the table's `GapCell` rows directly, dropping the last ~1,466 `Step` objects per page. Small, Kotlin-only.
+* **The remaining page budget is the two ncnn nets**, both at their measured optima (det threads=2, rec int8/fanout4) and quality-gated: the letterbox square and the rec precision choices are not free to change.
 
 Measurement corrections from the later passes:
 
