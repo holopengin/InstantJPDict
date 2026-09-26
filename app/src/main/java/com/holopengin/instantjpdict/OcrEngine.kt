@@ -549,6 +549,28 @@ class OcrEngine(
         detNcnn != null && recDynNcnn != null && ctcDecoder != null &&
             ppocrVocab.isNotEmpty() && recNumOutputs > 0
 
+    /**
+     * MEASUREMENT SEAM — hand the engine a different detector than the shipped
+     * asset, so `detect`/`detectRotated`/`recognizeStreaming` run end to end on
+     * it. The displaced net is closed.
+     *
+     * It exists because the box geometry (contour walk, unclip, furigana filter,
+     * x-overlap merge) and the CTC decode are the parts of the pipeline a
+     * detector swap has to be judged *through*, and none of that is reachable by
+     * timing a bare [DetNcnn] — a prob-map difference that keeps every box is a
+     * pass, and one that merges two lines is not. Production never calls this,
+     * and the shipped `init` path is untouched; pair it with
+     * [DetNcnn.createFromPaths], which is where the alternative model comes from.
+     *
+     * Not thread-safe: a caller that swaps while a detect is in flight would
+     * have that extract land on the old net's extractor. Test scaffolding only.
+     */
+    internal fun replaceDetForTest(det: DetNcnn?) {
+        val old = detNcnn
+        detNcnn = det
+        if (old != null && old !== det) old.close()
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     //  Detect — DB segmentation → contours → boxes (#28 furigana, unclip)
     // ═════════════════════════════════════════════════════════════════════════

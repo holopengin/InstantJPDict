@@ -177,6 +177,32 @@ class DetNcnn private constructor(private val handle: Long) {
         @JvmStatic private external fun isVerboseLoggingNative(): Boolean
 
         /**
+         * Load a det model from explicit paths, bypassing the shipped asset.
+         *
+         * **Test-support API.** [create] is the only production entry point and
+         * it is unchanged; this exists so a device A/B can price an *alternative*
+         * `det.param`/`det.bin` pair (an int8 quantisation, say) against the
+         * shipped one on the same input, which a shipped build cannot do at all
+         * because the asset name is hardcoded. It also skips
+         * `materialiseModelAsset`, so the caller owns the copy and can point at
+         * a file the app has no business reading in production.
+         *
+         * The net options are the shipped ones (2 threads, fp16 packed/storage/
+         * arithmetic, packing layout) — that is the whole point: the question is
+         * what the int8 model does *under the configuration it would ship with*.
+         */
+        internal fun createFromPaths(paramPath: String, binPath: String): DetNcnn? {
+            ensureLoaded()
+            val h = create(paramPath, binPath)
+            if (h == 0L) {
+                Log.e(TAG, "DetNcnn.createFromPaths failed for $paramPath")
+                return null
+            }
+            Log.d(TAG, "DetNcnn handle=$h from $paramPath")
+            return DetNcnn(h)
+        }
+
+        /**
          * The shared core's verbose logging, directly — no preference involved.
          *
          * The switch is process-global (see `ppocr_ncnn_core.h`), so this does
