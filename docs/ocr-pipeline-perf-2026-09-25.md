@@ -129,11 +129,18 @@ boundary (`to_kotlin_char`, first UTF-16 unit, matching the old
 | dead decode/gap exports | FFI surface | **landed** (`3eca372`): the shim drops `decodeTopK`/`decodeFull`/`CtcDecodeResult`/`blankGapsApply`; the PC crate keeps them for the desktop and as the parity oracle |
 | gate the per-call ncnn logs | native | **landed** (`b8f4d3d`): `PPOCR_LOGV` behind an off-by-default pref, ~0.05-0.15 ms per line (~2 ms/page). The earlier "2-3 ms per det call" did **not** reproduce — it was an unpaired-median artifact of the det wall's drift; the true figure is ~0.2 ms/det call |
 
-Open, in order of measured value:
+Both follow-ups landed in `d35f946`:
 
-* **Kotlin-side per-line det progress** (`OcrEngine`'s per-box `Log.d` + `InferLog`) is unconditional and costs per box — the same treatment as the native lines.
-* **`CharPlacement.place`'s `Step` wrapping** could take the table's `GapCell` rows directly, dropping the last ~1,466 `Step` objects per page. Small, Kotlin-only.
-* **The remaining page budget is the two ncnn nets**, both at their measured optima (det threads=2, rec int8/fanout4) and quality-gated: the letterbox square and the rec precision choices are not free to change.
+* the Kotlin per-box/per-line det detail shares the native `PPOCR_LOGV` switch
+  now, and the find behind it was worth more than the logs: the `prob_map:`
+  min/max/sum pass over the 802,816-float map cost **3.9 ms per detect** and
+  only formatted a line, so it is gated with it (~2.3 ms/detect paired, boxes
+  bit-identical; `Log.d` ~0.11 ms/line vs the in-memory ring's ~0.03 ms);
+* `CharPlacement.placeCells` takes the table's `GapCell` rows (two-element views
+  over the flat list's own cells, top-2 truncation kept), so the page no longer
+  re-wraps `Step`s: **5,900 -> 1,520 objects/page (−74%)**, −144..−197 µs.
+
+Remaining page budget is the two ncnn nets, both at their measured optima (det threads=2, rec int8/fanout4) and quality-gated: the letterbox square and the rec precision choices are not free to change. An x86 ncnn optimization study (isolated worktree, `ncnn-perf-exp`) is exploring knobs/kernels and the Arm transfer plan.
 
 Measurement corrections from the later passes:
 
