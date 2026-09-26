@@ -6,8 +6,8 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import uniffi.nav_graph_core.CompactCtcDecodeResult
 import uniffi.nav_graph_core.CtcDecode
-import uniffi.nav_graph_core.CtcDecodeResult
 import uniffi.nav_graph_core.charBoxesPeakOffset
 
 /**
@@ -24,6 +24,13 @@ import uniffi.nav_graph_core.charBoxesPeakOffset
  * off, isDebuggable = false), so this runs in a non-debuggable process where
  * ART/JIT timing is production-like. The Rust `.so` is the same arm64 release
  * build that ships, so the Rust lane is exact and the Kotlin lane is fair.
+ *
+ * The "after" lane is the *compact* decode plus the host's own re-expansion of
+ * the flat cell list ([materialize]) — the only result shape the boundary
+ * exports now, and the one production uses. The nested result is no longer a
+ * binding, so the parity gate here is legacy-Kotlin-vs-compact rather than
+ * compact-vs-nested; the compact-vs-nested equivalence is pinned on the Rust
+ * side (`ctc_decode::tests::compact_rows_expand_back_to_the_nested_result`).
  */
 @RunWith(AndroidJUnit4::class)
 class CtcDecodeDeviceBenchmarkTest {
@@ -153,17 +160,31 @@ class CtcDecodeDeviceBenchmarkTest {
         return legacyTopK(f.vocab, f.remap, topPruned, topChars.toList(), seqLen)
     }
 
-    private fun CtcDecodeResult.materialize(): Result =
-        Result(
+    /**
+     * The compact result as this benchmark's nested [Result], by the indexing the
+     * recognition path does: slice the flat cell list at `rawRows`, then take the
+     * per-character alternatives *by index* into those rows.
+     *
+     * Kept here rather than shared with production so the benchmark measures the
+     * decode plus the host's own re-expansion — the work the app actually does.
+     */
+    private fun CompactCtcDecodeResult.materialize(): Result {
+        val rows = List(rawRows.size - 1) { i ->
+            val from = rawRows[i].toInt()
+            val to = rawRows[i + 1].toInt()
+            List(to - from) { k -> Char(rawAlternatives[from + k].ch) to rawAlternatives[from + k].score }
+        }
+        return Result(
             text,
-            alternatives.map { row -> row.map { Char(it.ch) to it.score } },
+            altRows.map { rows[it.toInt()] },
             charCols.toFloatArray(),
             seqLenTotal.toInt(),
-            rawAlternatives.map { row -> row.map { Char(it.ch) to it.score } },
+            rows,
         )
+    }
 
     private fun rustPacked(decoder: CtcDecode, f: Fixture): Result =
-        decoder.decodeTopK(f.packedActual.asList(), 60L).materialize()
+        decoder.decodeTopKCompact(f.packedActual.asList(), 60L, false).materialize()
 
     private fun assertSame(expected: Result, actual: Result) {
         assertEquals(expected.text, actual.text)

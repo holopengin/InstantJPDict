@@ -15,25 +15,28 @@
 //!
 //! * **The per-character list is a subset of the per-timestep one.** The greedy
 //!   walk pushes the row it just built into both, so the emitted rows are the
-//!   raw rows at [`CtcDecodeResult::alt_rows`]: strictly ascending, in range.
-//!   Carrying those indices instead of the rows themselves is one integer per
-//!   *character* instead of `top_k` cells per character.
+//!   raw rows at `alt_rows`: strictly ascending, in range. Carrying those
+//!   indices instead of the rows themselves is one integer per *character*
+//!   instead of `top_k` cells per character.
 //! * **The rows do not need to be nested.** `raw_alternatives` is one flat
 //!   row-major cell list plus `raw_rows`, the row boundaries, so UniFFI lifts a
 //!   primitive-shaped list instead of allocating a list per timestep.
 //!
-//! [`CtcDecode::decode_top_k`] / [`CtcDecode::decode_full`] and the nested
-//! [`CtcDecodeResult`] are kept as the parity harness for the compact pair: same
-//! inputs, same answers, one crossing each. Production uses the compact ones.
+//! These two facts are the whole reason the nested result is not exported
+//! twice over: the flat shape is a re-presentation of the same rows, and the
+//! host's only job on arrival is to index them. The crate's own nested
+//! `jpdict_core::ctc_decode::CtcDecodeResult` is what the parity tests compare
+//! against (reached directly, not through a second export), so the equivalence
+//! is still pinned without a binding the app never calls.
 //!
 //! ## Vertical punctuation is folded in
 //!
-//! [`CtcDecode::decode_top_k_compact`] takes a `vertical` flag and applies
-//! [`CtcDecodeResult::apply_vertical_punctuation`] — the fixed 1:1 `?`→`？`,
-//! `…`→`︙`, `‥`→`︰` substitution of #56/#63 — while the rows are still being
-//! built. The host used to call three more exports per vertical line to do the
-//! same thing to the rows it had just received, crossing every character of the
-//! text and of both alternative lists a second time.
+//! [`CtcDecode::decode_top_k_compact`] takes a `vertical` flag and applies the
+//! crate's `CtcDecodeResult::apply_vertical_punctuation` — the fixed 1:1
+//! `?`→`？`, `…`→`︙`, `‥`→`︰` substitution of #56/#63 — while the rows are
+//! still being built. The host used to call three more exports per vertical
+//! line to do the same thing to the rows it had just received, crossing every
+//! character of the text and of both alternative lists a second time.
 
 use std::sync::Arc;
 
@@ -42,17 +45,6 @@ use jpdict_core::ctc_decode::{
     ctc_decode_full_packed, ctc_decode_topk, top15_alternatives, CtcDecodeResult as CoreResult,
     TOP_K,
 };
-
-/// One decoded line. Kotlin converts `GapCell.ch` back to `Char` and carries
-/// `raw_alternatives` on `PPOcrResult` exactly as the old in-process path did.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct CtcDecodeResult {
-    pub text: String,
-    pub alternatives: Vec<Vec<GapCell>>,
-    pub char_cols: Vec<f32>,
-    pub seq_len_total: i64,
-    pub raw_alternatives: Vec<Vec<GapCell>>,
-}
 
 /// One decoded line in the shape that crosses: `raw_alternatives` is one flat
 /// row-major cell list and `raw_rows` holds the row boundaries, so timestep `i`
@@ -91,29 +83,6 @@ pub struct CtcDecode {
 fn to_kotlin_char(ch: char) -> i32 {
     let mut code_units = [0u16; 2];
     ch.encode_utf16(&mut code_units)[0] as i32
-}
-
-fn to_gap_cells(rows: Vec<Vec<(char, f32)>>) -> Vec<Vec<GapCell>> {
-    rows.into_iter()
-        .map(|row| {
-            row.into_iter()
-                .map(|(ch, score)| GapCell {
-                    ch: to_kotlin_char(ch),
-                    score,
-                })
-                .collect()
-        })
-        .collect()
-}
-
-fn to_boundary_result(result: CoreResult, seq_len_total: Option<usize>) -> CtcDecodeResult {
-    CtcDecodeResult {
-        text: result.text,
-        alternatives: to_gap_cells(result.alternatives),
-        char_cols: result.char_cols,
-        seq_len_total: seq_len_total.unwrap_or(result.seq_len_total) as i64,
-        raw_alternatives: to_gap_cells(result.raw_alternatives),
-    }
 }
 
 /// Flatten the rows into one cell list plus its row boundaries, applying the
@@ -227,18 +196,10 @@ impl CtcDecode {
     /// `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
     /// timestep (`classId, logit`, repeated 15 times, descending). Entry zero is
     /// the greedy winner. Invalid lengths/ids fail closed to an empty result.
-    pub fn decode_top_k(&self, packed: Vec<f32>, seq_len: i64) -> CtcDecodeResult {
-        let seq_len = usize::try_from(seq_len).unwrap_or(0);
-        to_boundary_result(
-            ctc_decode_topk(&self.vocab, &self.remap, &packed, seq_len, TOP_K),
-            None,
-        )
-    }
-
-    /// [`Self::decode_top_k`] in the compact result shape, with the vertical
-    /// punctuation fold (`vertical`) applied to the text and both alternative
-    /// lists while the rows are built. Byte-identical to `decode_top_k`
-    /// followed by the host's own per-character mapping.
+    ///
+    /// The vertical punctuation fold (`vertical`) is applied to the text and
+    /// both alternative lists while the rows are built, so the host does not
+    /// make a second pass over them.
     pub fn decode_top_k_compact(
         &self,
         packed: Vec<f32>,
@@ -257,34 +218,11 @@ impl CtcDecode {
     ///
     /// `left_scores[t]` / `right_scores[t]` are the current pruned winner's values
     /// in the adjacent full rows, or `NaN` when unavailable. With `packed`, these
-    /// reproduce `ctc_decode_full` exactly, including interpolation from a class
-    /// that fell outside the neighbour's top-15.
-    pub fn decode_full(
-        &self,
-        packed: Vec<f32>,
-        left_scores: Vec<f32>,
-        right_scores: Vec<f32>,
-        seq_len: i64,
-        seq_len_total: i64,
-    ) -> CtcDecodeResult {
-        let seq_len = usize::try_from(seq_len).unwrap_or(0);
-        let seq_len_total = usize::try_from(seq_len_total).ok();
-        to_boundary_result(
-            ctc_decode_full_packed(
-                &self.vocab,
-                &self.remap,
-                &packed,
-                &left_scores,
-                &right_scores,
-                seq_len,
-                TOP_K,
-            ),
-            seq_len_total,
-        )
-    }
-
-    /// [`Self::decode_full`] in the compact result shape, with the vertical
-    /// punctuation fold — see [`Self::decode_top_k_compact`].
+    /// reproduce the crate's `ctc_decode_full` exactly, including interpolation
+    /// from a class that fell outside the neighbour's top-15.
+    ///
+    /// The vertical punctuation fold (`vertical`) is folded in as in
+    /// [`Self::decode_top_k_compact`].
     pub fn decode_full_compact(
         &self,
         packed: Vec<f32>,
@@ -324,8 +262,9 @@ impl CtcDecode {
     /// Top-15 alternatives for one full-logits timestep.
     ///
     /// This compatibility method intentionally has a per-timestep input shape,
-    /// but production line decoding does not call it: [`Self::decode_top_k`] and
-    /// [`Self::decode_full`] cross one compact table for the whole line.
+    /// but production line decoding does not call it:
+    /// [`Self::decode_top_k_compact`] and [`Self::decode_full_compact`] cross one
+    /// compact table for the whole line.
     pub fn top15_alternatives(&self, logits: Vec<f32>) -> Vec<GapCell> {
         top15_alternatives(&self.vocab, &self.remap, &logits)
             .into_iter()
@@ -341,7 +280,10 @@ impl CtcDecode {
 mod tests {
     //! Boundary mirrors run through the exported methods, not the upstream
     //! module, so code-point/record conversion and the compact layouts are
-    //! covered with the same Rust tests as the other nav-core shims.
+    //! covered with the same Rust tests as the other nav-core shims. The one
+    //! exception is deliberate: the compact-vs-nested parity tests call
+    //! `jpdict_core::ctc_decode` directly, because the nested shape is no longer
+    //! a binding and the oracle has to come from somewhere. See [`NestedResult`].
 
     use super::*;
 
@@ -372,7 +314,7 @@ mod tests {
     /// Re-expand a compact result into the nested rows a host would otherwise
     /// have received, using `alt_rows` to index the flat cell list. This is
     /// exactly the Kotlin the recognition path does, so comparing it against
-    /// [`CtcDecodeResult`] *is* the parity gate for the compact shape.
+    /// [`NestedResult`] *is* the parity gate for the compact shape.
     fn expand(c: &CompactCtcDecodeResult) -> (Vec<Vec<GapCell>>, Vec<Vec<GapCell>>) {
         let rows: Vec<Vec<GapCell>> = c
             .raw_rows
@@ -387,9 +329,86 @@ mod tests {
         (alts, rows)
     }
 
+    /// The nested shape the shim used to export, rebuilt here from the crate's
+    /// own result so the parity gate still compares *two shapes* without a
+    /// second binding. `#[cfg(test)]`-only: production only ever sees the
+    /// compact one.
+    struct NestedResult {
+        text: String,
+        alternatives: Vec<Vec<GapCell>>,
+        char_cols: Vec<f32>,
+        seq_len_total: i64,
+        raw_alternatives: Vec<Vec<GapCell>>,
+        /// The emitted timestep per character, as the crate records it walking
+        /// — so the shim's content-recovered `alt_rows` can be checked against
+        /// the upstream answer rather than only against itself.
+        alt_rows: Vec<i64>,
+    }
+
+    impl NestedResult {
+        fn new(result: CoreResult, seq_len_total: Option<usize>) -> Self {
+            let seq_len_total = seq_len_total.unwrap_or(result.seq_len_total) as i64;
+            Self {
+                text: result.text,
+                alternatives: to_cells(result.alternatives),
+                char_cols: result.char_cols,
+                seq_len_total,
+                raw_alternatives: to_cells(result.raw_alternatives),
+                alt_rows: result.alt_rows.iter().map(|t| *t as i64).collect(),
+            }
+        }
+    }
+
+    fn to_cells(rows: Vec<Vec<(char, f32)>>) -> Vec<Vec<GapCell>> {
+        rows.into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|(ch, score)| GapCell {
+                        ch: to_kotlin_char(ch),
+                        score,
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The top-K decode as the nested shape, via the crate directly.
+    fn nested_top_k(d: &CtcDecode, packed: Vec<f32>, seq_len: i64) -> NestedResult {
+        let seq_len = usize::try_from(seq_len).unwrap_or(0);
+        NestedResult::new(
+            ctc_decode_topk(&d.vocab, &d.remap, &packed, seq_len, TOP_K),
+            None,
+        )
+    }
+
+    /// The full-logits decode as the nested shape, via the crate directly.
+    fn nested_full(
+        d: &CtcDecode,
+        packed: Vec<f32>,
+        left_scores: Vec<f32>,
+        right_scores: Vec<f32>,
+        seq_len: i64,
+        seq_len_total: i64,
+    ) -> NestedResult {
+        let seq_len = usize::try_from(seq_len).unwrap_or(0);
+        let seq_len_total = usize::try_from(seq_len_total).ok();
+        NestedResult::new(
+            ctc_decode_full_packed(
+                &d.vocab,
+                &d.remap,
+                &packed,
+                &left_scores,
+                &right_scores,
+                seq_len,
+                TOP_K,
+            ),
+            seq_len_total,
+        )
+    }
+
     /// The host's own vertical-punctuation map, the operation the compact
     /// `vertical` flag replaces: text plus every cell of both lists.
-    fn vertical_punctuate(r: &mut CtcDecodeResult) {
+    fn vertical_punctuate(r: &mut NestedResult) {
         fn map(c: char) -> char {
             match c {
                 '?' => '？',
@@ -438,14 +457,14 @@ mod tests {
         assert!(top.iter().all(|cell| (0..=0xFFFF).contains(&cell.ch)));
 
         let rows = [step15(1, 0.9)];
-        let decoded = d.decode_top_k(flatten(&rows), rows.len() as i64);
-        assert_eq!(decoded.alternatives[0][0].ch, expected);
-        assert_eq!(decoded.raw_alternatives[0][0].ch, expected);
-        assert!(decoded
-            .alternatives
+        let decoded = d.decode_top_k_compact(flatten(&rows), rows.len() as i64, false);
+        let (alts, raw) = expand(&decoded);
+        assert_eq!(alts[0][0].ch, expected);
+        assert_eq!(raw[0][0].ch, expected);
+        assert!(alts
             .iter()
             .flatten()
-            .chain(decoded.raw_alternatives.iter().flatten())
+            .chain(raw.iter().flatten())
             .all(|cell| (0..=0xFFFF).contains(&cell.ch)));
     }
 
@@ -477,21 +496,28 @@ mod tests {
             step15(18709, 0.6),
             step15(2, 0.9),
         ];
-        let got = d.decode_top_k(flatten(&rows), rows.len() as i64);
+        let got = d.decode_top_k_compact(flatten(&rows), rows.len() as i64, false);
+        let (alts, raw) = expand(&got);
         assert_eq!(got.text, "あう い");
         assert_eq!(got.char_cols, vec![0.0, 3.0, 4.0, 5.0]);
         assert_eq!(got.seq_len_total, 6);
-        assert_eq!(got.raw_alternatives.len(), 6);
-        assert!(got.raw_alternatives.iter().all(|row| row.len() == 15));
-        assert_eq!(got.alternatives.len(), 4);
-        assert_eq!(got.alternatives[0][0].ch, 'あ' as i32);
-        assert_eq!(got.raw_alternatives[2][0].ch, '\u{3000}' as i32);
+        assert_eq!(raw.len(), 6);
+        assert!(raw.iter().all(|row| row.len() == 15));
+        assert_eq!(alts.len(), 4);
+        assert_eq!(alts[0][0].ch, 'あ' as i32);
+        assert_eq!(raw[2][0].ch, '\u{3000}' as i32);
+        // The flat list is exactly those rows, and the boundaries say where each
+        // one starts, so the host re-derives the shape without a second crossing.
+        assert_eq!(got.raw_alternatives.len(), 6 * 15);
+        assert_eq!(got.raw_rows, vec![0, 15, 30, 45, 60, 75, 90]);
+        assert_eq!(got.alt_rows, vec![0, 3, 4, 5]);
     }
 
     /// The compact result is the nested one, re-derived: the flat cell list
     /// splits back into the same rows, `alt_rows` picks the same per-character
     /// rows, and the columns, length and text are untouched. This is the whole
-    /// parity gate for the flat shape — the host's only job is indexing.
+    /// parity gate for the flat shape — the host's only job is indexing — and
+    /// the nested side is the crate's own result, reached directly.
     #[test]
     fn compact_rows_expand_back_to_the_nested_result() {
         let d = decoder((0..=20).collect());
@@ -503,7 +529,7 @@ mod tests {
             step15(18709, 0.6), // space: emitted
             step15(2, 0.9),
         ];
-        let nested = d.decode_top_k(flatten(&rows), rows.len() as i64);
+        let nested = nested_top_k(&d, flatten(&rows), rows.len() as i64);
         let compact = d.decode_top_k_compact(flatten(&rows), rows.len() as i64, false);
         let (alts, raw) = expand(&compact);
 
@@ -518,8 +544,10 @@ mod tests {
         assert_eq!(*compact.raw_rows.last().unwrap(), compact.raw_alternatives.len() as i64);
         assert_eq!(compact.raw_rows.len(), nested.raw_alternatives.len() + 1);
         // The emitted rows are the raw rows at `alt_rows`: ascending, in range,
-        // and as many as there are characters.
+        // and as many as there are characters. The crate records those indices
+        // itself while it walks, so this is its answer, not a re-derivation.
         assert_eq!(compact.alt_rows, vec![0, 3, 4, 5]);
+        assert_eq!(compact.alt_rows, nested.alt_rows);
         assert!(compact.alt_rows.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(compact.alt_rows.len(), nested.alternatives.len());
         for (&t, row) in compact.alt_rows.iter().zip(&alts) {
@@ -554,14 +582,14 @@ mod tests {
         // Horizontal: the compact shape with the flag off is the plain decode.
         let flat = d.decode_top_k_compact(packed.clone(), rows.len() as i64, false);
         let (alts, raw) = expand(&flat);
-        let plain = d.decode_top_k(packed.clone(), rows.len() as i64);
+        let plain = nested_top_k(&d, packed.clone(), rows.len() as i64);
         assert_eq!(flat.text, plain.text);
         assert_eq!(flat.text, "?…‥aあ");
         assert_eq!(alts, plain.alternatives);
         assert_eq!(raw, plain.raw_alternatives);
 
-        // Vertical: identical to `decode_top_k` + the host's own mapping.
-        let mut by_hand = d.decode_top_k(packed.clone(), rows.len() as i64);
+        // Vertical: identical to the nested decode + the host's own mapping.
+        let mut by_hand = nested_top_k(&d, packed.clone(), rows.len() as i64);
         vertical_punctuate(&mut by_hand);
         let vertical = d.decode_top_k_compact(packed.clone(), rows.len() as i64, true);
         let (v_alts, v_raw) = expand(&vertical);
@@ -619,7 +647,7 @@ mod tests {
         let left = vec![f32::NAN, 0.49, 3.0];
         let right = vec![3.0, 0.0, f32::NAN];
 
-        let nested = d.decode_full(packed.clone(), left.clone(), right.clone(), 3, 99);
+        let nested = nested_full(&d, packed.clone(), left.clone(), right.clone(), 3, 99);
         let compact = d.decode_full_compact(packed.clone(), left.clone(), right.clone(), 3, 99, false);
         let (alts, raw) = expand(&compact);
         assert_eq!(compact.seq_len_total, 99);
@@ -627,8 +655,9 @@ mod tests {
         assert_eq!(compact.char_cols, nested.char_cols);
         assert_eq!(alts, nested.alternatives);
         assert_eq!(raw, nested.raw_alternatives);
+        assert_eq!(compact.alt_rows, nested.alt_rows);
 
-        let mut by_hand = d.decode_full(packed.clone(), left.clone(), right.clone(), 3, 99);
+        let mut by_hand = nested_full(&d, packed.clone(), left.clone(), right.clone(), 3, 99);
         vertical_punctuate(&mut by_hand);
         let vertical = d.decode_full_compact(packed, left, right, 3, 99, true);
         let (v_alts, v_raw) = expand(&vertical);
@@ -685,33 +714,18 @@ mod tests {
                 packed.push(row[class]);
             }
         }
-        let got = d.decode_full(
+        let got = d.decode_full_compact(
             packed,
             vec![f32::NAN, 0.49, 3.0],
             vec![3.0, 0.0, f32::NAN],
             3,
             99,
+            false,
         );
+        let (_, raw) = expand(&got);
         assert_eq!(got.text, "いあい");
         assert_eq!(got.seq_len_total, 99);
-        assert!(got.raw_alternatives[0]
-            .iter()
-            .all(|cell| cell.ch != 'あ' as i32));
+        assert!(raw[0].iter().all(|cell| cell.ch != 'あ' as i32));
         assert!(got.char_cols[1] < 1.0 && got.char_cols[1] > 0.9);
-    }
-
-    #[test]
-    fn malformed_compact_inputs_fail_closed_without_panicking() {
-        let d = decoder((0..20).collect());
-        let short = d.decode_top_k(vec![0.0, 1.0], 1);
-        assert!(short.text.is_empty());
-        assert!(short.raw_alternatives.is_empty());
-
-        let bad_id = d.decode_top_k(vec![f32::NAN; 30], 1);
-        assert!(bad_id.text.is_empty());
-
-        let full = d.decode_full(vec![0.0; 30], vec![0.0], vec![], 1, 7);
-        assert!(full.text.is_empty());
-        assert_eq!(full.seq_len_total, 7);
     }
 }

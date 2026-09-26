@@ -1,15 +1,12 @@
 package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.BlankGaps
-import com.holopengin.instantjpdict.util.toGapLine
 import com.holopengin.instantjpdict.util.toGapPlanLine
-import com.holopengin.instantjpdict.util.toLineResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.nav_graph_core.blankGapsApply
 import uniffi.nav_graph_core.blankGapsPlan
 
 /**
@@ -17,18 +14,20 @@ import uniffi.nav_graph_core.blankGapsPlan
  * the placeholders go and grows its own lists, instead of crossing the whole
  * [LineResult] in and out.
  *
- * [BlankGapsTest] pins the resulting policy. This pins the *equivalence* with the
- * round trip it replaced, which is the claim that lets the payload shrink:
- * `blankGapsApply(gapLine)` on the host, applied to the same line, must produce
- * the identical `LineResult`.
+ * [BlankGapsTest] pins the resulting policy. This pins the *facade* — that the
+ * plan is applied to the host's own lists exactly, on every geometry source and
+ * every growth combination — because that is what the payload shrink rests on:
+ * the whole-line crossing this lane replaced (`blankGapsApply`) is gone from the
+ * boundary, so the expectations here are written out rather than diffed against
+ * it.
  *
- * One documented difference, and it is a loss the plan removes: the round trip
- * carries every alternative through `GapCell.ch: Int`, and a lone surrogate —
- * the first UTF-16 unit of a supplementary-plane vocabulary entry, which the
- * decode boundary deliberately keeps — is not a Rust `char`, so it comes back as
- * U+FFFD. The plan never carries the alternatives, so it keeps the cell the
- * decode produced. [the_round_trip_would_flatten_a_lone_surrogate] pins that as
- * the only allowed difference.
+ * The *equivalence* with that removed crossing is not lost with it: the Rust
+ * shim's `applying_the_plan_on_the_host_reproduces_apply` compares a host
+ * applying the plan against `jpdict_core::blank_gaps::apply_blank_gaps` reached
+ * directly, which is the same claim with a real reference on the other side.
+ * What only this side can pin is the one thing the plan lane *removes* rather
+ * than reproduces: a lone surrogate in the alternatives survives, because the
+ * alternatives are never carried over at all.
  *
  * Fixture geometry is the measured one (`GapDetectorTest`): five characters at
  * y-centres 10/30/50/90/110 → spacings 20/20/40/20, median 20, one gap at index 3.
@@ -63,49 +62,64 @@ class BlankGapsPlanTest {
         seqLenTotal = crop?.third ?: 0,
     )
 
-    /** The lane the plan replaced: the whole line across and back. */
-    private fun roundTrip(l: LineResult): LineResult = blankGapsApply(l.toGapLine()).toLineResult(l)
+    /**
+     * The default per-character alternatives for [text], with a placeholder
+     * entry at each index in [placeholderAt]. Names the fixture's own list rather
+     * than re-deriving it, so the expectation reads as data.
+     */
+    private fun alts(text: String, vararg placeholderAt: Int): MutableList<MutableList<Pair<Char, Float>>> =
+        MutableList(text.length) { i ->
+            if (i in placeholderAt) mutableListOf(OcrEngine.GAP_CHAR to 0f) else mutableListOf(text[i] to 1f)
+        }
 
+    /** Every field the plan lane is allowed to touch, compared with no tolerance. */
     private fun assertSameLine(expected: LineResult, actual: LineResult, why: String) {
         assertEquals("$why: text", expected.text, actual.text)
         assertEquals("$why: boxes", expected.charBoxes, actual.charBoxes)
         assertTrue("$why: cols", expected.charCols.contentEquals(actual.charCols))
+        assertEquals("$why: alternatives", expected.alternatives, actual.alternatives)
         assertEquals("$why: overrides", expected.overrides, actual.overrides)
         assertEquals("$why: vertical", expected.isVertical, actual.isVertical)
         assertEquals("$why: raw", expected.rawAlternatives, actual.rawAlternatives)
-        assertEquals("$why: alternatives size", expected.alternatives.size, actual.alternatives.size)
-        for (i in actual.alternatives.indices) {
-            val e = expected.alternatives[i]
-            val a = actual.alternatives[i]
-            assertEquals("$why: row $i size", e.size, a.size)
-            for (j in a.indices) {
-                if (e[j] == a[j]) continue
-                // The only tolerated difference: the round trip's U+FFFD for a
-                // lone surrogate, which the plan lane keeps as the decode made it.
-                assertEquals("$why: row $i cell $j is the U+FFFD the round trip invents", '�', e[j].first)
-                assertTrue(
-                    "$why: row $i cell $j kept a lone surrogate",
-                    a[j].first.code in 0xD800..0xDFFF,
-                )
-                assertEquals("$why: row $i cell $j score", e[j].second, a[j].second, 0f)
-            }
-        }
+        assertEquals("$why: cropW", expected.cropW, actual.cropW)
+        assertEquals("$why: cropH", expected.cropH, actual.cropH)
+        assertEquals("$why: seqLenTotal", expected.seqLenTotal, actual.seqLenTotal)
     }
 
-    // ── the equivalence ─────────────────────────────────────────────────────
+    // ── the plan, materialised ──────────────────────────────────────────────
 
     @Test
-    fun the_plan_lane_reproduces_the_round_trip_on_the_measured_fixture() {
+    fun the_plan_lane_inserts_the_measured_gap() {
         val l = line()
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "measured fixture")
-        assertEquals("あいう${OcrEngine.GAP_CHAR}えお", BlankGaps.apply(l).text)
+        val out = BlankGaps.apply(l)
+        // The gap's placeholder box is interpolated between the two neighbours
+        // it was dropped from: centres 50 and 90 → 70.
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお",
+                charBoxes = verticalBoxes(listOf(10, 30, 50, 70, 90, 110)),
+                alternatives = alts("あいう${OcrEngine.GAP_CHAR}えお", 3),
+            ),
+            out,
+            "measured fixture",
+        )
     }
 
     @Test
-    fun the_plan_lane_reproduces_the_round_trip_with_every_list_growing() {
+    fun the_plan_lane_grows_every_list() {
         val l = line(cols = floatArrayOf(0f, 2f, 4f, 8f, 10f), crop = Triple(40, 200, 25))
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "full lists")
         val out = BlankGaps.apply(l)
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお",
+                charBoxes = verticalBoxes(listOf(10, 30, 50, 70, 90, 110)),
+                alternatives = alts("あいう${OcrEngine.GAP_CHAR}えお", 3),
+                // 6f: the midpoint of the neighbouring columns 4 and 8.
+                charCols = floatArrayOf(0f, 2f, 4f, 6f, 8f, 10f),
+            ),
+            out,
+            "full lists",
+        )
         assertEquals(6, out.charBoxes.size)
         assertEquals(6, out.alternatives.size)
         assertEquals(6, out.charCols.size)
@@ -113,19 +127,26 @@ class BlankGapsPlanTest {
     }
 
     @Test
-    fun the_plan_lane_reproduces_the_round_trip_with_only_the_boxes_growing() {
+    fun the_plan_lane_grows_only_the_boxes() {
         // No alternatives, no columns: the "empty means unknown" rule — those two
         // lists stay empty rather than get one mismatched entry.
         val l = line(alternatives = emptyList(), cols = floatArrayOf())
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "boxes only")
         val out = BlankGaps.apply(l)
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお",
+                charBoxes = verticalBoxes(listOf(10, 30, 50, 70, 90, 110)),
+            ),
+            out,
+            "boxes only",
+        )
         assertEquals(6, out.charBoxes.size)
         assertTrue(out.alternatives.isEmpty())
         assertEquals(0, out.charCols.size)
     }
 
     @Test
-    fun the_plan_lane_reproduces_the_round_trip_with_several_gaps_and_overrides() {
+    fun the_plan_lane_grows_several_gaps_and_shifts_overrides() {
         val l = line(
             text = "あいうえおかき",
             boxes = verticalBoxes(listOf(10, 30, 50, 90, 110, 150, 170)),
@@ -133,9 +154,21 @@ class BlankGapsPlanTest {
             overrides = mutableMapOf(0 to ('Z' to 1f), 6 to ('X' to 1f)),
             crop = Triple(40, 200, 25),
         )
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "two gaps")
         val out = BlankGaps.apply(l)
-        assertEquals("あいう${OcrEngine.GAP_CHAR}えお${OcrEngine.GAP_CHAR}かき", out.text)
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお${OcrEngine.GAP_CHAR}かき",
+                // Two interpolated centres, 70 and 130.
+                charBoxes = verticalBoxes(listOf(10, 30, 50, 70, 90, 110, 130, 150, 170)),
+                alternatives = alts("あいう${OcrEngine.GAP_CHAR}えお${OcrEngine.GAP_CHAR}かき", 3, 6),
+                // Each planned column is the midpoint of two *original* columns,
+                // so both land where the original text put them.
+                charCols = floatArrayOf(0f, 1f, 2f, 2.5f, 3f, 4f, 4.5f, 5f, 6f),
+                overrides = mutableMapOf(0 to ('Z' to 1f), 8 to ('X' to 1f)),
+            ),
+            out,
+            "two gaps",
+        )
         // Overrides follow their characters; a placeholder carries none.
         assertEquals('Z', out.overrides[0]!!.first)
         assertEquals('X', out.overrides[8]!!.first)
@@ -143,12 +176,21 @@ class BlankGapsPlanTest {
     }
 
     @Test
-    fun the_plan_lane_reproduces_the_round_trip_when_the_boxes_cannot_describe_the_text() {
+    fun the_plan_lane_works_when_the_boxes_cannot_describe_the_text() {
         // No char boxes: the detector falls through to the CTC columns, and the
-        // per-timestep lists are still never handed over.
+        // per-timestep lists are still never handed over. There is no box to
+        // interpolate, so the box list stays empty and the columns still grow.
         val l = line(boxes = emptyList(), cols = floatArrayOf(0f, 2f, 4f, 8f, 10f))
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "columns geometry")
-        assertEquals("あいう${OcrEngine.GAP_CHAR}えお", BlankGaps.apply(l).text)
+        val out = BlankGaps.apply(l)
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお",
+                alternatives = alts("あいう${OcrEngine.GAP_CHAR}えお", 3),
+                charCols = floatArrayOf(0f, 2f, 4f, 6f, 8f, 10f),
+            ),
+            out,
+            "columns geometry",
+        )
     }
 
     // ── the policy the plan carries ─────────────────────────────────────────
@@ -222,34 +264,45 @@ class BlankGapsPlanTest {
         // 2/2/4/2, median 2, one gap at index 3.
         val step = { ch: Char, score: Float -> listOf(ch to score) }
         val blankStep = listOf('\u3000' to 0.99f)
-        val l = line(
-            boxes = emptyList(),
-            cols = floatArrayOf(),
-            rawAlternatives = listOf(
-                step('あ', 1f), blankStep, step('い', 1f), blankStep, step('う', 1f),
-                blankStep, blankStep, blankStep, step('え', 1f), blankStep, step('お', 1f),
-            ),
+        val raw = listOf(
+            step('あ', 1f), blankStep, step('い', 1f), blankStep, step('う', 1f),
+            blankStep, blankStep, blankStep, step('え', 1f), blankStep, step('お', 1f),
         )
-        assertSameLine(roundTrip(l), BlankGaps.apply(l), "timestep walk")
-        assertEquals("あいう${OcrEngine.GAP_CHAR}えお", BlankGaps.apply(l).text)
+        val l = line(boxes = emptyList(), cols = floatArrayOf(), rawAlternatives = raw)
+        val out = BlankGaps.apply(l)
+        assertSameLine(
+            l.copy(
+                text = "あいう${OcrEngine.GAP_CHAR}えお",
+                alternatives = alts("あいう${OcrEngine.GAP_CHAR}えお", 3),
+            ),
+            out,
+            "timestep walk",
+        )
+        // The walk answers the geometry, so only the retry paid for the raw lists
+        // (asserted above, unchanged) and nothing had to grow but the text and
+        // the alternatives: there is no box to interpolate and no column known.
+        assertTrue(out.charBoxes.isEmpty())
+        assertEquals(0, out.charCols.size)
     }
 
-    // ── the documented loss the plan removes ────────────────────────────────
+    // ── the loss the plan lane keeps from making ────────────────────────────
 
     /**
-     * The round trip's `Char` ↔ `Int` conversion has no Rust `char` for a lone
-     * surrogate, so it flattens one to U+FFFD. The plan lane never carries the
-     * alternatives, so the decode's own character survives. Pinning the *loss*
-     * so nobody reads the equivalence above as "the round trip was lossless".
+     * A `Char` ↔ `Int` crossing has no Rust `char` for a lone surrogate, so the
+     * removed whole-line lane flattened one to U+FFFD. The plan lane never
+     * carries the alternatives — only their length — so the decode's own cell
+     * survives. Pinning it so nobody reads the smaller payload as a lossy one.
      */
     @Test
-    fun the_round_trip_would_flatten_a_lone_surrogate() {
+    fun the_plan_lane_keeps_a_lone_surrogate_the_crossing_would_have_flattened() {
         val lone = '\uD83D' // the first UTF-16 unit of U+1F468, as the boundary emits it
         // A line whose alternatives list is *not* full-length, so the plan leaves
-        // it alone and the comparison is a straight cell-for-cell one.
+        // it alone and the assertion is a straight cell-for-cell one.
         val l = line(alternatives = listOf(mutableListOf(lone to 0.9f, 'あ' to 0.5f)))
-        val flattened = roundTrip(l).alternatives[0][0].first
-        assertEquals('�', flattened)
-        assertEquals(lone, BlankGaps.apply(l).alternatives[0][0].first)
+        val out = BlankGaps.apply(l)
+        assertEquals("あいう${OcrEngine.GAP_CHAR}えお", out.text)
+        assertEquals(1, out.alternatives.size)
+        assertEquals(lone, out.alternatives[0][0].first)
+        assertEquals(0.9f, out.alternatives[0][0].second, 0f)
     }
 }

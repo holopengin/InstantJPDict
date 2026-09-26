@@ -3,8 +3,8 @@ package com.holopengin.instantjpdict
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import uniffi.nav_graph_core.CompactCtcDecodeResult
 import uniffi.nav_graph_core.CtcDecode
-import uniffi.nav_graph_core.CtcDecodeResult
 import uniffi.nav_graph_core.charBoxesPeakOffset
 
 /**
@@ -26,6 +26,14 @@ import uniffi.nav_graph_core.charBoxesPeakOffset
  * packing for "after", because omitting that work would measure a crossing the
  * app cannot actually make. Fixture construction and decoder construction are
  * outside every timed region.
+ *
+ * The "after" lane is the *compact* decode plus the host's own re-expansion of
+ * the flat cell list ([materialize]) — the only result shape the boundary
+ * exports now, and the one production uses. The nested result is no longer a
+ * binding, so the parity gate here is legacy-Kotlin-vs-compact rather than
+ * compact-vs-nested; the compact-vs-nested equivalence is pinned on the Rust
+ * side (`ctc_decode::tests::compact_rows_expand_back_to_the_nested_result`,
+ * against `jpdict_core::ctc_decode::ctc_decode_topk` reached directly).
  */
 class CtcDecodeJvmBenchmarkTest {
     private companion object {
@@ -241,28 +249,43 @@ class CtcDecodeJvmBenchmarkTest {
     private fun rustPacked(decoder: CtcDecode, packedModel: FloatArray): Result {
         // Match production's trim from padded model output to useful timesteps.
         val packed = packedModel.copyOf(60 * TOP_K * 2)
-        return decoder.decodeTopK(packed.asList(), 60L).materialize()
+        return decoder.decodeTopKCompact(packed.asList(), 60L, false).materialize()
     }
 
     private fun rustFull(decoder: CtcDecode, f: Fixture): Result {
         val rows = OcrEngine.packCtcCandidateRows(f.cropLogits, 60, 18_710)
-        return decoder.decodeFull(
+        return decoder.decodeFullCompact(
             rows.packed.asList(),
             rows.leftScores.asList(),
             rows.rightScores.asList(),
             60L,
             60L,
+            false,
         ).materialize()
     }
 
-    private fun CtcDecodeResult.materialize(): Result =
-        Result(
+    /**
+     * The compact result as this benchmark's nested [Result], by the indexing the
+     * recognition path does: slice the flat cell list at `rawRows`, then take the
+     * per-character alternatives *by index* into those rows.
+     *
+     * Kept here rather than shared with production so the benchmark measures the
+     * decode plus the host's own re-expansion — the work the app actually does.
+     */
+    private fun CompactCtcDecodeResult.materialize(): Result {
+        val rows = List(rawRows.size - 1) { i ->
+            val from = rawRows[i].toInt()
+            val to = rawRows[i + 1].toInt()
+            List(to - from) { k -> Char(rawAlternatives[from + k].ch) to rawAlternatives[from + k].score }
+        }
+        return Result(
             text,
-            alternatives.map { row -> row.map { Char(it.ch) to it.score } },
+            altRows.map { rows[it.toInt()] },
             charCols.toFloatArray(),
             seqLenTotal.toInt(),
-            rawAlternatives.map { row -> row.map { Char(it.ch) to it.score } },
+            rows,
         )
+    }
 
     private fun assertSame(expected: Result, actual: Result) {
         assertEquals(expected.text, actual.text)

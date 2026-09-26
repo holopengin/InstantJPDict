@@ -1052,12 +1052,6 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
-
-
-
-
-
-
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1116,11 +1110,7 @@ internal interface UniffiLib : Library {
     ): Pointer
     fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_char(`ptr`: Pointer,`classIdx`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
-    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_full(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`leftScores`: RustBuffer.ByValue,`rightScores`: RustBuffer.ByValue,`seqLen`: Long,`seqLenTotal`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_full_compact(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`leftScores`: RustBuffer.ByValue,`rightScores`: RustBuffer.ByValue,`seqLen`: Long,`seqLenTotal`: Long,`vertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`seqLen`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k_compact(`ptr`: Pointer,`packed`: RustBuffer.ByValue,`seqLen`: Long,`vertical`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1227,8 +1217,6 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_blank_gap_timestep_blank_char(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     fun uniffi_nav_graph_core_fn_func_blank_gap_timestep_columns(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    fun uniffi_nav_graph_core_fn_func_blank_gaps_apply(`line`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_blank_gaps_plan(`line`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1554,8 +1542,6 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_func_blank_gap_timestep_columns(
     ): Short
-    fun uniffi_nav_graph_core_checksum_func_blank_gaps_apply(
-    ): Short
     fun uniffi_nav_graph_core_checksum_func_blank_gaps_plan(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_blank_gaps_with_gap_char_at(
@@ -1772,11 +1758,7 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char(
     ): Short
-    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full(
-    ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full_compact(
-    ): Short
-    fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k(
     ): Short
     fun uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k_compact(
     ): Short
@@ -1886,9 +1868,6 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_blank_gap_timestep_columns() != 60292.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_apply() != 50662.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_blank_gaps_plan() != 53438.toShort()) {
@@ -2215,22 +2194,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_char() != 60407.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full() != 29654.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full_compact() != 6237.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_full_compact() != 28659.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k() != 23013.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k_compact() != 6080.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_decode_top_k_compact() != 389.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_remap_class() != 58225.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_top15_alternatives() != 9607.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_method_ctcdecode_top15_alternatives() != 5173.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_method_deinflector_deinflect() != 19328.toShort()) {
@@ -3469,14 +3442,11 @@ public interface CtcDecodeInterface {
      *
      * `left_scores[t]` / `right_scores[t]` are the current pruned winner's values
      * in the adjacent full rows, or `NaN` when unavailable. With `packed`, these
-     * reproduce `ctc_decode_full` exactly, including interpolation from a class
-     * that fell outside the neighbour's top-15.
-     */
-    fun `decodeFull`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long): CtcDecodeResult
-    
-    /**
-     * [`Self::decode_full`] in the compact result shape, with the vertical
-     * punctuation fold — see [`Self::decode_top_k_compact`].
+     * reproduce the crate's `ctc_decode_full` exactly, including interpolation
+     * from a class that fell outside the neighbour's top-15.
+     *
+     * The vertical punctuation fold (`vertical`) is folded in as in
+     * [`Self::decode_top_k_compact`].
      */
     fun `decodeFullCompact`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult
     
@@ -3486,14 +3456,10 @@ public interface CtcDecodeInterface {
      * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
      * timestep (`classId, logit`, repeated 15 times, descending). Entry zero is
      * the greedy winner. Invalid lengths/ids fail closed to an empty result.
-     */
-    fun `decodeTopK`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long): CtcDecodeResult
-    
-    /**
-     * [`Self::decode_top_k`] in the compact result shape, with the vertical
-     * punctuation fold (`vertical`) applied to the text and both alternative
-     * lists while the rows are built. Byte-identical to `decode_top_k`
-     * followed by the host's own per-character mapping.
+     *
+     * The vertical punctuation fold (`vertical`) is applied to the text and
+     * both alternative lists while the rows are built, so the host does not
+     * make a second pass over them.
      */
     fun `decodeTopKCompact`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult
     
@@ -3506,8 +3472,9 @@ public interface CtcDecodeInterface {
      * Top-15 alternatives for one full-logits timestep.
      *
      * This compatibility method intentionally has a per-timestep input shape,
-     * but production line decoding does not call it: [`Self::decode_top_k`] and
-     * [`Self::decode_full`] cross one compact table for the whole line.
+     * but production line decoding does not call it:
+     * [`Self::decode_top_k_compact`] and [`Self::decode_full_compact`] cross one
+     * compact table for the whole line.
      */
     fun `top15Alternatives`(`logits`: List<kotlin.Float>): List<GapCell>
     
@@ -3629,24 +3596,11 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
      *
      * `left_scores[t]` / `right_scores[t]` are the current pruned winner's values
      * in the adjacent full rows, or `NaN` when unavailable. With `packed`, these
-     * reproduce `ctc_decode_full` exactly, including interpolation from a class
-     * that fell outside the neighbour's top-15.
-     */override fun `decodeFull`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long): CtcDecodeResult {
-            return FfiConverterTypeCtcDecodeResult.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_full(
-        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterSequenceFloat.lower(`leftScores`),FfiConverterSequenceFloat.lower(`rightScores`),FfiConverterLong.lower(`seqLen`),FfiConverterLong.lower(`seqLenTotal`),_status)
-}
-    }
-    )
-    }
-    
-
-    
-    /**
-     * [`Self::decode_full`] in the compact result shape, with the vertical
-     * punctuation fold — see [`Self::decode_top_k_compact`].
+     * reproduce the crate's `ctc_decode_full` exactly, including interpolation
+     * from a class that fell outside the neighbour's top-15.
+     *
+     * The vertical punctuation fold (`vertical`) is folded in as in
+     * [`Self::decode_top_k_compact`].
      */override fun `decodeFullCompact`(`packed`: List<kotlin.Float>, `leftScores`: List<kotlin.Float>, `rightScores`: List<kotlin.Float>, `seqLen`: kotlin.Long, `seqLenTotal`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult {
             return FfiConverterTypeCompactCtcDecodeResult.lift(
     callWithPointer {
@@ -3666,24 +3620,10 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
      * `packed` is the unchanged `RecNcnn.inferTopK` layout: 30 `Float`s per
      * timestep (`classId, logit`, repeated 15 times, descending). Entry zero is
      * the greedy winner. Invalid lengths/ids fail closed to an empty result.
-     */override fun `decodeTopK`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long): CtcDecodeResult {
-            return FfiConverterTypeCtcDecodeResult.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_ctcdecode_decode_top_k(
-        it, FfiConverterSequenceFloat.lower(`packed`),FfiConverterLong.lower(`seqLen`),_status)
-}
-    }
-    )
-    }
-    
-
-    
-    /**
-     * [`Self::decode_top_k`] in the compact result shape, with the vertical
-     * punctuation fold (`vertical`) applied to the text and both alternative
-     * lists while the rows are built. Byte-identical to `decode_top_k`
-     * followed by the host's own per-character mapping.
+     *
+     * The vertical punctuation fold (`vertical`) is applied to the text and
+     * both alternative lists while the rows are built, so the host does not
+     * make a second pass over them.
      */override fun `decodeTopKCompact`(`packed`: List<kotlin.Float>, `seqLen`: kotlin.Long, `vertical`: kotlin.Boolean): CompactCtcDecodeResult {
             return FfiConverterTypeCompactCtcDecodeResult.lift(
     callWithPointer {
@@ -3716,8 +3656,9 @@ open class CtcDecode: Disposable, AutoCloseable, CtcDecodeInterface {
      * Top-15 alternatives for one full-logits timestep.
      *
      * This compatibility method intentionally has a per-timestep input shape,
-     * but production line decoding does not call it: [`Self::decode_top_k`] and
-     * [`Self::decode_full`] cross one compact table for the whole line.
+     * but production line decoding does not call it:
+     * [`Self::decode_top_k_compact`] and [`Self::decode_full_compact`] cross one
+     * compact table for the whole line.
      */override fun `top15Alternatives`(`logits`: List<kotlin.Float>): List<GapCell> {
             return FfiConverterSequenceTypeGapCell.lift(
     callWithPointer {
@@ -6040,54 +5981,6 @@ public object FfiConverterTypeCompactCtcDecodeResult: FfiConverterRustBuffer<Com
             FfiConverterLong.write(value.`seqLenTotal`, buf)
             FfiConverterSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
             FfiConverterSequenceLong.write(value.`rawRows`, buf)
-    }
-}
-
-
-
-/**
- * One decoded line. Kotlin converts `GapCell.ch` back to `Char` and carries
- * `raw_alternatives` on `PPOcrResult` exactly as the old in-process path did.
- */
-data class CtcDecodeResult (
-    var `text`: kotlin.String, 
-    var `alternatives`: List<List<GapCell>>, 
-    var `charCols`: List<kotlin.Float>, 
-    var `seqLenTotal`: kotlin.Long, 
-    var `rawAlternatives`: List<List<GapCell>>
-) {
-    
-    companion object
-}
-
-/**
- * @suppress
- */
-public object FfiConverterTypeCtcDecodeResult: FfiConverterRustBuffer<CtcDecodeResult> {
-    override fun read(buf: ByteBuffer): CtcDecodeResult {
-        return CtcDecodeResult(
-            FfiConverterString.read(buf),
-            FfiConverterSequenceSequenceTypeGapCell.read(buf),
-            FfiConverterSequenceFloat.read(buf),
-            FfiConverterLong.read(buf),
-            FfiConverterSequenceSequenceTypeGapCell.read(buf),
-        )
-    }
-
-    override fun allocationSize(value: CtcDecodeResult) = (
-            FfiConverterString.allocationSize(value.`text`) +
-            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`) +
-            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
-            FfiConverterLong.allocationSize(value.`seqLenTotal`) +
-            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`rawAlternatives`)
-    )
-
-    override fun write(value: CtcDecodeResult, buf: ByteBuffer) {
-            FfiConverterString.write(value.`text`, buf)
-            FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
-            FfiConverterSequenceFloat.write(value.`charCols`, buf)
-            FfiConverterLong.write(value.`seqLenTotal`, buf)
-            FfiConverterSequenceSequenceTypeGapCell.write(value.`rawAlternatives`, buf)
     }
 }
 
@@ -9634,20 +9527,6 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gap_timestep_columns(
         FfiConverterSequenceSequenceTypeGapCell.lower(`raw`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Materialise every measured gap as a placeholder (mobile `BlankGaps.apply`):
-         * vertical lines only, idempotent, insertions right-to-left. The facade keeps
-         * the identity short-circuits (horizontal, already gapped, no gaps).
-         */ fun `blankGapsApply`(`line`: GapLine): GapLine {
-            return FfiConverterTypeGapLine.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_blank_gaps_apply(
-        FfiConverterTypeGapLine.lower(`line`),_status)
 }
     )
     }

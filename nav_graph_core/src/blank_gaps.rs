@@ -17,16 +17,17 @@
 //!
 //! ## The plan, for a host that keeps its own lists
 //!
-//! [`blank_gaps_apply`] crosses that whole line **in and out** — the
-//! alternatives and the per-timestep top-K lists are the bulk of it, and they
-//! come back only to be cloned and grown by one entry. [`blank_gaps_plan`]
-//! crosses the detector's own inputs ([`GapPlanLine`], one record so the whole
-//! line is a single indirect buffer) and returns [`GapPlan`]: a handful of
-//! integers per line, from which the host inserts into its own parallel lists.
-//! The three "was this list full-length?" decisions travel with the plan, so
-//! the host never recomputes a length in its own character units (Kotlin counts
-//! UTF-16 units, Rust code points, and they differ on the supplementary-plane
-//! vocabulary entries).
+//! [`blank_gaps_plan`] crosses the detector's own inputs ([`GapPlanLine`], one
+//! record so the whole line is a single indirect buffer) and returns
+//! [`GapPlan`]: a handful of integers per line, from which the host inserts
+//! into its own parallel lists. The whole-line materialiser that used to sit
+//! beside it — in, apply, back out — is gone from the boundary: the
+//! alternatives and the per-timestep top-K lists are the bulk of that payload
+//! and came back only to be cloned and grown by one entry. The three "was this
+//! list full-length?" decisions travel with the plan, so the host never
+//! recomputes a length in its own character units (Kotlin counts UTF-16 units,
+//! Rust code points, and they differ on the supplementary-plane vocabulary
+//! entries).
 //!
 //! `raw_alternatives` is the detector's last-resort geometry source, so the
 //! first call leaves it empty and the plan answers
@@ -34,9 +35,12 @@
 //! Only an empty plan *and* a "yes" needs the second call, so a line whose char
 //! boxes the layout stage already produced never pays for those lists.
 //!
-//! [`blank_gaps_apply`] stays exported: it is the parity harness the JVM
-//! `BlankGapsPlanTest` measures the plan against, and the reference the plan is
-//! read to be equivalent to. Drop it once that test has been retired.
+//! The equivalence the removed crossing used to be measured by — "a host that
+//! applies the plan to its own lists gets the line the materialiser builds" —
+//! is still pinned, in `applying_the_plan_on_the_host_reproduces_apply` below,
+//! against `jpdict_core::blank_gaps::apply_blank_gaps` reached directly. A
+//! `#[cfg(test)]` helper is all that is needed for it; a UniFFI export the app
+//! never calls is not.
 //!
 //! ## Boundary losses
 //!
@@ -403,14 +407,6 @@ pub fn blank_gap_detect_with(line: GapLine, threshold: f32) -> Vec<GapResult> {
         .collect()
 }
 
-/// Materialise every measured gap as a placeholder (mobile `BlankGaps.apply`):
-/// vertical lines only, idempotent, insertions right-to-left. The facade keeps
-/// the identity short-circuits (horizontal, already gapped, no gaps).
-#[uniffi::export]
-pub fn blank_gaps_apply(line: GapLine) -> GapLine {
-    from_core_line(&jpdict_core::blank_gaps::apply_blank_gaps(&to_core_line(&line)))
-}
-
 /// Insert one placeholder (mobile `LineResult.withGapCharAt`), growing every
 /// parallel list together. `gap_alternatives` is the synthetic alternatives
 /// entry; `None` uses the placeholder convention.
@@ -588,10 +584,18 @@ mod tests {
         line
     }
 
+    /// The whole-line materialiser, reached through the crate inside
+    /// `#[cfg(test)]` instead of over the boundary: the reference the plan is
+    /// read to be equivalent to, kept as the parity oracle for
+    /// [`apply_plan`] without a UniFFI export the app never calls.
+    fn apply_whole_line(line: GapLine) -> GapLine {
+        from_core_line(&jpdict_core::blank_gaps::apply_blank_gaps(&to_core_line(&line)))
+    }
+
     /// The parity gate: a host that applies the plan to its own lists gets the
-    /// line `blank_gaps_apply` builds, field for field — the text, the boxes,
-    /// the alternatives, the columns and the shifted overrides. The two differ
-    /// only in that the plan never carried the line back.
+    /// line the crate's own materialiser builds, field for field — the text,
+    /// the boxes, the alternatives, the columns and the shifted overrides. The
+    /// two differ only in that the plan never carried the line back.
     #[test]
     fn applying_the_plan_on_the_host_reproduces_apply() {
         // Two gaps, every list full-length, an override on each side of them.
@@ -625,7 +629,7 @@ mod tests {
         assert!((plan.insertions[0].ratio - 2.0).abs() < 1e-4);
         assert!((plan.insertions[0].span_px - 40.0).abs() < 1e-4);
 
-        let expected = blank_gaps_apply(line.clone());
+        let expected = apply_whole_line(line.clone());
         let got = apply_plan(line.clone(), &plan);
         assert_eq!(got.text, expected.text);
         assert_eq!(got.text, "あいう\u{25CC}えお\u{25CC}かき");
@@ -656,7 +660,7 @@ mod tests {
         let mut horizontal = gapped_line();
         horizontal.is_vertical = false;
         assert!(plan_of(&horizontal).insertions.is_empty());
-        assert!(blank_gaps_apply(horizontal).text == "あいうえお");
+        assert!(apply_whole_line(horizontal).text == "あいうえお");
 
         let already = apply_plan(gapped_line(), &plan_of(&gapped_line()));
         assert!(plan_of(&already).insertions.is_empty(), "idempotent");
@@ -874,7 +878,7 @@ mod tests {
             .collect();
         line.char_cols = vec![0.0, 2.0, 4.0, 8.0, 10.0];
         line.overrides = vec![GapOverride { index: 4, ch: 'ぇ' as i32, score: 1.0 }];
-        let out = blank_gaps_apply(line);
+        let out = apply_whole_line(line);
         assert_eq!(out.text, "あいう◌えお");
         assert_eq!(out.char_boxes.len(), 6);
         assert_eq!(out.alternatives.len(), 6);
@@ -890,12 +894,12 @@ mod tests {
     fn materialise_is_vertical_only_and_idempotent() {
         let mut horizontal = gapped_line();
         horizontal.is_vertical = false;
-        let out = blank_gaps_apply(horizontal.clone());
+        let out = apply_whole_line(horizontal.clone());
         assert_eq!(out.text, horizontal.text);
         assert_eq!(out.char_boxes.len(), horizontal.char_boxes.len());
 
-        let once = blank_gaps_apply(gapped_line());
-        let twice = blank_gaps_apply(once.clone());
+        let once = apply_whole_line(gapped_line());
+        let twice = apply_whole_line(once.clone());
         assert_eq!(twice.text, once.text);
     }
 

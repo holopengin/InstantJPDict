@@ -8,8 +8,6 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.JapaneseUtil
-import com.holopengin.instantjpdict.util.toGapLine
-import com.holopengin.instantjpdict.util.toLineResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -21,26 +19,25 @@ import uniffi.nav_graph_core.BoundingBox
 import uniffi.nav_graph_core.CtcDecode
 import uniffi.nav_graph_core.GapCell
 import uniffi.nav_graph_core.GapPlanLine
-import uniffi.nav_graph_core.blankGapsApply
 import uniffi.nav_graph_core.blankGapMedian
 import uniffi.nav_graph_core.blankGapsPlan
 
 /**
- * Decode/post-processing FFI before/after gate for the book-page fixture.
+ * Decode/post-processing device gate for the book-page fixture.
  *
- * Both lanes run on the app's own path (`detect` → `recognizeStreaming` →
- * `BlankGaps`) so the numbers are the page's, not a synthetic loop, and both
- * compare the *old* crossing against the *new* one in the same process, on the
- * same payloads, alternating sample order:
+ * Runs the app's own path (`detect` -> `recognizeStreaming` -> `BlankGaps`) so
+ * the numbers are the page's, not a synthetic loop:
  *
- * 1. `BlankGaps.apply` — the whole `LineResult` across and back
- *    (`blankGapsApply` + the record conversions) against `blankGapPlan` + the
- *    host growing its own lists. Parity: both lanes must produce the identical
- *    `LineResult`, and the rendered line text is logged for the cross-build diff.
- * 2. `CtcDecode.decodeTopK` — the nested result materialised against the compact
- *    one re-expanded the way `OcrEngine.toPpoResult` does it. Parity: the
- *    re-expansion is the nested result, and the vertical fold is the host's own
- *    `JapaneseUtil` map.
+ * 1. `BlankGaps.apply` — the plan lane: the detector's own inputs cross once and
+ *    the host grows its own lists. The gate checks the insertion count against
+ *    the growth of every list the plan flags, and that a second pass is a no-op.
+ *    (The byte-equivalence with the retired `blankGapsApply` round trip is pinned
+ *    Rust-side by `applying_the_plan_on_the_host_reproduces_apply`; the deleted
+ *    crossing cannot be measured here any more.)
+ * 2. `CtcDecode.decodeTopKCompact` — the compact result's row/emitted-index
+ *    identity, and the vertical fold against the host's own
+ *    `JapaneseUtil` map. Cost: the folded decode against the old "decode then
+ *    map three lists" lane.
  */
 @RunWith(AndroidJUnit4::class)
 class DecodePostFfiBenchmarkTest {
@@ -75,9 +72,6 @@ class DecodePostFfiBenchmarkTest {
         check(sink != Int.MIN_VALUE)
         return percentile(b, 50) to percentile(a, 50)
     }
-
-    /** The old lane: the whole line across, and the whole line back. */
-    private fun oldApply(l: LineResult): LineResult = blankGapsApply(l.toGapLine()).toLineResult(l)
 
     /**
      * The payload the facade hands `blankGapsPlan`, built here rather than
@@ -132,15 +126,51 @@ class DecodePostFfiBenchmarkTest {
         return lines
     }
 
-    // ── 1. blank gaps: the plan against the whole-line round trip ───────────
+    // ── 1. blank gaps: the plan lane ─────────────────────────────────────────
 
     @Test
-    fun gapPlan_matches_blankGapsApply_and_is_cheaper() {
+    fun gapPlan_inserts_and_is_cheaper() {
         val lines = collectLines()
         assertTrue("no lines recognized", lines.isNotEmpty())
         val verticals = lines.filter { it.isVertical }
-        val firstPlan = verticals.map {
-            blankGapsPlan(toGapPlanLine(it))
+
+        var insertedLines = 0
+        var insertedChars = 0
+        for (l in lines) {
+            // Mirror the facade exactly: a first call without the raw lists, and
+            // the rare retry when it says the walk would have been read.
+            var plan = blankGapsPlan(toGapPlanLine(l, withRaw = false))
+            if (plan.needsRawAlternatives && plan.insertions.isEmpty()) {
+                plan = blankGapsPlan(toGapPlanLine(l, withRaw = true))
+            }
+            val viaPlan = BlankGaps.apply(l)
+            val delta = plan.insertions.size
+            if (delta > 0) {
+                insertedLines++
+                insertedChars += delta
+                assertEquals(
+                    "text grows by one BMP placeholder per insertion",
+                    l.text.length + delta,
+                    viaPlan.text.length,
+                )
+                if (plan.growsCharBoxes) {
+                    assertEquals("boxes grow by one per insertion", l.charBoxes.size + delta, viaPlan.charBoxes.size)
+                }
+                if (plan.growsCharCols) {
+                    assertEquals("cols grow by one per insertion", l.charCols.size + delta, viaPlan.charCols.size)
+                }
+                if (plan.growsAlternatives) {
+                    assertEquals(
+                        "alternatives grow by one per insertion",
+                        l.alternatives.size + delta,
+                        viaPlan.alternatives.size,
+                    )
+                }
+            }
+            // Idempotent: the placeholder is already there, so a second pass is a no-op.
+            val again = BlankGaps.apply(viaPlan)
+            assertEquals("idempotent text", viaPlan.text, again.text)
+            assertEquals("idempotent boxes", viaPlan.charBoxes, again.charBoxes)
         }
         Log.i(
             TAG,
@@ -149,57 +179,7 @@ class DecodePostFfiBenchmarkTest {
                 "rawCells=${lines.sumOf { l -> l.rawAlternatives.sumOf { it.size } }} " +
                 "altCells=${lines.sumOf { l -> l.alternatives.sumOf { it.size } }} " +
                 "boxes=${lines.sumOf { it.charBoxes.size }} " +
-                "needsRaw=${firstPlan.count { it.needsRawAlternatives }} " +
-                "planned=${firstPlan.count { it.insertions.isNotEmpty() }} " +
-                "oldLaneCells=${lines.sumOf { l -> l.rawAlternatives.sumOf { it.size } + l.alternatives.sumOf { it.size } }}"
-        )
-
-        // Parity: the plan lane's line is the round-trip lane's line, field for field.
-        //
-        // One documented exception, and it is a *loss the plan lane removes*: the
-        // round trip carries every alternative through `GapCell.ch: Int`, and a
-        // lone surrogate (the first UTF-16 unit of a supplementary-plane
-        // vocabulary entry, which the boundary deliberately keeps) is not a Rust
-        // `char`, so it comes back as U+FFFD. The plan lane never carries the
-        // alternatives, so it keeps the cell the decode produced. The gate
-        // therefore asserts the diff is *exactly* that: the old lane's cell is
-        // U+FFFD and the new lane's is the source's lone surrogate.
-        var inserted = 0
-        var surrogateCells = 0
-        for (l in lines) {
-            val viaPlan = BlankGaps.apply(l)
-            val viaLine = oldApply(l)
-            assertEquals("text for '${l.text}'", viaLine.text, viaPlan.text)
-            assertEquals("boxes", viaLine.charBoxes, viaPlan.charBoxes)
-            assertTrue("cols", viaLine.charCols.contentEquals(viaPlan.charCols))
-            assertEquals("overrides", viaLine.overrides, viaPlan.overrides)
-            assertEquals("vertical", viaLine.isVertical, viaPlan.isVertical)
-            assertEquals("raw", viaLine.rawAlternatives, viaPlan.rawAlternatives)
-            assertEquals("alternatives size", viaLine.alternatives.size, viaPlan.alternatives.size)
-            for (i in viaPlan.alternatives.indices) {
-                val a = viaLine.alternatives[i]
-                val b = viaPlan.alternatives[i]
-                val src = if (l.alternatives.size == viaPlan.alternatives.size) l.alternatives[i] else null
-                assertEquals("alternatives row $i size", a.size, b.size)
-                for (j in a.indices) {
-                    if (a[j] == b[j]) continue
-                    assertEquals("row $i cell $j char", '�', a[j].first)
-                    val keep = src?.get(j)
-                    assertEquals("row $i cell $j kept", keep, b[j])
-                    assertTrue(
-                        "row $i cell $j is a lone surrogate: U+${keep?.first?.code?.toString(16)}",
-                        keep != null && keep.first.code in 0xD800..0xDFFF,
-                    )
-                    assertEquals("row $i cell $j score", a[j].second, b[j].second, 0f)
-                    surrogateCells++
-                }
-            }
-            if (viaPlan.text != l.text) inserted++
-        }
-        Log.i(
-            TAG,
-            "PARITY gapPlan == blankGapsApply on ${lines.size} lines ($inserted with an insertion, " +
-                "$surrogateCells lone-surrogate cells the round trip would have flattened to U+FFFD)"
+                "planned=$insertedLines inserted=$insertedChars"
         )
         for ((i, l) in lines.withIndex()) {
             Log.i(TAG, "LINE i=$i v=${l.isVertical} text=${BlankGaps.apply(l).text}")
@@ -217,7 +197,9 @@ class DecodePostFfiBenchmarkTest {
         }
         val text = subject.map { it.text }
         val planArgs = subject.map { toGapPlanLine(it) }
-        p("BlankGaps_page", before = { subject.map { oldApply(it) } }, after = { subject.map { BlankGaps.apply(it) } })
+        p("BlankGaps_page", before = { text }, after = {
+            subject.map { BlankGaps.apply(it) }
+        })
         p("BlankGaps_plan_only", before = { text }, after = {
             planArgs.map { blankGapsPlan(it) }
         })
@@ -226,11 +208,6 @@ class DecodePostFfiBenchmarkTest {
         })
         // Ladder: where the per-call time goes. Every rung is 13 calls over the
         // same lines, so the fixed cost of one crossing is visible on its own.
-        val blank = subject.map {
-            it.copy(text = "", charBoxes = emptyList(), alternatives = emptyList(),
-                charCols = floatArrayOf(), rawAlternatives = emptyList()).toGapLine()
-        }
-        val realArgs = subject.map { it.toGapLine() }
         p("ladder_median_1arg", before = { text }, after = {
             subject.map { blankGapMedian(listOf(1f, 2f, 3f)) }
         })
@@ -241,12 +218,9 @@ class DecodePostFfiBenchmarkTest {
         p("ladder_plan_real", before = { text }, after = {
             planArgs.map { blankGapsPlan(it) }
         })
-        p("ladder_apply_empty_line", before = { text }, after = { blank.map { blankGapsApply(it) } })
-        p("ladder_apply_real_line", before = { text }, after = { realArgs.map { blankGapsApply(it) } })
-        p("ladder_lower_real_line_only", before = { text }, after = { subject.map { it.toGapLine() } })
     }
 
-    // ── 2. the decode result: compact against nested ─────────────────────────
+    // ── 2. the decode result: compact identity and the fold ──────────────────
 
     private fun decoder(): CtcDecode {
         val assets = InstrumentationRegistry.getInstrumentation().targetContext.assets
@@ -273,130 +247,85 @@ class DecodePostFfiBenchmarkTest {
         }
 
     @Test
-    fun compactDecode_matches_the_nested_result_and_is_cheaper() {
+    fun compactDecode_row_identity_and_fold_cost() {
         val lines = collectLines()
         val decoder = decoder()
         try {
-            var oldSum = 0.0
-            var newSum = 0.0
             var cells = 0
             var altCells = 0
+            var costSum = 0.0
             for (l in lines) {
                 val seq = l.seqLenTotal
                 if (seq <= 0) continue
-                val packed = syntheticPacked(seq, decoder)
-                val list = packed.asList()
+                val list = syntheticPacked(seq, decoder).asList()
 
-                val nested = decoder.decodeTopK(list, seq.toLong())
                 val compact = decoder.decodeTopKCompact(list, seq.toLong(), false)
                 val vertical = decoder.decodeTopKCompact(list, seq.toLong(), true)
 
-                // Parity 1: the compact re-expansion is the nested result.
-                assertEquals(nested.text, compact.text)
-                assertEquals(nested.charCols, compact.charCols)
-                assertEquals(nested.seqLenTotal, compact.seqLenTotal)
+                // Identity 1: the row boundaries partition the flat cells.
                 val raw = rows(compact)
-                val alts = compact.altRows.map { raw[it.toInt()] }
-                for ((a, b) in nested.rawAlternatives.zip(raw)) {
-                    assertEquals(a.map { Char(it.ch) to it.score }, b)
-                }
-                for ((a, b) in nested.alternatives.zip(alts)) {
-                    assertEquals(a.map { Char(it.ch) to it.score }, b)
-                }
-                assertEquals(nested.alternatives.size, alts.size)
-                assertEquals(compact.altRows.size, nested.alternatives.size)
+                assertEquals("rawRows starts at 0", 0L, compact.rawRows.first())
+                assertEquals(
+                    "rawRows ends at the cell count",
+                    compact.rawAlternatives.size.toLong(),
+                    compact.rawRows.last(),
+                )
+                assertEquals("one boundary per row plus one", raw.size + 1, compact.rawRows.size)
 
-                // Parity 2: the vertical fold is the host's own map.
-                val handText = JapaneseUtil.verticalPunctuation(nested.text)
-                assertEquals(handText, vertical.text)
-                val handRaw = nested.rawAlternatives.map { row ->
-                    row.map { JapaneseUtil.verticalPunctuationChar(Char(it.ch)) to it.score }
+                // Identity 2: every emitted alternative is the raw row at its timestep,
+                // which is what the host indexes back through.
+                val alts = compact.altRows.map { raw[it.toInt()] }
+                assertTrue("altRows ascending", compact.altRows.zipWithNext().all { (a, b) -> a < b })
+                assertTrue("altRows in range", compact.altRows.all { it in raw.indices })
+                assertEquals(
+                    "one emitted row per decoded char",
+                    compact.text.codePointCount(0, compact.text.length),
+                    alts.size,
+                )
+
+                // The vertical fold is the host's own map, 1:1, on text and both lists.
+                assertEquals(JapaneseUtil.verticalPunctuation(compact.text), vertical.text)
+                assertEquals(compact.charCols, vertical.charCols)
+                assertEquals(compact.seqLenTotal, vertical.seqLenTotal)
+                assertEquals(compact.altRows, vertical.altRows)
+                val handRaw = raw.map { row ->
+                    row.map { (c, s) -> JapaneseUtil.verticalPunctuationChar(c) to s }
                 }
                 assertEquals(handRaw, rows(vertical))
-                val handAlts = nested.alternatives.map { row ->
-                    row.map { JapaneseUtil.verticalPunctuationChar(Char(it.ch)) to it.score }
-                }
-                assertEquals(handAlts, vertical.altRows.map { rows(vertical)[it.toInt()] })
-                assertEquals(vertical.charCols, nested.charCols)
-                assertEquals(vertical.seqLenTotal, nested.seqLenTotal)
 
-                cells += nested.rawAlternatives.size * topK
-                altCells += nested.alternatives.size * topK
+                cells += compact.rawAlternatives.size
+                altCells += compact.altRows.size
 
-                val (o, n) = measurePair(
+                // Cost: the folded decode against the old "decode then map three
+                // lists" lane. The list maps stay in both lanes so this measures
+                // the fold, not the host's array building.
+                val (folded, mapped) = measurePair(
                     samples = 60,
                     warmups = 20,
                     before = {
-                        val r = decoder.decodeTopK(list, seq.toLong())
-                        r.alternatives.map { row -> row.map { Char(it.ch) to it.score } } +
-                            r.rawAlternatives.map { row -> row.map { Char(it.ch) to it.score } }
+                        val r = decoder.decodeTopKCompact(list, seq.toLong(), true)
+                        Triple(r.text, r.altRows, r.rawAlternatives.size)
                     },
                     after = {
                         val r = decoder.decodeTopKCompact(list, seq.toLong(), false)
-                        val rws = rows(r)
-                        r.altRows.map { rws[it.toInt()] }
-                    },
-                )
-                oldSum += o
-                newSum += n
-            }
-            Log.i(
-                TAG,
-                "BENCH item=ctc_decodeTopK_page_median_sum n=$cells rawCells=$cells altCells=$altCells " +
-                    "oldP50Us=$oldSum newP50Us=$newSum deltaP50Us=${"%.1f".format(newSum - oldSum)}"
-            )
-
-            // Lane 3: the vertical punctuation fold. Before: three more exports
-            // per vertical line (the text, the per-character alternatives, the
-            // per-timestep ones) plus the Kotlin remap. After: one flag on the
-            // decode that is already running.
-            var punctOld = 0.0
-            var punctNew = 0.0
-            var punctChars = 0
-            for (l in lines) {
-                val seq = l.seqLenTotal
-                if (seq <= 0 || !l.isVertical) continue
-                val list = syntheticPacked(seq, decoder).asList()
-                val (o, n) = measurePair(
-                    samples = 60,
-                    warmups = 20,
-                    before = {
-                        // Exactly what the emit path does today: the batched
-                        // per-list map, three crossings for a vertical line.
-                        val r = decoder.decodeTopK(list, seq.toLong())
-                        val text = japaneseVerticalPunctuation(r.text)
-                        val alts = JapaneseUtil.verticalPunctuationAlternatives(
-                            r.alternatives.map { row -> row.map { Char(it.ch) to it.score } }
-                        ).map { it.toMutableList() }
-                        val raw = JapaneseUtil.verticalPunctuationAlternatives(
-                            r.rawAlternatives.map { row -> row.map { Char(it.ch) to it.score } }
+                        Triple(
+                            JapaneseUtil.verticalPunctuation(r.text),
+                            r.altRows,
+                            r.rawAlternatives.size,
                         )
-                        Triple(text, alts, raw)
-                    },
-                    after = {
-                        val r = decoder.decodeTopKCompact(list, seq.toLong(), true)
-                        Triple(r.text, r.altRows, r.rawAlternatives)
                     },
                 )
-                punctOld += o
-                punctNew += n
-                punctChars += seq
+                costSum += folded - mapped
             }
             Log.i(
                 TAG,
-                "BENCH item=verticalPunctuation_page n=$punctChars chars " +
-                    "oldP50Us=$punctOld newP50Us=$punctNew deltaP50Us=${"%.1f".format(punctNew - punctOld)}"
+                "BENCH item=ctc_decodeTopKCompact_page n=${lines.size} rawCells=$cells altCells=$altCells " +
+                    "foldSavingUs=${"%.1f".format(costSum)}"
             )
         } finally {
             decoder.close()
         }
     }
-
-    private fun japaneseVerticalPunctuation(t: String): String =
-        JapaneseUtil.verticalPunctuation(t)
-
-    private fun verticalPunctuationChar(c: Char): Char =
-        JapaneseUtil.verticalPunctuationChar(c)
 
     private fun syntheticPacked(seq: Int, decoder: CtcDecode): FloatArray {
         // Realistic top-K table: descending distinct scores, class ids spread
