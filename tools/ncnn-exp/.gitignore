@@ -1,4 +1,2 @@
-# ncnn x86 experiment harness build output (tools/ncnn-exp/build.sh)
-# NB: relative to THIS directory - a leading slash would anchor it to the repo
-# root and never match.
 build/
+__pycache__/
