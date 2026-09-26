@@ -1,0 +1,4 @@
+# ncnnoptimize (host tools from tools/build_ncnn.sh) on the two shipped params, flag=0
+model	layers_in	layers_out	rewrites	crash	min_ms	vs_base	maxabs	mask_iou@0.3
+rec_dyn	166	-	15 (5x eliminate_reshape_before_binaryop, 5x conv->innerproduct_after_global_pooling, 5x conv->innerproduct_after_innerproduct)	yes	SIGSEGV	-	-	-	-
+det	217	217	8x replace_convolution_with_innerproduct_after_global_pooling + 8x after_innerproduct (SE branches convrelu_6/8/11/13/14/15/16/17 -> conv_77/88/105/115/121/124/126/127)	no	254.0	-0.6%	7.45e-06	1.000
