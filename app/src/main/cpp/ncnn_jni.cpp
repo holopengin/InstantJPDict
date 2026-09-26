@@ -220,4 +220,33 @@ Java_com_holopengin_instantjpdict_DetNcnn_lastTimingsNative(JNIEnv *env, jclass,
     return jout;
 }
 
+// The shared core's informational-logging switch (ppocr_ncnn_core.h). Off by
+// default: the per-call lines are the ones a release run should not pay for —
+// measured ~2-3 ms per det call on logcat — and they are what you switch on when
+// a model/width mismatch has to be diagnosed. Errors are never gated.
+//
+// Declared on BOTH DetNcnn and RecNcnn, and both land on the same process-wide
+// atomic, because the flag is not per-net: one ncnn library per process, and the
+// two wrappers must not be able to disagree about who owns it. The core is the
+// single implementation on both platforms; this is the only shell for it.
+JNIEXPORT void JNICALL
+Java_com_holopengin_instantjpdict_DetNcnn_setVerboseLoggingNative(JNIEnv *, jclass, jboolean on) {
+    ppocr_ncnn::set_verbose(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_holopengin_instantjpdict_DetNcnn_isVerboseLoggingNative(JNIEnv *, jclass) {
+    return ppocr_ncnn::verbose() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_holopengin_instantjpdict_RecNcnn_setVerboseLoggingNative(JNIEnv *, jclass, jboolean on) {
+    ppocr_ncnn::set_verbose(on == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_holopengin_instantjpdict_RecNcnn_isVerboseLoggingNative(JNIEnv *, jclass) {
+    return ppocr_ncnn::verbose() ? JNI_TRUE : JNI_FALSE;
+}
+
 } // extern "C"

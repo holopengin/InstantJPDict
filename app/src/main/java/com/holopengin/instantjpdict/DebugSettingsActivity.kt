@@ -181,6 +181,23 @@ class DebugSettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean(OcrEngine.PREF_BOX_PLACEMENT_CAP, checked).apply()
             Log.d(TAG, "box_placement_cap=$checked")
         })
+        // The ncnn kernel's own informational lines (det input/infer/try/extract,
+        // one recTopK per line, the create-time lines) are what a model/width
+        // mismatch is diagnosed with — and they are off by default because each
+        // one costs ~0.1 ms of logcat write on the calling thread. Flipping this
+        // pushes straight into native; no engine reload, since the flag is
+        // process-global. Deliberately NOT in [DebugTuning.features]: a tuning
+        // reset must not silently turn off a switch someone left on to read a
+        // log, exactly as it leaves the debug-log toggle alone.
+        behaviourBody.addView(ui.switchRow(
+            null,
+            "Verbose native OCR logging",
+            "Per-call ncnn diagnostics to logcat; off by default",
+            NcnnVerboseLog.isEnabled(this)
+        ) { checked ->
+            NcnnVerboseLog.setEnabled(this, checked)
+            Log.d(TAG, "ppocr_ncnn_verbose=$checked")
+        })
         behaviourCard.addView(behaviourBody)
         content.addView(behaviourCard)
 

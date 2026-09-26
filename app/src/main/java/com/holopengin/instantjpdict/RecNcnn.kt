@@ -80,6 +80,9 @@ class RecNcnn private constructor(private val handle: Long, val targetW: Int) {
 
         fun create(context: Context, targetW: Int = 64, numThreads: Int = 1): RecNcnn? {
             ensureLoaded()
+            // Same process-global flag the det side sets; pushing it here as
+            // well means a rec-only caller is covered.
+            NcnnVerboseLog.applyFromPrefs(context)
             // Single dynamic-width model (#23) — targetW only sizes seqLen/buffers now.
             // A8/#86: copied once per installed APK, not once per engine.
             val paramFile = materialiseModelAsset(context, "PP-OCRv6_small_ncnn/rec_dyn.param", "rec_dyn.param")
@@ -99,5 +102,25 @@ class RecNcnn private constructor(private val handle: Long, val targetW: Int) {
         @JvmStatic private external fun destroy(handle: Long)
         @JvmStatic private external fun inferNative(handle: Long, buffer: ByteBuffer, w: Int, h: Int): FloatArray?
         @JvmStatic private external fun inferTopKNative(handle: Long, buffer: ByteBuffer, w: Int, h: Int): FloatArray?
+        @JvmStatic private external fun setVerboseLoggingNative(on: Boolean)
+        @JvmStatic private external fun isVerboseLoggingNative(): Boolean
+
+        /**
+         * The shared core's verbose logging. The flag is process-global and the
+         * same one [DetNcnn.setVerboseLogging] sets — the two JNI entry points
+         * share one atomic in `ppocr_ncnn_core.h` — so it is declared here too
+         * rather than making the rec side reach into the det wrapper.
+         */
+        @JvmStatic
+        fun setVerboseLogging(on: Boolean) {
+            ensureLoaded()
+            setVerboseLoggingNative(on)
+        }
+
+        @JvmStatic
+        fun isVerboseLogging(): Boolean {
+            ensureLoaded()
+            return isVerboseLoggingNative()
+        }
     }
 }

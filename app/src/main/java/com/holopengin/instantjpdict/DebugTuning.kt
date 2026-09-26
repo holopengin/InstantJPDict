@@ -14,8 +14,10 @@ import com.holopengin.instantjpdict.util.KanaSizeFix
  * every control, which is the part structure cannot say on its own.
  *
  * Deliberately not here: `OverlayFont.PREF_FACE` (the overlay typeface),
- * `PitchAccent.PREF_PITCH_ENABLED` (moved to the home screen) and the debug-log
- * toggle — user-visible settings, so a tuning reset must leave them alone.
+ * `PitchAccent.PREF_PITCH_ENABLED` (moved to the home screen), the debug-log
+ * toggle and `NcnnVerboseLog.PREF_VERBOSE` (the native kernel's verbose
+ * logging) — those are switches you turn on to read something, not tunables a
+ * reset should flip back mid-session, so a tuning reset leaves them alone.
  * Every constant referenced below is a `const val`, so this file (and its test)
  * stay Android-free.
  */

@@ -132,6 +132,9 @@ class DetNcnn private constructor(private val handle: Long) {
 
         fun create(context: Context): DetNcnn? {
             ensureLoaded()
+            // Before the net, so a create-time line (threads/fp16/param) is
+            // governed by the same flag as the per-call ones.
+            NcnnVerboseLog.applyFromPrefs(context)
             val paramFile = materialiseModelAsset(context, "PP-OCRv6_small_ncnn/det.param", "det.param")
                 ?: return null
             val binFile = materialiseModelAsset(context, "PP-OCRv6_small_ncnn/det.bin", "det.bin")
@@ -169,5 +172,76 @@ class DetNcnn private constructor(private val handle: Long) {
 
         @JvmStatic private external fun lastTimingsNative(handle: Long): FloatArray?
         @JvmStatic private external fun fillInputOnlyNative(buffer: ByteBuffer, w: Int, h: Int): Float
+
+        @JvmStatic private external fun setVerboseLoggingNative(on: Boolean)
+        @JvmStatic private external fun isVerboseLoggingNative(): Boolean
+
+        /**
+         * The shared core's verbose logging, directly — no preference involved.
+         *
+         * The switch is process-global (see `ppocr_ncnn_core.h`), so this does
+         * not need a [DetNcnn] instance, and [RecNcnn.setVerboseLogging] is the
+         * same flag. It takes effect on the next log site reached, so it can be
+         * flipped between two calls without recreating either net.
+         */
+        @JvmStatic
+        fun setVerboseLogging(on: Boolean) {
+            ensureLoaded()
+            setVerboseLoggingNative(on)
+        }
+
+        /** What [setVerboseLogging] last set, read back from native. */
+        @JvmStatic
+        fun isVerboseLogging(): Boolean {
+            ensureLoaded()
+            return isVerboseLoggingNative()
+        }
+    }
+}
+
+/**
+ * The native kernel's verbose logging as a debug preference.
+ *
+ * The core's informational lines are what a model/width mismatch is diagnosed
+ * with, and they were unconditional: four of them on the det path and one per
+ * recognised line, every one of them formatted and written to logcat on the
+ * calling thread — inside the very window `g_det_net_ms` is taken in, so the
+ * diagnostic was inflating the number it was reporting. Gating them changes no
+ * inference result, only whether the line is printed.
+ *
+ * Measured on a Pixel 7a (warm, interleaved A/B, 60 paired repeats, with and
+ * without a logcat reader): ~0.05-0.15 ms per line, so ~0.1-0.3 ms per detect
+ * and ~0.1 ms per recognised line — about 2 ms a page. The `det` figure is
+ * smaller than the noise of a single det wall, so it needs the paired design in
+ * `NcnnVerboseBenchTest` to see at all; the `rec` one is clean.
+ *
+ * **OFF by default**, which is the point: a normal run pays nothing but a
+ * predictable branch. Both [DetNcnn.create] and [RecNcnn.create] push the
+ * stored value into native, so the engine picks it up when it loads; the debug
+ * screen's switch also pushes immediately, without waiting for a reload,
+ * because the flag is process-global and not per-net.
+ *
+ * Errors are never gated — a failed load or an unusable output tensor always
+ * prints.
+ */
+object NcnnVerboseLog {
+    /** Stored in [OcrEngine.PREFS_NAME], alongside the other debug tunables. */
+    const val PREF_VERBOSE = "ppocr_ncnn_verbose"
+    const val DEF_VERBOSE = false
+
+    fun isEnabled(context: Context): Boolean =
+        context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(PREF_VERBOSE, DEF_VERBOSE)
+
+    /** Store the choice and push it into native in the same breath. */
+    fun setEnabled(context: Context, on: Boolean) {
+        context.getSharedPreferences(OcrEngine.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(PREF_VERBOSE, on).apply()
+        DetNcnn.setVerboseLogging(on)
+    }
+
+    /** Push the stored value into native. Called from the *Ncnn.create paths. */
+    fun applyFromPrefs(context: Context) {
+        DetNcnn.setVerboseLogging(isEnabled(context))
     }
 }
