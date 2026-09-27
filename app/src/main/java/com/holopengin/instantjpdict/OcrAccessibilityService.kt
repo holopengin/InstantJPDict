@@ -159,7 +159,7 @@ class OcrAccessibilityService : AccessibilityService() {
             // hides one — so all four are now just "close the overlay".
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF,
-                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> hideScreenshotOverlay()
+                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> standDown()
             }
         }
     }
@@ -202,7 +202,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // ([OverlayClosePosition]), so hiding the overlay costs the user nothing —
         // the next capture opens the button back on the same physical spot.
         if (overlayView != null) {
-            hideScreenshotOverlay()
+            standDown()
         }
     }
 
@@ -280,6 +280,7 @@ class OcrAccessibilityService : AccessibilityService() {
         serviceBound = true
         if (reconnected) {
             Log.d(TAG, "re-connected while already bound; not an activation; not capturing")
+            standDown()
             return
         }
         // #105: the framework re-enables an accessibility service when its app is
@@ -288,6 +289,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // [isFirstRunSinceUpdate].
         if (isFirstRunSinceUpdate()) {
             Log.d(TAG, "first connect since the app was updated; not an activation; not capturing")
+            standDown()
             return
         }
         captureFromActivation("service connected")
@@ -408,6 +410,7 @@ class OcrAccessibilityService : AccessibilityService() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
             Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
+            standDown()
             return
         }
         lastActivationAt = now
@@ -418,11 +421,13 @@ class OcrAccessibilityService : AccessibilityService() {
         val power = getSystemService(POWER_SERVICE) as? PowerManager
         if (power != null && !power.isInteractive) {
             Log.d(TAG, "activation '$reason' with the screen off; ignoring")
+            standDown()
             return
         }
         val keyguard = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguard != null && keyguard.isKeyguardLocked) {
             Log.d(TAG, "activation '$reason' on the keyguard; ignoring")
+            standDown()
             return
         }
         // The window server needs a moment after the bind before a screenshot
@@ -461,6 +466,7 @@ class OcrAccessibilityService : AccessibilityService() {
         val foreground = activeWindowPackage()
         if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
             Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); not capturing")
+            standDown()
             return
         }
         // The value is logged on the capturing path too: a null here (no window, or
@@ -587,7 +593,7 @@ class OcrAccessibilityService : AccessibilityService() {
             override val controller: OcrOverlayStateController get() = this@OcrAccessibilityService.controller
 
             override fun dismissOverlay() {
-                hideScreenshotOverlay()
+                standDown()
             }
 
             override fun requestSoftInputResize() {
@@ -692,6 +698,55 @@ class OcrAccessibilityService : AccessibilityService() {
         controller.resetState()
     }
 
+    /**
+     * #105: close the overlay and give the service back.
+     *
+     * The service exists to serve one capture, so it stays alive exactly as long
+     * as the overlay does; `disableSelf` flips the system's own shortcut state back
+     * to off, so the *next* press of the shortcut enables us again and captures —
+     * **every press captures**, instead of every other press merely toggling us on.
+     * Every path that decides not to show an overlay stands down too, so the
+     * invariant is simply "enabled implies an overlay is coming".
+     *
+     * The resident exceptions are the two surfaces that need a service which is
+     * already connected: the gamepad chord (off by default) and having been pinned
+     * to the accessibility button. A resident service keeps the old toggle
+     * semantics with it — see [keepResident].
+     */
+    private fun standDown() {
+        if (isDestroyed) return
+        hideScreenshotOverlay()
+        if (keepResident()) return
+        Log.d(TAG, "standing down; the service disables itself until the next activation")
+        try {
+            disableSelf()
+        } catch (e: Exception) {
+            Log.e(TAG, "disableSelf failed; the service stays on", e)
+        }
+    }
+
+    /**
+     * #105: whether something needs the service to stay connected.
+     *
+     * The one resident case is the gamepad chord: it can only be heard by a live
+     * service, so a user who wants L1+R1 keeps the service up and keeps the older
+     * toggle semantics with it.
+     *
+     * Being pinned to the accessibility button deliberately does **not** count. That
+     * pin is how the system offers the button (this device's `dumpsys accessibility`
+     * showed `button:{<us>}` with the user never having chosen one), and it survived
+     * `settings delete` — so treating it as residency would quietly turn the
+     * stand-down off for the shortcut flow this exists to serve. A button user who
+     * wants the button to stay live can clear the pin in Settings, or ask for the
+     * exception back.
+     */
+    private fun keepResident(): Boolean {
+        val gamepad = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
+            .getBoolean("global_shortcut_enabled", false)
+        if (gamepad) Log.d(TAG, "resident: the gamepad global shortcut is enabled")
+        return gamepad
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         // #105: the no-overlay branch used to re-attach the floating button here
@@ -703,7 +758,7 @@ class OcrAccessibilityService : AccessibilityService() {
         if (view.hasManualInputBlocker()) return
         if (System.currentTimeMillis() - controller.lastManualInputCloseTime < 1000) return
         if (event.isFullScreen != true) return
-        hideScreenshotOverlay()
+        standDown()
     }
 
     override fun onInterrupt() {}
