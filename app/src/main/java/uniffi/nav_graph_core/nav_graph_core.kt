@@ -2128,7 +2128,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_is_vertical() != 43291.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_map_local_rect() != 24014.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_map_local_rect() != 61766.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_rotated_geometry_tilt_deg() != 18185.toShort()) {
@@ -10843,6 +10843,11 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
 
         /**
          * Map a local crop rectangle to its rounded source-space AABB.
+         *
+         * The local rect is read in the quad's own corner order (`c0..c3` =
+         * `(0,0),(w,0),(w,h),(0,h)`), including when the frame's x-axis angle is
+         * outside `[-90°, 90°)` and the representation conversion rotates the frame's
+         * local axes 180° — see [`to_core_box_parts`].
          */ fun `rotatedGeometryMapLocalRect`(`quad`: RotatedGeometryQuad, `local`: RotatedGeometryRect): RotatedGeometryRect {
             return FfiConverterTypeRotatedGeometryRect.lift(
     uniffiRustCall() { _status ->

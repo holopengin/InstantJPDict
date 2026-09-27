@@ -102,6 +102,27 @@ fn unit(a: &RotatedGeometryPoint, b: &RotatedGeometryPoint) -> (f32, f32) {
 /// confidence is geometry-only here, so it is set to `1.0` as in the other
 /// geometry shims.
 fn to_core_box(quad: &RotatedGeometryQuad) -> jpdict_core::models::RotatedBox {
+    to_core_box_parts(quad).0
+}
+
+/// [`to_core_box`] plus whether the conversion **flipped the frame's local
+/// axes**.
+///
+/// `RotatedBox::new` normalises the x-axis angle into `[-90°, 90°)` by
+/// subtracting/adding 180°. That is a no-op for the frame's *outline* — same
+/// rectangle, same centre, same extents — but a 180° rotation of its *local
+/// coordinate system*: a local point `(lx, ly)` then names the point the
+/// caller's corner order calls `(w - lx, h - ly)`. Subtracting 180° twice
+/// rotates it twice, so the flag is the parity of the normalisation, recovered
+/// here as "did the stored local-x axis end up pointing the other way".
+///
+/// Every frame the detector produces satisfies the normalisation already (the
+/// fit orients local x to the right), so in production the flag is always
+/// false. It is true only for a hand-built quad whose `c0 -> c1` points
+/// outside `[-90°, 90°)`. [`rotated_geometry_map_local_rect`], the one export
+/// that consumes *local coordinates*, mirrors them when it is set; any future
+/// local-coordinate export must do the same.
+fn to_core_box_parts(quad: &RotatedGeometryQuad) -> (jpdict_core::models::RotatedBox, bool) {
     let w = distance(&quad.c0, &quad.c1);
     let h = distance(&quad.c0, &quad.c3);
     let (ux, uy) = unit(&quad.c0, &quad.c1);
@@ -118,7 +139,13 @@ fn to_core_box(quad: &RotatedGeometryQuad) -> jpdict_core::models::RotatedBox {
     };
     let cx = (quad.c0.x + quad.c1.x + quad.c2.x + quad.c3.x) * 0.25;
     let cy = (quad.c0.y + quad.c1.y + quad.c2.y + quad.c3.y) * 0.25;
-    jpdict_core::models::RotatedBox::new(cx, cy, w, h, angle, 1.0)
+    let core = jpdict_core::models::RotatedBox::new(cx, cy, w, h, angle, 1.0);
+    // A dot product, not equality: the stored axis is recomputed through
+    // cos/sin and never matches the `unit` bits exactly. Reversed ⇔ < 0, and a
+    // degenerate frame (unit reports (0,0)) scores 0 and counts as unflipped,
+    // which is right — it has no orientation to flip.
+    let (bx, by) = core.x_axis();
+    (core, ux * bx + uy * by < 0.0)
 }
 
 fn point(x: f32, y: f32) -> RotatedGeometryPoint {
@@ -260,13 +287,26 @@ pub fn rotated_geometry_aabb(quad: &RotatedGeometryQuad) -> RotatedGeometryRect 
 }
 
 /// Map a local crop rectangle to its rounded source-space AABB.
+///
+/// The local rect is read in the quad's own corner order (`c0..c3` =
+/// `(0,0),(w,0),(w,h),(0,h)`), including when the frame's x-axis angle is
+/// outside `[-90°, 90°)` and the representation conversion rotates the frame's
+/// local axes 180° — see [`to_core_box_parts`].
 #[uniffi::export]
 pub fn rotated_geometry_map_local_rect(
     quad: &RotatedGeometryQuad,
     local: &RotatedGeometryRect,
 ) -> RotatedGeometryRect {
+    let (core, flipped) = to_core_box_parts(quad);
     let (x, y, w, h) = to_core_rect(local);
-    from_core_rect(to_core_box(quad).map_local_rect(x, y, w, h))
+    // The normalised frame reads local coordinates from the opposite corner,
+    // so the caller's rect is the mirror of the one that frame knows.
+    let (x, y) = if flipped {
+        (core.w - x - w, core.h - y - h)
+    } else {
+        (x, y)
+    };
+    from_core_rect(core.map_local_rect(x, y, w, h))
 }
 
 /// Drop frames enclosing at least two substantially smaller, line-shaped
@@ -376,6 +416,22 @@ mod tests {
 
     fn close(a: f32, b: f32, eps: f32) -> bool {
         (a - b).abs() <= eps
+    }
+
+    /// Edge comparison with a pixel of slack, for a hand-built non-axis-aligned
+    /// frame: its corners are f32 decimals, so the frame they describe and the
+    /// centre+angle box that re-encodes them differ by ~0.1 px and a single
+    /// edge can round either way. Production frames are box-derived, so this
+    /// slack never hides anything there.
+    fn assert_rect_near(a: &RotatedGeometryRect, b: &RotatedGeometryRect, eps: i32) {
+        for (name, x, y) in [
+            ("left", a.left, b.left),
+            ("top", a.top, b.top),
+            ("right", a.right, b.right),
+            ("bottom", a.bottom, b.bottom),
+        ] {
+            assert!((x - y).abs() <= eps, "{name}: {x} vs {y}");
+        }
     }
 
     fn assert_point(actual: &RotatedGeometryPoint, x: f32, y: f32, eps: f32) {
@@ -571,6 +627,80 @@ mod tests {
         );
         assert!(mapped.right - mapped.left > 10);
         assert!(mapped.bottom - mapped.top > 5);
+    }
+
+    /// A hand-built quad whose `c0 -> c1` points outside `[-90°, 90°)` is
+    /// normalised by `RotatedBox::new`, which rotates its local axes 180°. The
+    /// local-rect mapping must still read the caller's corner order — see
+    /// `to_core_box_parts`.
+    #[test]
+    fn local_rects_keep_the_corner_order_through_the_angle_normalisation() {
+        // One 40 (local x) x 200 (local y) cell whose local x points DOWN: the
+        // boundary +90°, which the normalisation's `>=` catches. The whole
+        // frame is the 200x40 rect x 300..500, y 100..140; the half nearest
+        // c0/c1 is local y 0..100, i.e. the x 400..500 half.
+        let plus90 = RotatedGeometryQuad {
+            c0: p(500.0, 100.0),
+            c1: p(500.0, 140.0),
+            c2: p(300.0, 140.0),
+            c3: p(300.0, 100.0),
+        };
+        assert_eq!(
+            rotated_geometry_map_local_rect(&plus90, &from_rect_output(0, 0, 40, 200)),
+            from_rect_output(300, 100, 500, 140),
+            "the whole frame is invariant: the outline is the same rectangle"
+        );
+        assert_eq!(
+            rotated_geometry_map_local_rect(&plus90, &from_rect_output(0, 0, 40, 100)),
+            from_rect_output(400, 100, 500, 140),
+            "the half nearest c0/c1 must map to the half nearest c0/c1"
+        );
+        assert_eq!(
+            rotated_geometry_map_local_rect(&plus90, &from_rect_output(0, 100, 40, 200)),
+            from_rect_output(300, 100, 400, 140),
+        );
+
+        // -90° sits inside the range (the second loop's `<` is strict), so it
+        // was never affected. Pinned as the control.
+        let minus90 = RotatedGeometryQuad {
+            c0: p(500.0, 140.0),
+            c1: p(500.0, 100.0),
+            c2: p(700.0, 100.0),
+            c3: p(700.0, 140.0),
+        };
+        assert_eq!(
+            rotated_geometry_map_local_rect(&minus90, &from_rect_output(0, 0, 40, 100)),
+            from_rect_output(500, 100, 600, 140),
+        );
+
+        // Past +90°: 120° normalises to -60°, one 180° step, so the same
+        // mirror applies. ±1 px (see `assert_rect_near`); the claim is which
+        // half each rect lands on, not the last digit.
+        let over90 = RotatedGeometryQuad {
+            c0: p(500.0, 100.0),
+            c1: p(480.0, 134.641),
+            c2: p(306.795, 34.641),
+            c3: p(326.795, 0.0),
+        };
+        let near_c0 = rotated_geometry_map_local_rect(&over90, &from_rect_output(0, 0, 40, 100));
+        assert_rect_near(&near_c0, &from_rect_output(393, 50, 500, 135), 1);
+        let other = rotated_geometry_map_local_rect(&over90, &from_rect_output(0, 100, 40, 200));
+        assert_rect_near(&other, &from_rect_output(307, 0, 413, 85), 1);
+
+        // The detector's fit can never produce such a frame: the same corners
+        // canonicalise to local x pointing right, where the mapping already
+        // agreed — which is why production never met the quirk.
+        let fitted = fit(&[
+            (500.0, 100.0),
+            (500.0, 140.0),
+            (300.0, 140.0),
+            (300.0, 100.0),
+        ])
+        .unwrap();
+        assert_eq!(
+            rotated_geometry_map_local_rect(&fitted, &from_rect_output(0, 0, 200, 20)),
+            from_rect_output(300, 100, 500, 120),
+        );
     }
 
     #[test]
