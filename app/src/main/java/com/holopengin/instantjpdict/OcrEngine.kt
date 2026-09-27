@@ -197,6 +197,46 @@ class OcrEngine(
             return order.map { boxes[it.toInt()] }
         }
 
+        /** #53: the upright crop size in whole pixels for [quad]. The warp bitmap
+         *  and the char-box frame must agree, so both go through here. */
+        private fun localCropW(quad: JpDictQuad): Int =
+            quad.localWidth.roundToInt().coerceAtLeast(4)
+
+        private fun localCropH(quad: JpDictQuad): Int =
+            quad.localHeight.roundToInt().coerceAtLeast(4)
+
+        /** #53: the unrotate — draw [src] through [quad]'s frame into an upright
+         *  `localW × localH` bitmap. `setPolyToPoly` maps the frame's four
+         *  corners to the upright rect, so the same seam already accepts a
+         *  perspective fit later (a quad, not just a rotated rect). Returns null
+         *  on a degenerate mapping or an allocation failure; the recognition
+         *  path drops the Line rather than recognising a mis-framed crop.
+         *
+         *  Here in the companion, not on the instance, since #102: the character
+         *  previews unrotate through the *same* warp, so a second
+         *  implementation of "what the recogniser saw" could only ever drift
+         *  from this one. The returned bitmap is owned by the caller — the
+         *  recognition path recycles it, and so does the preview crop. */
+        internal fun warpRotatedCrop(src: Bitmap, quad: JpDictQuad): Bitmap? {
+            val w = localCropW(quad)
+            val h = localCropH(quad)
+            val matrix = android.graphics.Matrix()
+            val dst = floatArrayOf(0f, 0f, w.toFloat(), 0f, w.toFloat(), h.toFloat(), 0f, h.toFloat())
+            if (!matrix.setPolyToPoly(quad.corners(), 0, dst, 0, 4)) return null
+            return try {
+                val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(out)
+                canvas.drawBitmap(
+                    src, matrix,
+                    android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+                )
+                out
+            } catch (e: Exception) {
+                Log.e(TAG, "warpRotatedCrop failed", e)
+                null
+            }
+        }
+
         // Recognition constants (not tunable)
         private const val REC_TARGET_H = 48
         // Pruned CTC-head width (#39): gemm_8 emits one out per rec_remap entry,
@@ -1721,40 +1761,6 @@ class OcrEngine(
             try {
                 sources.forEach { it.frame?.let { f -> f.recycle() } }
             } catch (_: Exception) {}
-        }
-    }
-
-    /** #53: the upright crop size in whole pixels for [quad]. The warp bitmap
-     *  and the char-box frame must agree, so both go through here. */
-    private fun localCropW(quad: JpDictQuad): Int =
-        quad.localWidth.roundToInt().coerceAtLeast(4)
-
-    private fun localCropH(quad: JpDictQuad): Int =
-        quad.localHeight.roundToInt().coerceAtLeast(4)
-
-    /** #53: the unrotate — draw the source through the frame's inverse into an
-     *  upright `localW × localH` bitmap. `setPolyToPoly` maps the frame's four
-     *  corners to the upright rect, so the same seam already accepts a
-     *  perspective fit later (a quad, not just a rotated rect). Returns null on
-     *  a degenerate mapping or an allocation failure; the caller drops the Line
-     *  rather than recognising a mis-framed crop. */
-    private fun warpRotatedCrop(src: Bitmap, quad: JpDictQuad): Bitmap? {
-        val w = localCropW(quad)
-        val h = localCropH(quad)
-        val matrix = android.graphics.Matrix()
-        val dst = floatArrayOf(0f, 0f, w.toFloat(), 0f, w.toFloat(), h.toFloat(), 0f, h.toFloat())
-        if (!matrix.setPolyToPoly(quad.corners(), 0, dst, 0, 4)) return null
-        return try {
-            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(out)
-            canvas.drawBitmap(
-                src, matrix,
-                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
-            )
-            out
-        } catch (e: Exception) {
-            Log.e(TAG, "warpRotatedCrop failed", e)
-            null
         }
     }
 

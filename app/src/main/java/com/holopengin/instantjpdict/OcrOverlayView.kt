@@ -1948,10 +1948,11 @@ class OcrOverlayView(
         val previewView = android.widget.ImageView(context).apply {
             tag = "preview_image"
             if (box != null) {
-                val padding = (box.height() * 0.2).toInt() // Tightened
-                val cropRect = Rect((box.left - padding).coerceAtLeast(0), (box.top - padding).coerceAtLeast(0), (box.right + padding).coerceAtMost(bitmap.width), (box.bottom + padding).coerceAtMost(bitmap.height))
-                val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
-                setCropBitmap(this, cropped)
+                // #102: the crop itself (padding, and the unrotate a rotated
+                // #53 Line needs) is CharPreviewCrop's, so this preview, the
+                // one updateAlternativesPanelContent refreshes, and the manual
+                // entry dialog's are the same crop of the same character.
+                setCropBitmap(this, CharPreviewCrop.crop(bitmap, line, cIdx, CharPreviewCrop.ALTERNATIVES_PAD_RATIO))
             }
             layoutParams = LinearLayout.LayoutParams(itemSize, itemSize).apply { gravity = Gravity.CENTER; setMargins(2, 2, 2, 2) }
             scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
@@ -2074,10 +2075,14 @@ class OcrOverlayView(
         val line = controller.activeLineResults[lIdx]
         val box = line?.charBoxes?.getOrNull(cIdx)
         if (previewView != null && box != null) {
-            val padding = (box.height() * 0.2).toInt()
-            val cropRect = Rect((box.left - padding).coerceAtLeast(0), (box.top - padding).coerceAtLeast(0), (box.right + padding).coerceAtMost(bitmap.width), (box.bottom + padding).coerceAtMost(bitmap.height))
-            val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
-            setCropBitmap(previewView, cropped)
+            // #102: the same crop the panel was built with, so a refresh after
+            // a candidate swap cannot show a different picture. The `box != null`
+            // guard stays: with no char box there is nothing to replace, and
+            // the preview already in the view is the last good one.
+            setCropBitmap(
+                previewView,
+                CharPreviewCrop.crop(bitmap, line, cIdx, CharPreviewCrop.ALTERNATIVES_PAD_RATIO),
+            )
         }
 
         // Update manual input stub too
@@ -2131,10 +2136,13 @@ class OcrOverlayView(
     private fun showManualInput(lIdx: Int, cIdx: Int, rootLayout: FrameLayout) {
         val bitmap = srcBitmap
         val line = controller.activeLineResults[lIdx] ?: return
-        val box = line.charBoxes[cIdx]
-        val padding = (box.height() * 0.5).toInt()
-        val cropRect = Rect((box.left - padding).coerceAtLeast(0), (box.top - padding).coerceAtLeast(0), (box.right + padding).coerceAtMost(bitmap.width), (box.bottom + padding).coerceAtMost(bitmap.height))
-        val cropped = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top, cropRect.width(), cropRect.height())
+        // #102: the wider padding of the two, and the unrotate a rotated #53
+        // Line needs — the manual entry is a large box the user reads a
+        // character off, so it has to be the same upright crop the alternatives
+        // list shows, only with more room around it. No crop means no dialog:
+        // a "Enter a Character" prompt with a blank preview is worse than
+        // nothing (before #102 this was `charBoxes[cIdx]`, which threw instead).
+        val cropped = CharPreviewCrop.crop(bitmap, line, cIdx, CharPreviewCrop.MANUAL_PAD_RATIO) ?: return
         // The preview, HALVED in both axes (240dp -> a 120dp box): it was
         // gigantic and, being the widest child, it set the panel's width.  The
         // panel is top-anchored, so the height it gives up is added back into

@@ -109,7 +109,11 @@ class RecDrawParityTest {
         if (quad != null) {
             val w = max(quad.localWidth.roundToInt(), 4)
             val h = max(quad.localHeight.roundToInt(), 4)
-            return Src(bmp, 0, 0, w, h, warpRotatedCrop(bmp, quad))
+            // #102 made `OcrEngine.warpRotatedCrop` `internal`, so the copy this
+            // harness used to carry (it was `private` then) is the real thing
+            // again — a second implementation here could only have drifted from
+            // the one the engine recognises with.
+            return Src(bmp, 0, 0, w, h, OcrEngine.warpRotatedCrop(bmp, quad))
         }
         val rect = box.rect
         val cx = max(rect.left, 0)
@@ -118,22 +122,6 @@ class RecDrawParityTest {
         val ch = minOf(bmp.height - cy, rect.height()).coerceAtLeast(1)
         if (cw < 4 || ch < 4) return null
         return Src(bmp, cx, cy, cw, ch)
-    }
-
-    /** `OcrEngine.warpRotatedCrop`, copied. */
-    private fun warpRotatedCrop(src: Bitmap, quad: JpDictQuad): Bitmap? {
-        val w = max(quad.localWidth.roundToInt(), 4)
-        val h = max(quad.localHeight.roundToInt(), 4)
-        val matrix = Matrix()
-        val dst = floatArrayOf(0f, 0f, w.toFloat(), 0f, w.toFloat(), h.toFloat(), 0f, h.toFloat())
-        if (!matrix.setPolyToPoly(quad.corners(), 0, dst, 0, 4)) return null
-        return try {
-            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            Canvas(out).drawBitmap(src, matrix, Paint(Paint.FILTER_BITMAP_FLAG))
-            out
-        } catch (_: Exception) {
-            null
-        }
     }
 
     /** Everything `recognizePpocrBatch` derives from a crop's size, verbatim. */
