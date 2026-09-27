@@ -54,7 +54,7 @@ import kotlin.math.roundToInt
  *
  * #78 ask: the view's own floating close button (a second logo button drawn over
  * the image) is NOT drawn in this host — the back control covers it and one thing
- * more. See [closeButtonOrigin].
+ * more. See [OcrOverlayView.Host.wantsBackButton].
  *
  * #57 rotation follow-up: two rotate buttons (⟳ / ⟲) are this activity's own
  * chrome, but they are placed in [OcrOverlayView]'s host-chrome layer
@@ -244,28 +244,23 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     }
 
     /**
-     * #78: null — this host wants NO floating close button, so the overlay draws
-     * none (see [OcrOverlayView.addCloseButtonFor]).
+     * #78: false — this host wants NO overlay back button, so the view draws none
+     * (see [OcrOverlayView.addBackButtonFor]).
      *
-     * There is no trigger window to sit under here, which is why this corner was
-     * the close button's. Since #78 the top-left corner belongs to the back control, and
-     * that control does everything the close button did and one thing more: it goes
-     * through the back dispatcher, so it closes the dictionary panel first and the
-     * whole view second — the same order as the system back key and the empty-space
-     * tap. What was left was a second, weaker exit affordance drawn with the app's
-     * OCR-logo graphic floating over the image (the same drawable the service's own
-     * floating trigger drew before #105 removed it), and
-     * that is the control the maintainer asked to lose from this view.
+     * The top-left corner belongs to this activity's own back control, and that
+     * control is the overlay's plus one thing more: it goes through the back
+     * dispatcher, so it closes the dictionary panel first and the whole view
+     * second — the same order as the system back key and the empty-space tap.
+     * What stood beside it was a second, weaker exit affordance drawn with the
+     * app's OCR-logo graphic floating over the image, and that is the control the
+     * maintainer asked to lose from this view (#78). #105 replaced that circle
+     * with a plain glyph button in the accessibility overlay, which is that
+     * overlay's only exit affordance; this host still declines it.
      *
      * The exits are unaffected: the top-left back control, the system back key or
-     * gesture, a tap on empty space, and the swipe down from the status strip. The
-     * accessibility overlay's own close button is untouched — the service passes a
-     * position, and it is that overlay's only close affordance.
+     * gesture, a tap on empty space, and the swipe down from the status strip.
      */
-    override fun closeButtonOrigin(): Pair<Int, Int>? = null
-
-    /** No trigger window to keep in step. */
-    override fun onCloseButtonMoved(x: Int, y: Int) {}
+    override fun wantsBackButton(): Boolean = false
 
     // ---- lifecycle ----
 
@@ -331,11 +326,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             return
         }
 
-        // Bottom-left: the view's draggable close button starts in the top-left
-        // (`closeButtonOrigin`), the status strip owns the top edge, and the
-        // confidence controls run down the left at vertical centre — so this is
-        // the one corner where the pair collides with nothing. It is added to
-        // this container first so it is visible while the image decodes, then
+        // Bottom-left: the top-left corner belongs to the back control and the
+        // status strip owns the top edge, while the confidence controls run down
+        // the left at vertical centre — so this is the one corner where the
+        // rotate pair collides with nothing. It is added to this container first
+        // so it is visible while the image decodes, then
         // moved into the overlay view's chrome layer once the view exists: that
         // layer renders under the dictionary panel but above the image, which a
         // sibling here could never do (it would sit above the whole surface,

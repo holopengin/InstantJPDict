@@ -90,23 +90,15 @@ class OcrOverlayView(
         /** Re-apply the host window's LayoutParams (manual-input keyboard). */
         fun requestSoftInputResize()
         /**
-         * The draggable close button's starting position — or null when this host
-         * does not want that button at all.
+         * Whether this host wants the overlay's own back control — a plain
+         * transparent glyph button in the top-left corner (see [addBackButton]).
          *
-         * A host that already has its own back control asks for null here rather
-         * than the view growing a second flag, so "no close button" is one fact
-         * in one place. See [addCloseButtonFor] for why the accessibility service
-         * — the view's other host — still passes a position.
-         *
-         * #105: the accessibility service answers with the close button's OWN
-         * remembered position. It used to hand over the floating button's window
-         * params, with the two kept in step so that dragging this button moved the
-         * trigger too; with the trigger gone, the position is simply this button's
-         * own, and [onCloseButtonMoved] is where the host records a drag.
+         * A host that already has its own back control there answers false, so
+         * "no second back button" is one fact in one place (#78: the share
+         * activity's own back control has drawn in that corner since before the
+         * accessibility overlay was given one).
          */
-        fun closeButtonOrigin(): Pair<Int, Int>?
-        /** The close button was dragged; the host keeps its position in step. */
-        fun onCloseButtonMoved(x: Int, y: Int)
+        fun wantsBackButton(): Boolean
     }
 
     private val srcBitmap: Bitmap get() = host.bitmap
@@ -296,7 +288,7 @@ class OcrOverlayView(
                 // to resolve, so don't claim the gesture at all.
                 if (!DoubleTapZoom.isEnabled(context)) return false
                 // Never hijack taps on interactive chrome.
-                val onChrome = listOf("correction_ui_root", "manual_input_blocker", "close_button").any { tag ->
+                val onChrome = listOf("correction_ui_root", "manual_input_blocker", "overlay_back").any { tag ->
                     findViewWithTag<View>(tag)?.let { v ->
                         v.isVisible && Rect().also { r -> v.getGlobalVisibleRect(r) }.contains(e.rawX.toInt(), e.rawY.toInt())
                     } == true
@@ -454,7 +446,7 @@ class OcrOverlayView(
         }
         addView(controlsRoot, controlsParams)
 
-        addCloseButtonFor(host)
+        addBackButtonFor(host)
 
         // #57 rotation chrome: a layer for the host's own controls (the share
         // activity's rotate pair). Added last, so it sits above the image, the
@@ -486,89 +478,58 @@ class OcrOverlayView(
     }
 
     /**
-     * #78: the overlay's own floating close button, for hosts that want it.
+     * #105: the overlay's own back control, for hosts that want it.
      *
-     * [Host.closeButtonOrigin] answers null when the host draws no close button:
-     * the image-share view already puts a back control in the top-left corner, so
-     * this button (the same logo graphic, floating over the image) was a second
-     * exit affordance doing one thing less — the back control closes a layer at a
-     * time, this closes the whole view. The accessibility service still passes a
-     * position: it is this button alone that closes its overlay, and it is where
-     * the position it remembers comes from.
+     * [Host.wantsBackButton] is where a host that draws its own back control in
+     * that corner (the image-share activity) declines this one; see
+     * [addBackButton] for how the button is built and placed.
      */
-    private fun addCloseButtonFor(host: Host) {
-        val origin = host.closeButtonOrigin() ?: return
-        addCloseButton(origin)
+    private fun addBackButtonFor(host: Host) {
+        if (!host.wantsBackButton()) return
+        addBackButton()
     }
 
     /**
-     * The draggable close button. Its position is the host's to supply and its
-     * own once placed (#105: the floating button it used to share a position with
-     * is gone), and a drag is reported back through [Host.onCloseButtonMoved] so
-     * the host can remember it — which is what the share activity's null origin
-     * keeps it from having to.
+     * #105: the button that replaced #78's draggable logo circle — one fixed,
+     * plain transparent control in the top-left corner, no drag and no
+     * remembered position, so the host has nothing to keep in step.
+     *
+     * Layering: it is added after [contentContainer], so it sits above the OCR
+     * boxes; the dictionary panel is added to this view later and brought to
+     * front ([showResultsUi]), so the panel covers the button, not the reverse.
+     *
+     * The glyph is U+2190 LEFT ARROW, as the share activity's own back control
+     * is: the app's chrome already speaks glyphs, and a new asset would have to
+     * satisfy the licence index. The action is [handleBackKey] — the same
+     * de-duplicated path as the system back key and gesture, so the dictionary
+     * panel closes first and the whole overlay second.
      */
-    private fun addCloseButton(origin: Pair<Int, Int>) {
-        val closeButton = CenteredButton(context).apply {
-            tag = "close_button"
-            background = logoButtonBackground(context)
+    private fun addBackButton() {
+        val density = resources.displayMetrics.density
+        val backButton = CenteredButton(context).apply {
+            tag = "overlay_back"
+            text = BACK_GLYPH
+            textSize = BACK_GLYPH_TEXT_SIZE_SP
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
             setPadding(0, 0, 0, 0)
             minWidth = 0
             minHeight = 0
             gravity = Gravity.CENTER
             includeFontPadding = false
-            alpha = 1.0f
-            setOnClickListener { closeWholeOverlay() }
-            setOnTouchListener(object : View.OnTouchListener {
-                private var initialX = 0f
-                private var initialY = 0f
-                private var initialTouchX = 0f
-                private var initialTouchY = 0f
-
-                override fun onTouch(v: View, event: MotionEvent): Boolean {
-                    val lp = v.layoutParams as FrameLayout.LayoutParams
-                    when (event.action) {
-                        MotionEvent.ACTION_DOWN -> {
-                            v.parent.requestDisallowInterceptTouchEvent(true)
-                            initialX = lp.leftMargin.toFloat()
-                            initialY = lp.topMargin.toFloat()
-                            initialTouchX = event.rawX
-                            initialTouchY = event.rawY
-                            return true
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            val displayMetrics = resources.displayMetrics
-                            val maxX = displayMetrics.widthPixels - v.width
-                            val maxY = displayMetrics.heightPixels - v.height
-
-                            val newX = (initialX + (event.rawX - initialTouchX)).roundToInt().coerceIn(0, maxX)
-                            val newY = (initialY + (event.rawY - initialTouchY)).roundToInt().coerceIn(0, maxY)
-                            lp.leftMargin = newX
-                            lp.topMargin = newY
-                            v.layoutParams = lp
-
-                            host.onCloseButtonMoved(newX, newY)
-                            return true
-                        }
-                        MotionEvent.ACTION_UP -> {
-                            val diffX = event.rawX - initialTouchX
-                            val diffY = event.rawY - initialTouchY
-                            if (abs(diffX) < 10 && abs(diffY) < 10) {
-                                v.performClick()
-                            }
-                            return true
-                        }
-                    }
-                    return false
-                }
-            })
+            contentDescription = "Back"
+            setOnClickListener { handleBackKey() }
         }
-        val size = closeButtonSizePx(resources.displayMetrics.density)
+        val size = (BACK_BUTTON_DP * density).roundToInt()
+        val margin = (BACK_BUTTON_MARGIN_DP * density).roundToInt()
         val lp = FrameLayout.LayoutParams(size, size).apply {
-            leftMargin = origin.first
-            topMargin = origin.second
+            gravity = Gravity.TOP or Gravity.START
+            leftMargin = margin
+            // The window lays out under the system bars (FLAG_LAYOUT_NO_LIMITS),
+            // so the corner margin is measured from below the status bar.
+            topMargin = statusBarHeightPx() + margin
         }
-        addView(closeButton, lp)
+        addView(backButton, lp)
     }
 
     /**
@@ -593,7 +554,7 @@ class OcrOverlayView(
         // touch, including char taps consumed by LineOverlayView
         // children that never reach the root touch listener.
         tapDetector.onTouchEvent(ev)
-        if (listOf("correction_ui_root", "manual_input_blocker", "close_button").any { isTouchOnView(it, ev) }) return false
+        if (listOf("correction_ui_root", "manual_input_blocker", "overlay_back").any { isTouchOnView(it, ev) }) return false
         if (isTouchOnHostChrome(ev)) return false
         updateFocusState(ev)
         if (ev.actionMasked == MotionEvent.ACTION_MOVE) {
@@ -3116,27 +3077,25 @@ class OcrOverlayView(
     }
 }
 
-/** #57: the one logo-drawable lookup the app's OCR controls share — the
- *  overlay's close button and the camera shutter — so they never drift apart.
- *  #105: the floating button drew it too, until the system trigger replaced
- *  that window. */
+/** #57: the app's mark as a button background — now only the camera shutter's,
+ *  since #105 took the overlay's close button off the logo and onto a plain
+ *  glyph. The lookup stays named here so the drawable is named once. */
 internal fun logoButtonBackground(context: Context): Drawable =
     ContextCompat.getDrawable(context, R.drawable.logo)!!
 
-/**
- * #105: the close button's edge length in pixels, from the display density.
- *
- * Shared, not repeated: [OcrOverlayView.addCloseButton] lays the button out at
- * this size, and the service's close-button position store needs the same number
- * to convert the button's centre between the display's coordinate spaces — which
- * it must do *before* the button exists, so it cannot measure the view. That is
- * why this is a top-level helper beside [logoButtonBackground] rather than
- * something read off the (not yet built) view.
- */
-internal fun closeButtonSizePx(density: Float): Int = (CLOSE_BUTTON_DP * density).toInt()
+/** #105: the overlay back control's edge length, in dp — 52dp, as the share
+ *  activity's own back control is, well past the platform's 48dp minimum. */
+private const val BACK_BUTTON_DP = 52
 
-/** The close button's designed edge length, in dp. */
-private const val CLOSE_BUTTON_DP = 44
+/** #105: the overlay back control's corner margin, in dp, measured below the
+ *  status bar (the window lays out under the system bars). */
+private const val BACK_BUTTON_MARGIN_DP = 12
+
+/** #105: the overlay back control's glyph (U+2190 LEFT ARROW). */
+private const val BACK_GLYPH = "\u2190"
+
+/** #105: the overlay back control's glyph size, in sp. */
+private const val BACK_GLYPH_TEXT_SIZE_SP = 24f
 
 /** #53: side padding of a rotated Line's border View, in source pixels: the
  *  pad keeps the rounded fill corners inside the quad's AABB. */

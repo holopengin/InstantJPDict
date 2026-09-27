@@ -2,7 +2,6 @@ package com.holopengin.instantjpdict
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
-import android.hardware.display.DisplayManager
 import android.view.animation.DecelerateInterpolator
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
@@ -80,28 +79,6 @@ class OcrAccessibilityService : AccessibilityService() {
         getSystemService(WINDOW_SERVICE) as WindowManager
     }
 
-    /**
-     * #105: the overlay close button's centre in natural (rotation-0) device
-     * coordinates — the canonical position, re-derived per rotation by
-     * [OcrOverlayView.Host.closeButtonOrigin] (see [OverlayClosePosition]). The
-     * button used to borrow the floating trigger's window params for this; with the
-     * trigger gone it owns the store, and a drag in
-     * [OcrOverlayView.Host.onCloseButtonMoved] is the only other writer.
-     */
-    private var closeNatCX = 0f
-    private var closeNatCY = 0f
-    /**
-     * #105: whether the close button still needs its starting placement derived.
-     *
-     * The top-left default is a DEFAULT, not a per-connect reset: seeding it on
-     * every bind would throw away a position the user dragged the last time this
-     * service ran, and a re-bind is routine (see [onServiceConnected]). So it is
-     * derived once, on the first overlay this service builds — which also puts it
-     * against the live display metrics rather than whatever they were at bind time
-     * — and [rememberCloseButtonPosition] clears this on the way through, so a
-     * drag never re-enables seeding.
-     */
-    private var closeButtonNeedsHome = true
     /** Set in onDestroy so a pending trigger cannot open an overlay during teardown. */
     private var isDestroyed = false
     /** #57: the shared OCR overlay surface; null when no overlay is showing. */
@@ -207,9 +184,7 @@ class OcrAccessibilityService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // A rotation invalidates the overlay: its text boxes were placed for the
-        // old orientation. The close button's canonical position is rotation-free
-        // ([OverlayClosePosition]), so hiding the overlay costs the user nothing —
-        // the next capture opens the button back on the same physical spot.
+        // old orientation.
         if (overlayView != null) {
             closeOverlay("rotation")
         }
@@ -494,35 +469,6 @@ class OcrAccessibilityService : AccessibilityService() {
         )
     }
 
-    // ---- #105: the close button's own position ----
-
-    /**
-     * The close button's pixel size, from the one helper the view lays it out with
-     * ([closeButtonSizePx]) — the position store has to know the edge length to
-     * convert a centre, and the button does not exist yet when it needs to.
-     */
-    private fun closeButtonSize(): Int = closeButtonSizePx(resources.displayMetrics.density)
-
-    /**
-     * The display rotation the overlay is built under. Read per overlay rather than
-     * watched: the button's position is derived once, when the overlay is created,
-     * and a rotation while the overlay is up closes it
-     * ([onConfigurationChanged]) — so there is nothing left to keep in step.
-     */
-    private fun displayRotation(): Int =
-        (getSystemService(DISPLAY_SERVICE) as? DisplayManager)
-            ?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: ROTATION_NATURAL
-
-    /** Keep the canonical natural centre in step with a user placement. */
-    private fun rememberCloseButtonPosition(x: Int, y: Int) {
-        val size = closeButtonSize()
-        val dm = resources.displayMetrics
-        val (cx, cy) = naturalCentre(x, y, size, size, dm.widthPixels, dm.heightPixels, displayRotation())
-        closeNatCX = cx
-        closeNatCY = cy
-        closeButtonNeedsHome = false
-    }
-
     private fun triggerCapture(
         onSuccessAction: (Bitmap) -> Unit,
         onFailedAction: (errorCode: Int) -> Unit = {},
@@ -611,26 +557,10 @@ class OcrAccessibilityService : AccessibilityService() {
                 windowManager.updateViewLayout(root, p)
             }
 
-            // #105: the close button's own store. It used to read and write the
-            // floating button's window params; with that window gone the button
-            // keeps the position itself, and these two are its only accessors. The
-            // first overlay of a service run is where the default gets derived.
-            override fun closeButtonOrigin(): Pair<Int, Int> {
-                if (closeButtonNeedsHome) {
-                    rememberCloseButtonPosition(CLOSE_BUTTON_HOME_X, CLOSE_BUTTON_HOME_Y)
-                }
-                val size = closeButtonSize()
-                val dm = resources.displayMetrics
-                val (x, y) = logicalTopLeft(
-                    closeNatCX, closeNatCY, size, size,
-                    dm.widthPixels, dm.heightPixels, displayRotation(),
-                )
-                return x to y
-            }
-
-            override fun onCloseButtonMoved(x: Int, y: Int) {
-                rememberCloseButtonPosition(x, y)
-            }
+            // #105: the accessibility overlay draws the view's own back button
+            // (top-left). The share activity hosts the same view and declines it
+            // in favour of the back control it has had in that corner since #78.
+            override fun wantsBackButton(): Boolean = true
         }
 
         val view = OcrOverlayView(this, host)
@@ -835,13 +765,6 @@ class OcrAccessibilityService : AccessibilityService() {
 
         /** #105: the pause before the one capture retry. */
         private const val CAPTURE_RETRY_DELAY_MS = 500L
-
-        /**
-         * #105: where the close button starts, in logical pixels. A default, not a
-         * per-connect reset — see [closeButtonNeedsHome].
-         */
-        private const val CLOSE_BUTTON_HOME_X = 100
-        private const val CLOSE_BUTTON_HOME_Y = 100
 
         /** #105: the update signal's store (separate from the gamepad prefs). */
         private const val ACCESSIBILITY_PREFS = "accessibility_prefs"
