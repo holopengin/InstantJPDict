@@ -132,6 +132,23 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private var lastActivationAt = 0L
 
+    /**
+     * #105: whether the framework currently has us bound.
+     *
+     * `onServiceConnected` is not once per activation: the framework also
+     * re-connects a service that is **already enabled** — after a `serviceInfo`
+     * change, a config change, or a rebind once the process is back — and none of
+     * those are the user asking for a capture. A plain toggle always unbinds first
+     * ([onUnbind]), so the unbind is what tells a fresh activation from a
+     * re-connect.
+     *
+     * Deliberately in memory: a process restart starts it `false`, so a gesture
+     * after the process was killed still captures. A persisted flag would catch
+     * that rebind too, but a stale `true` surviving an unbind that was never
+     * delivered would suppress every later capture — the worse failure of the two.
+     */
+    private var serviceBound = false
+
 
     private val overlayControllerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -242,9 +259,41 @@ class OcrAccessibilityService : AccessibilityService() {
         // #105: the platform's accessibility-button callback. This is the API-35
         // replacement for the old `onAccessibilityButtonClicked(int)`, which no
         // longer exists on AccessibilityService (see [accessibilityButtonCallback]).
-        accessibilityButtonController
-            ?.registerAccessibilityButtonCallback(accessibilityButtonCallback)
+        //
+        // Unregister first: registering the same callback object twice would deliver
+        // every press twice, and this method runs on every connect, not once.
+        accessibilityButtonController?.let { controller ->
+            try {
+                controller.unregisterAccessibilityButtonCallback(accessibilityButtonCallback)
+            } catch (_: Exception) {
+            }
+            controller.registerAccessibilityButtonCallback(accessibilityButtonCallback)
+        }
+        // #105: a connect is an activation only when the user toggled us on. The
+        // framework also re-connects an already-enabled service — a `serviceInfo`
+        // change, a config change, a rebind — without an unbind in between, and
+        // those are not asks for a capture. The one residual is a rebind after the
+        // *process* was killed: the flag is in memory, so that looks like a fresh
+        // enable and captures. A missed gesture would be worse than a spurious
+        // capture, so the uncertainty is resolved that way on purpose.
+        val reconnected = serviceBound
+        serviceBound = true
+        if (reconnected) {
+            Log.d(TAG, "re-connected while already bound; not an activation; not capturing")
+            return
+        }
         captureFromActivation("service connected")
+    }
+
+    /**
+     * #105: the framework released us — the user toggled the service off, which is
+     * the other half of the same gesture. Clearing [serviceBound] is what makes the
+     * next toggle a fresh activation again, and it is why a connect with no unbind
+     * before it is never treated as one.
+     */
+    override fun onUnbind(intent: Intent?): Boolean {
+        serviceBound = false
+        return super.onUnbind(intent)
     }
 
     /**
@@ -283,6 +332,22 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
     /**
+     * #105: the active window's package, or null when the framework will not say.
+     *
+     * The accessibility windows API is the one place a service can ask this without
+     * another permission; [AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS]
+     * is what populates it. Null is the "cannot tell" answer, and every caller
+     * treats it as "not Settings" so an unreadable window cannot suppress a real
+     * activation.
+     */
+    private fun activeWindowPackage(): String? =
+        try {
+            windows.firstOrNull { it.isActive }?.root?.packageName?.toString()
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
      * #105: the one gate in front of a capture, shared by both native activations.
      *
      * Silently skips (a log line, no toast — the user did not ask for anything, so
@@ -293,11 +358,29 @@ class OcrAccessibilityService : AccessibilityService() {
      * connect arrives while the first is still in flight, and spending the window
      * on a skipped trigger too is what stops that pair from opening two overlays.
      *
+     * The one non-`suspend` guard that is *not* stamped over is the Settings-screen
+     * skip below: configuring us there is not a capture at all, and it should not
+     * spend the interval that a real gesture a moment later needs.
+     *
      * Elapsed realtime, not wall clock: this is a monotonic interval, and a user or
      * NTP changing the time must not make the guard pass or stall.
      */
     private fun captureFromActivation(reason: String) {
         if (isDestroyed) return
+        // #105: a Settings screen is where the user *configures* us — switching the
+        // service on, pinning it to the shortcut — and the capture that used to fire
+        // there was a capture of Settings, never what was wanted. The app in front is
+        // what tells the two apart: a Settings package means configuration, anything
+        // else means the gesture fired where the user was already reading. The
+        // package is logged so an on-device check can see which side it landed on.
+        //
+        // Before the interval stamp, deliberately: configuring us must not spend the
+        // guard window that a real gesture, a moment later, needs.
+        val foreground = activeWindowPackage()
+        if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
+            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); ignoring")
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
             Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
