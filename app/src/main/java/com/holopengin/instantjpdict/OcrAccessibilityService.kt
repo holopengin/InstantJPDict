@@ -164,14 +164,20 @@ class OcrAccessibilityService : AccessibilityService() {
 
     private val overlayControllerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // #105: what is left here is the overlay's own business and nothing
-            // else. SCREEN_ON and USER_PRESENT are gone from the filter as well as
-            // the branches: every action either of them used to take was show or
-            // re-attach the floating button, and the screen-off branch no longer
-            // hides one — so all four are now just "close the overlay".
+            // #105: the button's show/hide branches are gone from the filter and
+            // the code; what is left is the overlay's own lifecycle. Screen off ends
+            // the session; a closed system dialog only matters when it closed over
+            // the overlay.
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF,
-                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> standDown()
+                // Screen off ends the session, whatever was on it.
+                Intent.ACTION_SCREEN_OFF -> standDown("screen off")
+                // Deprecated and noisy: a Settings toggle, an IME, the power menu can
+                // all close a system dialog. It matters only when it closed over our
+                // overlay; on its own it must never disable the service — this was
+                // one path that flipped the switch off under the user in Settings.
+                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> if (overlayView != null) {
+                    standDown("system dialog closed over the overlay")
+                }
             }
         }
     }
@@ -214,7 +220,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // ([OverlayClosePosition]), so hiding the overlay costs the user nothing —
         // the next capture opens the button back on the same physical spot.
         if (overlayView != null) {
-            standDown()
+            standDown("rotation")
         }
     }
 
@@ -327,12 +333,21 @@ class OcrAccessibilityService : AccessibilityService() {
         mainHandler.postDelayed({
             if (isDestroyed || overlayView != null) return@postDelayed
             val foreground = activeWindowPackage()
-            if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
-                Log.d(TAG, "idle service in $foreground; staying enabled until Settings is left")
-                standDownWhenSettingsLeave = true
-            } else {
-                Log.d(TAG, "idle service with ${foreground ?: "unknown"} in front; standing down")
-                standDown()
+            when {
+                foreground == null ->
+                    Log.d(TAG, "idle service with an unreadable foreground; staying enabled")
+                // Settings and the system surfaces around it (a dialog, the shortcut
+                // chip) are configuration, not "the user is somewhere else". Staying
+                // enabled there is the whole point; the next *user* window change
+                // stands the service down.
+                isSettingsSurface(foreground) || isSystemSurface(foreground) -> {
+                    Log.d(TAG, "idle service over $foreground; staying enabled until a window change")
+                    standDownWhenSettingsLeave = true
+                }
+                else -> {
+                    Log.d(TAG, "idle service with $foreground in front; standing down")
+                    standDown("idle service, $foreground in front")
+                }
             }
         }, IDLE_RESOLVE_DELAY_MS)
     }
@@ -455,8 +470,9 @@ class OcrAccessibilityService : AccessibilityService() {
         standDownWhenSettingsLeave = false
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
+            // A duplicate, not an idle service: the earlier activation is already in
+            // flight (armed or capturing), and standing down here would cancel it.
             Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
-            standDown()
             return
         }
         lastActivationAt = now
@@ -467,13 +483,13 @@ class OcrAccessibilityService : AccessibilityService() {
         val power = getSystemService(POWER_SERVICE) as? PowerManager
         if (power != null && !power.isInteractive) {
             Log.d(TAG, "activation '$reason' with the screen off; ignoring")
-            standDown()
+            standDown("screen off at activation")
             return
         }
         val keyguard = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguard != null && keyguard.isKeyguardLocked) {
             Log.d(TAG, "activation '$reason' on the keyguard; ignoring")
-            standDown()
+            standDown("keyguard")
             return
         }
         // The window server needs a moment after the bind before a screenshot
@@ -510,7 +526,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // us from — but 300 ms later it is. A Settings screen means configuration,
         // not a capture, and it is not retried.
         val foreground = activeWindowPackage()
-        if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
+        if (foreground != null && isSettingsSurface(foreground)) {
             Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); staying enabled until Settings is left")
             // #105: NOT a stand-down. The system enables the service as the user
             // picks it in the shortcut/button chooser, and disabling it here makes
@@ -644,7 +660,7 @@ class OcrAccessibilityService : AccessibilityService() {
             override val controller: OcrOverlayStateController get() = this@OcrAccessibilityService.controller
 
             override fun dismissOverlay() {
-                standDown()
+                standDown("overlay dismissed")
             }
 
             override fun requestSoftInputResize() {
@@ -764,12 +780,12 @@ class OcrAccessibilityService : AccessibilityService() {
      * to the accessibility button. A resident service keeps the old toggle
      * semantics with it — see [keepResident].
      */
-    private fun standDown() {
+    private fun standDown(reason: String) {
         if (isDestroyed) return
         standDownWhenSettingsLeave = false
         hideScreenshotOverlay()
         if (keepResident()) return
-        Log.d(TAG, "standing down; the service disables itself until the next activation")
+        Log.d(TAG, "standing down ($reason); the service disables itself until the next activation")
         try {
             disableSelf()
         } catch (e: Exception) {
@@ -792,6 +808,17 @@ class OcrAccessibilityService : AccessibilityService() {
      * wants the button to stay live can clear the pin in Settings, or ask for the
      * exception back.
      */
+    /** #105: a configuration screen (ours or a vendor's) — never a capture, never a stand-down. */
+    private fun isSettingsSurface(pkg: String): Boolean = pkg.contains("settings", ignoreCase = true)
+
+    /**
+     * #105: a transient system surface — SystemUI hosts dialogs, toasts and the
+     * accessibility button, so a window-state change naming it is not evidence the
+     * user went anywhere. Treating it as "left Settings" disabled the service the
+     * moment it was enabled from Settings.
+     */
+    private fun isSystemSurface(pkg: String): Boolean = pkg.contains("systemui", ignoreCase = true)
+
     private fun keepResident(): Boolean {
         val gamepad = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
             .getBoolean("global_shortcut_enabled", false)
@@ -808,11 +835,11 @@ class OcrAccessibilityService : AccessibilityService() {
         // shortcut press is an enable and captures.
         if (standDownWhenSettingsLeave) {
             val changed = event.packageName?.toString()
-            if (changed != null &&
-                !changed.contains("settings", ignoreCase = true) && overlayView == null
+            if (changed != null && !isSettingsSurface(changed) && !isSystemSurface(changed) &&
+                overlayView == null
             ) {
                 Log.d(TAG, "left Settings for $changed; standing the configuration service down")
-                standDown()
+                standDown("left Settings for $changed")
             }
         }
         // #105: the no-overlay branch used to re-attach the floating button here
@@ -824,7 +851,7 @@ class OcrAccessibilityService : AccessibilityService() {
         if (view.hasManualInputBlocker()) return
         if (System.currentTimeMillis() - controller.lastManualInputCloseTime < 1000) return
         if (event.isFullScreen != true) return
-        standDown()
+        standDown("overlay left behind by $eventPackage")
     }
 
     override fun onInterrupt() {}
