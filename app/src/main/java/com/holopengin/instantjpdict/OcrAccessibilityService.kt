@@ -132,17 +132,8 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private var lastActivationAt = 0L
 
-    /**
-     * #105: the service was left enabled by a Settings screen, and is waiting for
-     * the user to go somewhere else before it stands down.
-     *
-     * Disabling ourselves *while* the user is configuring makes the system's switch
-     * flip back off under them ("it appears for a moment then disappears"), so that
-     * path stays enabled and this carries the intent forward: the first window-state
-     * change to a non-Settings app is when the configuration is over and the idle
-     * service has no reason to exist. Cleared by any arming or stand-down.
-     */
-    private var standDownWhenSettingsLeave = false
+    /** #105: the last volume-down press, for the double-press chord (0 = none yet). */
+    private var lastVolumeDownAt = 0L
 
     /**
      * #105: whether the framework currently has us bound.
@@ -170,13 +161,13 @@ class OcrAccessibilityService : AccessibilityService() {
             // the overlay.
             when (intent?.action) {
                 // Screen off ends the session, whatever was on it.
-                Intent.ACTION_SCREEN_OFF -> standDown("screen off")
+                Intent.ACTION_SCREEN_OFF -> closeOverlay("screen off")
                 // Deprecated and noisy: a Settings toggle, an IME, the power menu can
                 // all close a system dialog. It matters only when it closed over our
                 // overlay; on its own it must never disable the service — this was
                 // one path that flipped the switch off under the user in Settings.
                 Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> if (overlayView != null) {
-                    standDown("system dialog closed over the overlay")
+                    closeOverlay("system dialog closed over the overlay")
                 }
             }
         }
@@ -220,7 +211,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // ([OverlayClosePosition]), so hiding the overlay costs the user nothing —
         // the next capture opens the button back on the same physical spot.
         if (overlayView != null) {
-            standDown("rotation")
+            closeOverlay("rotation")
         }
     }
 
@@ -298,7 +289,6 @@ class OcrAccessibilityService : AccessibilityService() {
         serviceBound = true
         if (reconnected) {
             Log.d(TAG, "re-connected while already bound; not an activation; not capturing")
-            resolveIdleService()
             return
         }
         // #105: the framework re-enables an accessibility service when its app is
@@ -307,49 +297,9 @@ class OcrAccessibilityService : AccessibilityService() {
         // [isFirstRunSinceUpdate].
         if (isFirstRunSinceUpdate()) {
             Log.d(TAG, "first connect since the app was updated; not an activation; not capturing")
-            resolveIdleService()
             return
         }
         captureFromActivation("service connected")
-    }
-
-    /**
-     * #105: what an enabled-but-idle service should do — resolved a moment later,
-     * when the foreground can be read.
-     *
-     * The connects that are not activations (a re-connect, the re-enable after an
-     * update) cannot decide this inline: the accessibility windows list is empty
-     * when `onServiceConnected` fires. So they leave the service up and this runs
-     * after the list is populated:
-     *
-     * * **in Settings** — the user is configuring us (post-update, the first
-     *   connect is exactly the enable they just tapped in Settings). Disabling the
-     *   service there flips the system's switch back off under them, so it stays up
-     *   and [standDownWhenSettingsLeave] finishes the job when they leave.
-     * * **anywhere else** — the idle service has no reason to exist, so it stands
-     *   down and the next shortcut press is an enable that captures.
-     */
-    private fun resolveIdleService() {
-        mainHandler.postDelayed({
-            if (isDestroyed || overlayView != null) return@postDelayed
-            val foreground = activeWindowPackage()
-            when {
-                foreground == null ->
-                    Log.d(TAG, "idle service with an unreadable foreground; staying enabled")
-                // Settings and the system surfaces around it (a dialog, the shortcut
-                // chip) are configuration, not "the user is somewhere else". Staying
-                // enabled there is the whole point; the next *user* window change
-                // stands the service down.
-                isSettingsSurface(foreground) || isSystemSurface(foreground) -> {
-                    Log.d(TAG, "idle service over $foreground; staying enabled until a window change")
-                    standDownWhenSettingsLeave = true
-                }
-                else -> {
-                    Log.d(TAG, "idle service with $foreground in front; standing down")
-                    standDown("idle service, $foreground in front")
-                }
-            }
-        }, IDLE_RESOLVE_DELAY_MS)
     }
 
     /**
@@ -467,7 +417,6 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private fun captureFromActivation(reason: String) {
         if (isDestroyed) return
-        standDownWhenSettingsLeave = false
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
             // A duplicate, not an idle service: the earlier activation is already in
@@ -483,13 +432,11 @@ class OcrAccessibilityService : AccessibilityService() {
         val power = getSystemService(POWER_SERVICE) as? PowerManager
         if (power != null && !power.isInteractive) {
             Log.d(TAG, "activation '$reason' with the screen off; ignoring")
-            standDown("screen off at activation")
             return
         }
         val keyguard = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguard != null && keyguard.isKeyguardLocked) {
             Log.d(TAG, "activation '$reason' on the keyguard; ignoring")
-            standDown("keyguard")
             return
         }
         // The window server needs a moment after the bind before a screenshot
@@ -527,13 +474,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // not a capture, and it is not retried.
         val foreground = activeWindowPackage()
         if (foreground != null && isSettingsSurface(foreground)) {
-            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); staying enabled until Settings is left")
-            // #105: NOT a stand-down. The system enables the service as the user
-            // picks it in the shortcut/button chooser, and disabling it here makes
-            // the switch flip back off under them. The service stays up while
-            // Settings is in front; [onAccessibilityEvent] stands it down on the
-            // first window change once they leave.
-            standDownWhenSettingsLeave = true
+            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); no capture")
             return
         }
         // The value is logged on the capturing path too: a null here (no window, or
@@ -660,7 +601,7 @@ class OcrAccessibilityService : AccessibilityService() {
             override val controller: OcrOverlayStateController get() = this@OcrAccessibilityService.controller
 
             override fun dismissOverlay() {
-                standDown("overlay dismissed")
+                closeOverlay("overlay dismissed")
             }
 
             override fun requestSoftInputResize() {
@@ -710,11 +651,37 @@ class OcrAccessibilityService : AccessibilityService() {
         ocrPass = view.startOcr()
     }
 
+    /**
+     * #105: double-press volume-down — a per-press trigger we own.
+     *
+     * The platform's accessibility shortcut *toggles the service*, so it cannot be
+     * per-press: the press that disables can never capture, and disabling the
+     * service ourselves takes the shortcut's own target binding with it (the
+     * shortcut then stops being listed and does nothing). This chord is ours
+     * instead — the service stays resident, each double press is exactly one
+     * capture, and single presses still change the volume: only the *second* press
+     * of a pair is consumed.
+     */
+    private fun handleVolumeChord(keyEvent: KeyEvent): Boolean {
+        if (keyEvent.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        if (keyEvent.action != KeyEvent.ACTION_DOWN || keyEvent.repeatCount != 0) return false
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastVolumeDownAt
+        lastVolumeDownAt = now
+        if (previous == 0L || now - previous > VOLUME_CHORD_MS) return false
+        lastVolumeDownAt = 0L
+        captureFromActivation("volume double-press")
+        return true
+    }
+
     override fun onKeyEvent(event: KeyEvent?): Boolean {
         val keyEvent = event ?: return super.onKeyEvent(event)
         
         // Handle global shortcut when overlay is NOT showing
         if (overlayView == null) {
+            // #105: our own volume chord, before and independent of the gamepad pref.
+            if (handleVolumeChord(keyEvent)) return true
+
             val prefs = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
             val globalShortcutEnabled = prefs.getBoolean("global_shortcut_enabled", false)
             
@@ -766,82 +733,27 @@ class OcrAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * #105: close the overlay and give the service back.
+     * #105: close the overlay. The service itself stays enabled.
      *
-     * The service exists to serve one capture, so it stays alive exactly as long
-     * as the overlay does; `disableSelf` flips the system's own shortcut state back
-     * to off, so the *next* press of the shortcut enables us again and captures —
-     * **every press captures**, instead of every other press merely toggling us on.
-     * Every path that decides not to show an overlay stands down too, so the
-     * invariant is simply "enabled implies an overlay is coming".
-     *
-     * The resident exceptions are the two surfaces that need a service which is
-     * already connected: the gamepad chord (off by default) and having been pinned
-     * to the accessibility button. A resident service keeps the old toggle
-     * semantics with it — see [keepResident].
+     * `disableSelf()` was tried here and is wrong on this platform: it disables the
+     * *service*, and the system's accessibility-shortcut target binding goes with
+     * it — the shortcut stops being listed and then does nothing when pressed
+     * (confirmed on-device). The service is what the triggers are attached to, so it
+     * is resident by design; the per-press triggers are the accessibility button,
+     * the volume chord in [onKeyEvent], and the shortcut's *enable* press, which
+     * captures through [onServiceConnected].
      */
-    private fun standDown(reason: String) {
+    private fun closeOverlay(reason: String) {
         if (isDestroyed) return
-        standDownWhenSettingsLeave = false
         hideScreenshotOverlay()
-        if (keepResident()) return
-        Log.d(TAG, "standing down ($reason); the service disables itself until the next activation")
-        try {
-            disableSelf()
-        } catch (e: Exception) {
-            Log.e(TAG, "disableSelf failed; the service stays on", e)
-        }
+        Log.d(TAG, "overlay closed ($reason); the service stays enabled for the next activation")
     }
 
-    /**
-     * #105: whether something needs the service to stay connected.
-     *
-     * The one resident case is the gamepad chord: it can only be heard by a live
-     * service, so a user who wants L1+R1 keeps the service up and keeps the older
-     * toggle semantics with it.
-     *
-     * Being pinned to the accessibility button deliberately does **not** count. That
-     * pin is how the system offers the button (this device's `dumpsys accessibility`
-     * showed `button:{<us>}` with the user never having chosen one), and it survived
-     * `settings delete` — so treating it as residency would quietly turn the
-     * stand-down off for the shortcut flow this exists to serve. A button user who
-     * wants the button to stay live can clear the pin in Settings, or ask for the
-     * exception back.
-     */
-    /** #105: a configuration screen (ours or a vendor's) — never a capture, never a stand-down. */
+    /** #105: a configuration screen (ours or a vendor's) — never a capture. */
     private fun isSettingsSurface(pkg: String): Boolean = pkg.contains("settings", ignoreCase = true)
-
-    /**
-     * #105: a transient system surface — SystemUI hosts dialogs, toasts and the
-     * accessibility button, so a window-state change naming it is not evidence the
-     * user went anywhere. Treating it as "left Settings" disabled the service the
-     * moment it was enabled from Settings.
-     */
-    private fun isSystemSurface(pkg: String): Boolean = pkg.contains("systemui", ignoreCase = true)
-
-    private fun keepResident(): Boolean {
-        val gamepad = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
-            .getBoolean("global_shortcut_enabled", false)
-        if (gamepad) Log.d(TAG, "resident: the gamepad global shortcut is enabled")
-        return gamepad
-    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        // #105: a service kept up by a Settings screen has done its job the moment
-        // the user is looking at something else. This is the other half of the
-        // deferred stand-down in [capture]: it stays enabled while they configure,
-        // and leaves on the first window change to a non-Settings app, so the next
-        // shortcut press is an enable and captures.
-        if (standDownWhenSettingsLeave) {
-            val changed = event.packageName?.toString()
-            if (changed != null && !isSettingsSurface(changed) && !isSystemSurface(changed) &&
-                overlayView == null
-            ) {
-                Log.d(TAG, "left Settings for $changed; standing the configuration service down")
-                standDown("left Settings for $changed")
-            }
-        }
         // #105: the no-overlay branch used to re-attach the floating button here
         // (the system drops an overlay window on the way to the secure camera).
         // There is no window of ours to restore any more, so it is just a return.
@@ -851,7 +763,7 @@ class OcrAccessibilityService : AccessibilityService() {
         if (view.hasManualInputBlocker()) return
         if (System.currentTimeMillis() - controller.lastManualInputCloseTime < 1000) return
         if (event.isFullScreen != true) return
-        standDown("overlay left behind by $eventPackage")
+        closeOverlay("overlay left behind by $eventPackage")
     }
 
     override fun onInterrupt() {}
@@ -918,8 +830,8 @@ class OcrAccessibilityService : AccessibilityService() {
          */
         private const val ACTIVATION_GUARD_MS = 750L
 
-        /** #105: how long an idle (non-activation) connect waits before deciding. */
-        private const val IDLE_RESOLVE_DELAY_MS = 1000L
+        /** #105: the window a second volume-down press has to land in. */
+        private const val VOLUME_CHORD_MS = 450L
 
         /** #105: the pause before the one capture retry. */
         private const val CAPTURE_RETRY_DELAY_MS = 500L
