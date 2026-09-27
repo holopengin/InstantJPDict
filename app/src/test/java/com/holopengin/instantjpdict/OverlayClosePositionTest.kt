@@ -5,12 +5,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * #93: the floating trigger's physical-space rotation geometry. The service
- * stores the button centre in natural device coordinates and re-derives the
- * logical pixels per rotation; these tests pin that contract, including the
- * cutout-side behaviour the maintainer asked for.
+ * #93/#105: the overlay close button's physical-space rotation geometry. The
+ * service stores the button centre in natural device coordinates and re-derives
+ * the logical pixels per rotation; these tests pin that contract, including the
+ * cutout-side behaviour the maintainer asked for. The store's owner moved from
+ * the floating trigger to the close button in #105, but the geometry is the
+ * same contract, so the values are unchanged.
  */
-class FloatingButtonPositionTest {
+class OverlayClosePositionTest {
     private val size = 97
     private val portraitW = 1080
     private val portraitH = 2400

@@ -18,7 +18,7 @@ It imports dictionaries in the Yomitan format such as [Jitendex, ](https://jiten
 
 ## Features
 - **On-device OCR**: High-speed Japanese text recognition without an internet connection.
-- **Floating Overlay**: Tap the button to scan your screen, anywhere.
+- **Screen OCR anywhere**: trigger it from the system's own accessibility shortcut — volume keys, a two-finger bottom swipe, or the accessibility button — no floating button of ours.
 - **Camera Mode**: Instant OCR for your physical books, manga, games, etc.
 - **Yomitan Dictionaries**: Imports Yomitan format dictionaries, with one-click installs for a curated selection.
 - **Instant Lookup**: Tap recognized characters to see dictionary entries immediately.

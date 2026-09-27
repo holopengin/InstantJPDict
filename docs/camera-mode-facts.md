@@ -29,7 +29,7 @@ All references are `path:line`. Facts only.
 - `:337-339` on success:
   `val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)?.copy(Bitmap.Config.ARGB_8888, true)` then `buffer.close()`.
 
-So the bitmap handed downstream is a **software ARGB_8888 copy of the full display**, in the display's colour space. It is triggered by the floating button (`:294-306`), which hides itself, posts 50 ms, then calls `triggerCapture { showScreenshotOverlay(it) }`.
+So the bitmap handed downstream is a **software ARGB_8888 copy of the full display**, in the display's colour space. It is triggered by a system accessibility activation (#105): the user's accessibility shortcut toggles this service, so `onServiceConnected` fires, or the accessibility button calls `AccessibilityButtonController`'s callback. Both go through `captureFromActivation`, which guards (an overlay already up, screen off, keyguard, or a 750 ms interval), posts ~300 ms for the window server, then calls `triggerCapture { showScreenshotOverlay(it) }` with one retry on failure that is not the platform's rate limit.
 
 **Entry into the engine.** `showScreenshotOverlay(bitmap)` (`:353`) stores it as the field `screenshotBitmap` (`:355`) and launches the OCR job (`:797`):
 - `:803` `val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detect(bitmap) }`

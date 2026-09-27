@@ -247,24 +247,24 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      * #78: null — this host wants NO floating close button, so the overlay draws
      * none (see [OcrOverlayView.addCloseButtonFor]).
      *
-     * There is no floating button to sit under here, which is why this corner was
-     * the button's. Since #78 the top-left corner belongs to the back control, and
+     * There is no trigger window to sit under here, which is why this corner was
+     * the close button's. Since #78 the top-left corner belongs to the back control, and
      * that control does everything the close button did and one thing more: it goes
      * through the back dispatcher, so it closes the dictionary panel first and the
      * whole view second — the same order as the system back key and the empty-space
      * tap. What was left was a second, weaker exit affordance drawn with the app's
-     * OCR-logo graphic floating over the image (indistinguishable from the
-     * accessibility service's own floating trigger, which is the same drawable), and
+     * OCR-logo graphic floating over the image (the same drawable the service's own
+     * floating trigger drew before #105 removed it), and
      * that is the control the maintainer asked to lose from this view.
      *
      * The exits are unaffected: the top-left back control, the system back key or
      * gesture, a tap on empty space, and the swipe down from the status strip. The
      * accessibility overlay's own close button is untouched — the service passes a
-     * position, and there it is the visible half of the floating trigger.
+     * position, and it is that overlay's only close affordance.
      */
     override fun closeButtonOrigin(): Pair<Int, Int>? = null
 
-    /** No floating button to keep in step. */
+    /** No trigger window to keep in step. */
     override fun onCloseButtonMoved(x: Int, y: Int) {}
 
     // ---- lifecycle ----

@@ -4,10 +4,10 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.hardware.display.DisplayManager
 import android.view.animation.DecelerateInterpolator
+import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.app.Activity
-import android.app.Application
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -20,20 +20,19 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.Display
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.Button
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -66,53 +65,45 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 class OcrAccessibilityService : AccessibilityService() {
 
-    private var windowManager: WindowManager? = null
-    private var floatingView: View? = null
-    private var floatingParams: WindowManager.LayoutParams? = null
     /**
-     * #93: the trigger's centre in natural (rotation-0) device coordinates — the
-     * canonical position. Rotation re-derives the logical pixels from this, so
-     * the button stays taped to the same physical spot (beside the front-camera
-     * cutout here) and rotating back lands on the exact same pixel even when the
-     * intermediate orientation had to clamp the button at an edge. Kept in step
-     * by every user placement: the drag below, and the overlay close button's
-     * drag through [OcrOverlayView.Host.onCloseButtonMoved].
+     * The window manager for the overlay's window. Non-null by construction: it
+     * used to be a nullable field written as a side effect of adding the floating
+     * button, the only writer, and #105 removed that writer — a null there would
+     * turn `addView` into a silent no-op, so the value is derived instead of
+     * stored ([by lazy] so the service context is not touched before the first
+     * use, which is always after [onCreate]).
      */
-    private var floatingNatCX = 0f
-    private var floatingNatCY = 0f
-    /**
-     * #93: rotating landscape→landscape (ROTATION_90 ↔ ROTATION_270) changes no
-     * Configuration, so [onConfigurationChanged] never fires for it; this
-     * listener is what catches that half of the rotation space. Both paths feed
-     * the same [repositionFloatingButtonForDisplay], so a callback arriving
-     * twice is a no-op.
-     */
-    private val displayListener = object : DisplayManager.DisplayListener {
-        override fun onDisplayAdded(displayId: Int) {}
-        override fun onDisplayRemoved(displayId: Int) {}
-        override fun onDisplayChanged(displayId: Int) {
-            if (displayId == Display.DEFAULT_DISPLAY && !isDestroyed) {
-                repositionFloatingButtonForDisplay()
-            }
-        }
+    private val windowManager: WindowManager by lazy {
+        getSystemService(WINDOW_SERVICE) as WindowManager
     }
-    private var displayListenerRegistered = false
-    private var ocrButton: Button? = null
-    /** Set in onDestroy so restore paths never re-add windows during teardown. (#60) */
-    private var isDestroyed = false
+
     /**
-     * #78: what the floating button's own paths (screen off/on, a capture in
-     * flight, the gamepad shortcut) last asked for. Latched rather than written
-     * straight to the view, so [applyFloatingButtonVisibility] can recombine it
-     * with whether one of the app's own views is in front: two independent writers
-     * on one `visibility` field would each silently undo the other.
+     * #105: the overlay close button's centre in natural (rotation-0) device
+     * coordinates — the canonical position, re-derived per rotation by
+     * [OcrOverlayView.Host.closeButtonOrigin] (see [OverlayClosePosition]). The
+     * button used to borrow the floating trigger's window params for this; with the
+     * trigger gone it owns the store, and a drag in
+     * [OcrOverlayView.Host.onCloseButtonMoved] is the only other writer.
      */
-    private var floatingButtonRequested = true
+    private var closeNatCX = 0f
+    private var closeNatCY = 0f
+    /**
+     * #105: whether the close button still needs its starting placement derived.
+     *
+     * The top-left default is a DEFAULT, not a per-connect reset: seeding it on
+     * every bind would throw away a position the user dragged the last time this
+     * service ran, and a re-bind is routine (see [onServiceConnected]). So it is
+     * derived once, on the first overlay this service builds — which also puts it
+     * against the live display metrics rather than whatever they were at bind time
+     * — and [rememberCloseButtonPosition] clears this on the way through, so a
+     * drag never re-enables seeding.
+     */
+    private var closeButtonNeedsHome = true
+    /** Set in onDestroy so a pending trigger cannot open an overlay during teardown. */
+    private var isDestroyed = false
     /** #57: the shared OCR overlay surface; null when no overlay is showing. */
     private var overlayView: OcrOverlayView? = null
     /**
@@ -132,33 +123,26 @@ class OcrAccessibilityService : AccessibilityService() {
     private var engineReady: Job? = null
     private val controller = OcrOverlayStateController()
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    
+    /** #105: the post-delays below need a main-thread queue of their own now that
+     *  there is no trigger view to post them on. */
+    private val mainHandler = Handler(Looper.getMainLooper())
+    /**
+     * #105: when the last activation was accepted, for the bind-storm guard in
+     * [captureFromActivation]. Elapsed realtime, monotonic — see the guard.
+     */
+    private var lastActivationAt = 0L
+
 
     private val overlayControllerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            // #105: what is left here is the overlay's own business and nothing
+            // else. SCREEN_ON and USER_PRESENT are gone from the filter as well as
+            // the branches: every action either of them used to take was show or
+            // re-attach the floating button, and the screen-off branch no longer
+            // hides one — so all four are now just "close the overlay".
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF,
-                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> {
-                    hideScreenshotOverlay()
-                    if (intent.action == Intent.ACTION_SCREEN_OFF) {
-                        hideFloatingButton()
-                    }
-                }
-                Intent.ACTION_SCREEN_ON -> {
-                    // Double-tap power to camera turns the screen off and on
-                    // without locking: USER_PRESENT never follows, so the
-                    // button would stay GONE until the next unlock. (#60)
-                    // Stay hidden on the keyguard itself; USER_PRESENT shows it.
-                    // B1/#86: through the shared predicate, not an inline copy —
-                    // the rule lives in [shouldShowOnScreenOn] with its test.
-                    ensureFloatingButton()
-                    val km = getSystemService(KEYGUARD_SERVICE) as android.app.KeyguardManager
-                    if (shouldShowOnScreenOn(km.isKeyguardLocked)) showFloatingButton()
-                }
-                Intent.ACTION_USER_PRESENT -> {
-                    ensureFloatingButton()
-                    showFloatingButton()
-                }
+                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> hideScreenshotOverlay()
             }
         }
     }
@@ -182,8 +166,6 @@ class OcrAccessibilityService : AccessibilityService() {
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_USER_PRESENT)
             @Suppress("DEPRECATION")
             addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
         }
@@ -194,315 +176,224 @@ class OcrAccessibilityService : AccessibilityService() {
             filter,
             ContextCompat.RECEIVER_EXPORTED
         )
-
-        // #78: watch the app's own views so the floating button can step out of their
-        // way. Any previous registration is released first: onDestroy is not guaranteed
-        // to run (a force-stop, a crash), and two live copies of the callback would both
-        // write the same state. The state itself is the process-wide [ownViewsStarted],
-        // so a restart here does not lose a view that is already in front.
-        ownViewCallbacks?.let { application.unregisterActivityLifecycleCallbacks(it) }
-        application.registerActivityLifecycleCallbacks(ownViewLifecycle)
-        ownViewCallbacks = ownViewLifecycle
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // #93: the window params live in the current display's space, so a
-        // rotation must re-derive them before anything reads them (the
-        // overlay's close-button origin below).
-        repositionFloatingButtonForDisplay()
+        // A rotation invalidates the overlay: its text boxes were placed for the
+        // old orientation. The close button's canonical position is rotation-free
+        // ([OverlayClosePosition]), so hiding the overlay costs the user nothing —
+        // the next capture opens the button back on the same physical spot.
         if (overlayView != null) {
             hideScreenshotOverlay()
         }
     }
 
+    /**
+     * #105: THE TRIGGER. Enabling the service is the capture request, and the
+     * platform's own accessibility activations are the two halves of it:
+     *
+     *  - [onServiceConnected] — the volume-button and two-finger-swipe gestures
+     *    (and the accessibility-button tap, on a system where that toggles a lone
+     *    service) *toggle the service at the system level*, so the bind is the
+     *    only event we get. Nothing here draws a control: this replaces the
+     *    floating button that used to stand in for it.
+     *  - [accessibilityButtonCallback] — the nav-bar accessibility button, and
+     *    whatever the user pinned to it, does NOT toggle, so it is a genuine
+     *    per-activation trigger and arrives as a callback instead. It is the other
+     *    half of "the system triggers themselves".
+     *
+     * The floating button these replace needed none of this: it was a view of
+     * ours, so a drag, a hide on screen-off and a re-attach after the system
+     * dropped its window were all part of keeping it usable. A platform
+     * activation has no lifecycle to maintain — there is nothing to add, hide,
+     * re-attach or position — which is the whole of what #105 deletes.
+     *
+     * Two caveats are inherent to that choice, not bugs to fix here:
+     *
+     *  1. `onServiceConnected` also fires when the system re-binds a service that
+     *     was enabled all along — after a process restart, a configuration change,
+     *     or an app update. Every such connect captures whatever is on screen at
+     *     that moment. Distinguishing a user enable from a system re-bind is not
+     *     available to an AccessibilityService, so the honest reading is "the
+     *     service is (re)connected, so this is a capture".
+     *  2. The FIRST enable therefore captures the Settings screen the user just
+     *     enabled us from, which is not Japanese text and makes for a useless
+     *     first overlay. It costs one tap on the overlay's close button.
+     *
+     * The guards below keep that honest without a button to show: a connect while
+     * an overlay is already up, while the screen is off, or on the keyguard has
+     * nothing worth capturing and stays silent (logged, not toasted), and a bind
+     * storm — which the re-bind caveat makes routine — cannot open two overlays.
+     */
     override fun onServiceConnected() {
         super.onServiceConnected()
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                // #105: what puts us in the accessibility-button chooser, so the
+                // user can pin us to the nav-bar button / accessibility button
+                // without Settings. Pinned through `flagRequestAccessibilityButton`
+                // in the service config too, for the same reason and so a fresh
+                // install is offerable before the first bind has run.
+                AccessibilityServiceInfo.FLAG_REQUEST_ACCESSIBILITY_BUTTON
         serviceInfo = info
-        // Reconnects must not duplicate the button; creation happens once. (#60)
-        if (floatingView == null) addFloatingButton() else ensureFloatingButton()
-        registerDisplayListener()
-    }
-
-    /** #93: the display listener is idempotent across service reconnects. */
-    private fun registerDisplayListener() {
-        val dm = getSystemService(DISPLAY_SERVICE) as? DisplayManager ?: return
-        if (displayListenerRegistered) dm.unregisterDisplayListener(displayListener)
-        dm.registerDisplayListener(displayListener, null)
-        displayListenerRegistered = true
-    }
-
-    private fun addFloatingButton() {
-        if (floatingView?.isAttachedToWindow == true) return
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        
-        floatingParams = WindowManager.LayoutParams().apply {
-            type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-            format = PixelFormat.TRANSLUCENT
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            width = WindowManager.LayoutParams.WRAP_CONTENT
-            height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 100
-        }
-
-        val frameLayout = FrameLayout(this)
-        val size = (44 * resources.displayMetrics.density).toInt()
-        ocrButton = CenteredButton(this).apply {
-            background = logoButtonBackground(this@OcrAccessibilityService)
-            layoutParams = FrameLayout.LayoutParams(size, size)
-            setPadding(0, 0, 0, 0)
-            minWidth = 0
-            minHeight = 0
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            alpha = 0.3f
-        }
-        frameLayout.addView(ocrButton)
-        // #93: the default (100,100) is the first canonical placement; every
-        // later rotation maps from whatever the user last set.
-        rememberFloatingPosition(100, 100)
-        
-        ocrButton?.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX = 0
-            private var initialY = 0
-            private var initialTouchX = 0f
-            private var initialTouchY = 0f
-
-            override fun onTouch(v: View, event: MotionEvent): Boolean {
-                val params = floatingParams ?: return false
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x
-                        initialY = params.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        return true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val displayMetrics = resources.displayMetrics
-                        val maxX = displayMetrics.widthPixels - v.width
-                        val maxY = displayMetrics.heightPixels - v.height
-
-                        val newX = (initialX + (event.rawX - initialTouchX).roundToInt()).coerceIn(0, maxX)
-                        val newY = (initialY + (event.rawY - initialTouchY).roundToInt()).coerceIn(0, maxY)
-                        params.x = newX
-                        params.y = newY
-                        rememberFloatingPosition(newX, newY)
-                        
-                        val fv = floatingView ?: return false
-                        if (fv.parent == overlayView) {
-                            val lp = fv.layoutParams as FrameLayout.LayoutParams
-                            lp.leftMargin = newX
-                            lp.topMargin = newY
-                            fv.layoutParams = lp
-                        } else if (fv.isAttachedToWindow) {
-                            windowManager?.updateViewLayout(fv, params)
-                        }
-                        return true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        val diffX = event.rawX - initialTouchX
-                        val diffY = event.rawY - initialTouchY
-                        if (abs(diffX) < 10 && abs(diffY) < 10) {
-                            v.performClick()
-                        }
-                        return true
-                    }
-                }
-                return false
-            }
-        })
-
-        ocrButton?.setOnClickListener {
-            if (overlayView != null) {
-                hideScreenshotOverlay()
-                return@setOnClickListener
-            }
-            
-            hideFloatingButton()
-            it.postDelayed({
-                triggerCapture { bitmap ->
-                    showScreenshotOverlay(bitmap)
-                }
-            }, 50)
-        }
-        
-        floatingView = frameLayout
-        windowManager?.addView(floatingView, floatingParams)
-        // #78: the button is created visible, but a view of ours may already be in
-        // front (this service starting while the camera is up), so the decision is
-        // taken once here too rather than left to the next lifecycle event.
-        applyFloatingButtonVisibility()
+        // #105: the platform's accessibility-button callback. This is the API-35
+        // replacement for the old `onAccessibilityButtonClicked(int)`, which no
+        // longer exists on AccessibilityService (see [accessibilityButtonCallback]).
+        accessibilityButtonController
+            ?.registerAccessibilityButtonCallback(accessibilityButtonCallback)
+        captureFromActivation("service connected")
     }
 
     /**
-     * Re-add the floating button's existing view (with its visibility and
-     * dragged position intact) if the system dropped its window without
-     * telling us — e.g. the secure camera from double-tap power. (#60)
-     * Cheap no-op when attached, so it is safe to call from every
-     * window-state change. Never creates a second view.
+     * #105: the accessibility button — the nav-bar button, or whatever the user
+     * pinned to it, which is also what the button drawer and the
+     * accessibility-button shortcut reach — was activated.
+     *
+     * Unlike the volume-button and two-finger-swipe gestures, this does NOT toggle
+     * the service, so it is a genuine per-activation trigger: it shares the guards,
+     * the delay and the retry with [onServiceConnected] through
+     * [captureFromActivation] rather than duplicating them.
+     *
+     * This is `AccessibilityButtonCallback.onClicked` because the direct
+     * `onAccessibilityButtonClicked(int displayId)` override was deprecated in
+     * API 33 and is gone from the API-35 `AccessibilityService`; the controller
+     * callback is what that override became, and the only supported way to be told
+     * about an accessibility-button press. The controller is display-scoped (the
+     * no-arg one is the default display) and this service is single-display, so
+     * there is one registration.
      */
-    private fun ensureFloatingButton() {
-        val fv = floatingView ?: return
-        if (!shouldReattachFloatingButton(true, fv.isAttachedToWindow, isDestroyed)) return
-        try {
-            val wm = windowManager ?: getSystemService(WINDOW_SERVICE) as WindowManager
-            windowManager = wm
-            wm.addView(fv, floatingParams)
-        } catch (e: Exception) {
-            Log.e("OcrAccessibilityService", "Error restoring floating button", e)
+    private val accessibilityButtonCallback =
+        object : AccessibilityButtonController.AccessibilityButtonCallback() {
+            override fun onClicked(button: AccessibilityButtonController) {
+                captureFromActivation("accessibility button")
+            }
+
+            override fun onAvailabilityChanged(
+                button: AccessibilityButtonController,
+                available: Boolean,
+            ) {
+                // Logged, not surfaced: this fires when the user pins or unpins us
+                // in Settings, and "the button is ours now" needs no dialog. It is
+                // here so an on-device check can read the state out of logcat.
+                Log.d(TAG, "accessibility button available=$available")
+            }
         }
+
+    /**
+     * #105: the one gate in front of a capture, shared by both native activations.
+     *
+     * Silently skips (a log line, no toast — the user did not ask for anything, so
+     * an error would be noise) when there is nothing to capture: an overlay is
+     * already up, the screen is off, or the keyguard is locked. The timestamp is
+     * stamped BEFORE those checks, so every activation that gets past the interval
+     * spends the guard window: a bind storm is exactly the case where a second
+     * connect arrives while the first is still in flight, and spending the window
+     * on a skipped trigger too is what stops that pair from opening two overlays.
+     *
+     * Elapsed realtime, not wall clock: this is a monotonic interval, and a user or
+     * NTP changing the time must not make the guard pass or stall.
+     */
+    private fun captureFromActivation(reason: String) {
+        if (isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
+            Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
+            return
+        }
+        lastActivationAt = now
+        if (overlayView != null) {
+            Log.d(TAG, "activation '$reason' with the overlay already up; ignoring")
+            return
+        }
+        val power = getSystemService(POWER_SERVICE) as? PowerManager
+        if (power != null && !power.isInteractive) {
+            Log.d(TAG, "activation '$reason' with the screen off; ignoring")
+            return
+        }
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
+        if (keyguard != null && keyguard.isKeyguardLocked) {
+            Log.d(TAG, "activation '$reason' on the keyguard; ignoring")
+            return
+        }
+        // The window server needs a moment after the bind before a screenshot
+        // request is served; the old floating-button path posted 50 ms for the
+        // button to hide, which a bind needs twice over (its own window is being
+        // torn down as the service comes up).
+        mainHandler.postDelayed({ capture(reason, isRetry = false) }, ACTIVATION_POST_DELAY_MS)
     }
 
-    // ---- #93: physical position across rotation ----
-
-    /** The trigger's current pixel size (44dp before the first layout). */
-    private fun floatingButtonSize(): Pair<Int, Int> {
-        val v = ocrButton
-        if (v != null && v.width > 0 && v.height > 0) return v.width to v.height
-        val s = (44 * resources.displayMetrics.density).toInt()
-        return s to s
+    /**
+     * #105: the capture itself, and the single retry.
+     *
+     * One retry, never a loop: a failure here is either transient (the window
+     * server was not ready) or structural (the display is secure — the secure
+     * camera — in which case retrying just toasts the same error twice).
+     * [ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT] is the platform's own rate
+     * limit (two screenshots a second), and a retry inside that window would only
+     * re-enter it, so that code is not retried at all — nor is a second failure
+     * after a retry. The escape hatch in both cases is another user activation.
+     */
+    private fun capture(reason: String, isRetry: Boolean) {
+        if (isDestroyed) return
+        // The gate checked this at activation time; the retry comes ~800 ms later,
+        // by which point the user may have activated again (the guard window has
+        // passed) and an overlay of their own is up. Nothing to capture then.
+        if (overlayView != null) {
+            Log.d(TAG, "activation '$reason': an overlay is up by capture time; not capturing")
+            return
+        }
+        triggerCapture(
+            onSuccessAction = { bitmap -> showScreenshotOverlay(bitmap) },
+            onFailedAction = { errorCode ->
+                if (isRetry || errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+                    Log.d(TAG, "activation '$reason': screenshot failed ($errorCode); not retrying")
+                    return@triggerCapture
+                }
+                Log.d(TAG, "activation '$reason': screenshot failed ($errorCode); retrying in ${CAPTURE_RETRY_DELAY_MS}ms")
+                mainHandler.postDelayed({ capture(reason, isRetry = true) }, CAPTURE_RETRY_DELAY_MS)
+            },
+        )
     }
 
-    /** The display rotation the floating window is laid out under. */
+    // ---- #105: the close button's own position ----
+
+    /**
+     * The close button's pixel size, from the one helper the view lays it out with
+     * ([closeButtonSizePx]) — the position store has to know the edge length to
+     * convert a centre, and the button does not exist yet when it needs to.
+     */
+    private fun closeButtonSize(): Int = closeButtonSizePx(resources.displayMetrics.density)
+
+    /**
+     * The display rotation the overlay is built under. Read per overlay rather than
+     * watched: the button's position is derived once, when the overlay is created,
+     * and a rotation while the overlay is up closes it
+     * ([onConfigurationChanged]) — so there is nothing left to keep in step.
+     */
     private fun displayRotation(): Int =
         (getSystemService(DISPLAY_SERVICE) as? DisplayManager)
             ?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: ROTATION_NATURAL
 
     /** Keep the canonical natural centre in step with a user placement. */
-    private fun rememberFloatingPosition(x: Int, y: Int) {
-        val (w, h) = floatingButtonSize()
+    private fun rememberCloseButtonPosition(x: Int, y: Int) {
+        val size = closeButtonSize()
         val dm = resources.displayMetrics
-        val (cx, cy) = naturalCentre(x, y, w, h, dm.widthPixels, dm.heightPixels, displayRotation())
-        floatingNatCX = cx
-        floatingNatCY = cy
+        val (cx, cy) = naturalCentre(x, y, size, size, dm.widthPixels, dm.heightPixels, displayRotation())
+        closeNatCX = cx
+        closeNatCY = cy
+        closeButtonNeedsHome = false
     }
 
-    /** Re-derive the window position after a display size/rotation change. */
-    private fun repositionFloatingButtonForDisplay() {
-        val params = floatingParams ?: return
-        val (w, h) = floatingButtonSize()
-        val dm = resources.displayMetrics
-        val rotation = displayRotation()
-        val (x, y) = logicalTopLeft(
-            floatingNatCX, floatingNatCY, w, h, dm.widthPixels, dm.heightPixels, rotation,
-        )
-        if (params.x == x && params.y == y) return
-        params.x = x
-        params.y = y
-        Log.d(
-            "OcrAccessibilityService",
-            "floating button -> ($x,$y) on ${dm.widthPixels}x${dm.heightPixels} rotation=$rotation",
-        )
-        val fv = floatingView
-        if (fv?.isAttachedToWindow == true) {
-            try {
-                windowManager?.updateViewLayout(fv, params)
-            } catch (e: Exception) {
-                Log.e("OcrAccessibilityService", "Error repositioning floating button", e)
-            }
-        }
-    }
-
-    // ---- #78: the floating button over the app's own views ----
-
-    /**
-     * #78: the app's own full-screen views get out of the floating button's way.
-     * While [ProtoCameraActivity] (the viewfinder) or [ShareImageActivity] (the
-     * image-share / camera-to-OCR view) is in front, the trigger is hidden: both
-     * run the same OCR surface from inside the app, and floating a second trigger
-     * over them is noise — in the camera view it is a button drawn with the very
-     * graphic the shutter now uses.
-     *
-     * The SCREENSHOT OVERLAY is deliberately not in that set. It is the button's
-     * own home — the button is the overlay's trigger and the visible half of the
-     * close button that takes its position — so its behaviour there is unchanged,
-     * down to staying visible over it.
-     *
-     * Mechanism: [Application.registerActivityLifecycleCallbacks], not a flag the
-     * activities set. Every component here is in one process (the manifest
-     * declares no `android:process`), so no IPC is needed either way; what the
-     * callbacks buy is that the state lives on the Application, which outlives this
-     * service — a service restarted mid-flow (or one that never saw onDestroy)
-     * finds the camera still in [ownViewsStarted] and keeps the button hidden,
-     * where a flag the activities set would have to be re-set by a lifecycle event
-     * that already happened. The callback is also idempotent on visibility: it
-     * re-runs [applyFloatingButtonVisibility] on every entry and exit path, so a
-     * path that forgot to restore the button cannot leave the overlay flow
-     * inheriting a hidden one.
-     *
-     * STARTED, not RESUMED, and that is what keeps a handoff from flashing: the
-     * documented order for A → B in one task is A.onPause, B.onCreate/onStart/
-     * onResume, A.onStop — so the incoming view is already in the set before the
-     * outgoing one leaves it. With resumed/paused the camera's pause would empty
-     * the set for the moment before the share activity resumed.
-     *
-     * That same ordering is why [ownViewsStarted] counts instances and is not a set
-     * of names: for an A → B handoff between two instances of one class, B's onStart
-     * precedes A's onStop, so a set keyed by class name would have B's own entry
-     * removed by A's exit and the trigger would reappear over B. The count takes the
-     * class to 2 and back to 1 instead, and only the last instance to leave empties
-     * it.
-     */
-    private val ownViewLifecycle = object : Application.ActivityLifecycleCallbacks {
-        override fun onActivityStarted(activity: Activity) {
-            if (!isOwnForegroundView(activity)) return
-            ownViewStartedCounting(activity.javaClass.name)
-            applyFloatingButtonVisibility()
-        }
-
-        override fun onActivityStopped(activity: Activity) {
-            if (!isOwnForegroundView(activity)) return
-            ownViewStoppedCounting(activity.javaClass.name)
-            applyFloatingButtonVisibility()
-        }
-
-        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-        override fun onActivityResumed(activity: Activity) {}
-        override fun onActivityPaused(activity: Activity) {}
-        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-        override fun onActivityDestroyed(activity: Activity) {}
-    }
-
-    /**
-     * #78: the single writer of the floating button's visibility: the button's own
-     * request AND none of the app's own views in front. Every path goes through it —
-     * a capture in flight, the screen going off, the share activity finishing (its
-     * onStop), the camera resuming or stopping — so the screenshot overlay can never
-     * inherit a hidden button from any of them.
-     */
-    private fun applyFloatingButtonVisibility() {
-        val fv = floatingView ?: return
-        fv.visibility = if (floatingButtonRequested && ownViewsStarted.isEmpty()) View.VISIBLE else View.GONE
-    }
-
-    /** #78: hide the button, for the paths that already did (screen off, a capture in
-     *  flight). Recorded as a request so a lifecycle change does not lose it. */
-    private fun hideFloatingButton() {
-        floatingButtonRequested = false
-        applyFloatingButtonVisibility()
-    }
-
-    /** #78: show the button, for the paths that already did (screen on, unlock, the
-     *  capture callback, the overlay closing). Same recorded request. */
-    private fun showFloatingButton() {
-        floatingButtonRequested = true
-        applyFloatingButtonVisibility()
-    }
-
-    private fun triggerCapture(onSuccessAction: (Bitmap) -> Unit) {
+    private fun triggerCapture(
+        onSuccessAction: (Bitmap) -> Unit,
+        onFailedAction: (errorCode: Int) -> Unit = {},
+    ) {
         takeScreenshot(Display.DEFAULT_DISPLAY, applicationContext.mainExecutor,
             object : TakeScreenshotCallback {
                 override fun onSuccess(result: ScreenshotResult) {
-                    showFloatingButton()
                     val buffer = result.hardwareBuffer
                     val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
                         ?.copy(Bitmap.Config.ARGB_8888, true)
@@ -513,9 +404,9 @@ class OcrAccessibilityService : AccessibilityService() {
                 }
 
                 override fun onFailure(errorCode: Int) {
-                    showFloatingButton()
-                    Log.e("OcrAccessibilityService", "Screenshot capture failed with error code: $errorCode")
+                    Log.e(TAG, "Screenshot capture failed with error code: $errorCode")
                     Toast.makeText(this@OcrAccessibilityService, "Screenshot failed: $errorCode", Toast.LENGTH_SHORT).show()
+                    onFailedAction(errorCode)
                 }
             })
     }
@@ -541,7 +432,7 @@ class OcrAccessibilityService : AccessibilityService() {
     private fun showScreenshotOverlayNow(image: Bitmap) {
         if (overlayView != null) return
         controller.resetState()
-        Log.d("OcrAccessibilityService", "showScreenshotOverlay detThresh=${OcrEngine.getDetThresh(this)} longSide=${OcrEngine.getDetLongSide(this)}")
+        Log.d(TAG, "showScreenshotOverlay detThresh=${OcrEngine.getDetThresh(this)} longSide=${OcrEngine.getDetLongSide(this)}")
 
         val params = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -557,7 +448,7 @@ class OcrAccessibilityService : AccessibilityService() {
         // #57: the overlay UI is the shared OcrOverlayView now, hosted here on
         // an accessibility-overlay window and by ShareImageActivity on an
         // ordinary activity window. Only the host-specific bits differ: the
-        // image source, the dismiss request and the floating-button sync.
+        // image source, the dismiss request and the close button's position.
         val host = object : OcrOverlayView.Host {
             override val bitmap: Bitmap get() = image
             override val ocrEngine: OcrEngine get() = this@OcrAccessibilityService.ocrEngine
@@ -571,22 +462,34 @@ class OcrAccessibilityService : AccessibilityService() {
                 val root = overlayView ?: return
                 val p = root.layoutParams as? WindowManager.LayoutParams ?: return
                 p.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                windowManager?.updateViewLayout(root, p)
+                windowManager.updateViewLayout(root, p)
             }
 
-            override fun closeButtonOrigin(): Pair<Int, Int> =
-                (floatingParams?.x ?: 100) to (floatingParams?.y ?: 100)
+            // #105: the close button's own store. It used to read and write the
+            // floating button's window params; with that window gone the button
+            // keeps the position itself, and these two are its only accessors. The
+            // first overlay of a service run is where the default gets derived.
+            override fun closeButtonOrigin(): Pair<Int, Int> {
+                if (closeButtonNeedsHome) {
+                    rememberCloseButtonPosition(CLOSE_BUTTON_HOME_X, CLOSE_BUTTON_HOME_Y)
+                }
+                val size = closeButtonSize()
+                val dm = resources.displayMetrics
+                val (x, y) = logicalTopLeft(
+                    closeNatCX, closeNatCY, size, size,
+                    dm.widthPixels, dm.heightPixels, displayRotation(),
+                )
+                return x to y
+            }
 
             override fun onCloseButtonMoved(x: Int, y: Int) {
-                floatingParams?.x = x
-                floatingParams?.y = y
-                rememberFloatingPosition(x, y)
+                rememberCloseButtonPosition(x, y)
             }
         }
 
         val view = OcrOverlayView(this, host)
         overlayView = view
-        windowManager?.addView(view, params)
+        windowManager.addView(view, params)
         // A1/#86: the returned pass gates the deferred engine close in [onDestroy].
         ocrPass = view.startOcr()
     }
@@ -614,13 +517,14 @@ class OcrAccessibilityService : AccessibilityService() {
                             // Clear keys to prevent immediate repeat and consume the event
                             pressedKeys.clear()
                             
-                            // Trigger OCR (same logic as floating button click)
-                            hideFloatingButton()
-                            ocrButton?.postDelayed({
-                                triggerCapture { bitmap ->
-                                    showScreenshotOverlay(bitmap)
-                                }
-                            }, 50)
+                            // Trigger OCR. #105: the old code hid the floating
+                            // button and posted 50 ms off it before capturing, both
+                            // so the button would not be in the screenshot. There is
+                            // no trigger to keep out of frame, so this is a direct
+                            // capture — the same one the service activations make.
+                            triggerCapture(onSuccessAction = { bitmap ->
+                                showScreenshotOverlay(bitmap)
+                            })
                             return true
                         }
                     }
@@ -641,28 +545,16 @@ class OcrAccessibilityService : AccessibilityService() {
         val view = overlayView ?: return
         view.onClosed()
         overlayView = null
-        (floatingView?.parent as? android.view.ViewGroup)?.removeView(floatingView)
-        if (view.isAttachedToWindow) try { windowManager?.removeViewImmediate(view) } catch (e: Exception) { Log.e("OcrAccessibilityService", "Error removing overlay", e) }
-        // #78: through the one writer — if one of the app's own views is in front
-        // (an overlay over our own camera view, launched from the gamepad shortcut)
-        // the button stays hidden rather than being restored onto it.
-        showFloatingButton()
+        if (view.isAttachedToWindow) try { windowManager.removeViewImmediate(view) } catch (e: Exception) { Log.e(TAG, "Error removing overlay", e) }
         controller.resetState()
-        ensureFloatingButton()
-        floatingView?.let { fv ->
-            if (fv.isAttachedToWindow) try { windowManager?.updateViewLayout(fv, floatingParams) } catch (e: Exception) { Log.e("OcrAccessibilityService", "Error syncing floating button layout", e) }
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        val view = overlayView
-        if (view == null) {
-            // No overlay open: restore the floating button if the system
-            // dropped its window (e.g. returning from the camera). (#60)
-            ensureFloatingButton()
-            return
-        }
+        // #105: the no-overlay branch used to re-attach the floating button here
+        // (the system drops an overlay window on the way to the secure camera).
+        // There is no window of ours to restore any more, so it is just a return.
+        val view = overlayView ?: return
         val eventPackage = event.packageName?.toString()
         if (eventPackage == null || eventPackage == packageName) return
         if (view.hasManualInputBlocker()) return
@@ -676,18 +568,15 @@ class OcrAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         isDestroyed = true
         super.onDestroy()
-        if (displayListenerRegistered) {
-            (getSystemService(DISPLAY_SERVICE) as? DisplayManager)?.unregisterDisplayListener(displayListener)
-            displayListenerRegistered = false
-        }
         try { unregisterReceiver(overlayControllerReceiver) } catch (e: Exception) {}
-        // #78: release the lifecycle watch with the service. The state itself
-        // ([ownViewsStarted]) is deliberately NOT cleared: it describes the app's
-        // views, not this service, and a restarted service reads it back.
-        application.unregisterActivityLifecycleCallbacks(ownViewLifecycle)
-        ownViewCallbacks = null
+        // #105: the button callback goes with the service. Registering again on the
+        // next connect is the pattern, and the controller drops a registration on
+        // service teardown anyway, so this is belt-and-braces.
+        try {
+            accessibilityButtonController
+                ?.unregisterAccessibilityButtonCallback(accessibilityButtonCallback)
+        } catch (e: Exception) {}
         hideScreenshotOverlay()
-        floatingView?.let { if (it.isAttachedToWindow) windowManager?.removeView(it) }
         // A1/#86: never close the nets while a pass is inside them. A service can be
         // destroyed mid-pass (toggled off, rebound, data change); `hideScreenshotOverlay`
         // cancels the overlay scope, but cancellation stops a coroutine, not the native
@@ -709,70 +598,44 @@ class OcrAccessibilityService : AccessibilityService() {
     }
 
     private companion object {
-        /**
-         * #78: the app's own views whose foreground presence hides the floating
-         * button — the camera viewfinder and the image-share/OCR view. The
-         * screenshot overlay is not here: it is the button's own home.
-         */
-        private val OWN_FOREGROUND_VIEWS = setOf(
-            ProtoCameraActivity::class.java.name,
-            ShareImageActivity::class.java.name
-        )
+        private const val TAG = "OcrAccessibilityService"
 
         /**
-         * #78: how many STARTED instances of each of the app's own views are in front,
-         * keyed by class name.
+         * #105: how long after an activation the capture is posted.
          *
-         * A COUNT and not a set of names. The lifecycle order for A → B in one task
-         * delivers the incoming activity's onStart BEFORE the outgoing one's onStop
-         * ([ownViewLifecycle]), so for two instances of the SAME class a set would have
-         * B's entry removed by A's exit: the map would come out empty while B was still
-         * in front, and the floating trigger would reappear over it. Counting makes the
-         * handoff additive — A's entry is still there when B arrives (2), and A's exit
-         * only takes it back to 1 — so the trigger stays hidden until the last instance
-         * leaves. The normal case is unchanged: a single view in front is a count of 1
-         * and an empty map is what [applyFloatingButtonVisibility] tests.
-         *
-         * Process-wide on purpose, not a field of the service: everything here is in
-         * one process, and the Application — this static with it — outlives the
-         * service. A service that is destroyed and recreated while the camera is up
-         * therefore still finds the camera here and keeps the button hidden, instead
-         * of waiting for a lifecycle event that has already been delivered. The
-         * callback that maintains it lives on the same Application, so a view can
-         * only be in it while its activity really is started.
-         *
-         * Keyed by NAME rather than by the Activity: nothing reads which instance is
-         * in front, only whether any of the app's own views is, and an instance handed
-         * to one callback is never needed by another.
+         * A screenshot request is answered by the window server, and right after a
+         * bind it is still tearing the old service instance down — which on the
+         * gesture paths includes the floating button's own window, since the
+         * gesture that enables the service is the one that disabled it. The button
+         * path posted 50 ms to let the button hide; a bind wants more, and 300 ms is
+         * short enough that the overlay still feels attached to the gesture that
+         * asked for it.
          */
-        private val ownViewsStarted = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
-
-        /** #78: one more started instance of [name]. See [ownViewsStarted]. */
-        private fun ownViewStartedCounting(name: String) {
-            synchronized(ownViewsStarted) {
-                ownViewsStarted[name] = (ownViewsStarted[name] ?: 0) + 1
-            }
-        }
+        private const val ACTIVATION_POST_DELAY_MS = 300L
 
         /**
-         * #78: one fewer started instance of [name], and the entry goes at zero — so
-         * an exit that arrives without a matching start (a state left over from a
-         * previous service, say) cannot leave a negative count that would keep the
-         * trigger hidden for good.
+         * #105: the minimum gap between two activations.
+         *
+         * Every activation claims this window, whether or not it went on to
+         * capture. A bind storm is the case this exists for: the system can bind
+         * twice in quick succession (a re-bind over an enable, a configuration
+         * change, the volume-key gesture registering before the service is
+         * enabled), and without it the second bind would open a second overlay on
+         * top of the first. It is also why a skipped activation costs the next
+         * real one nothing: 750 ms is far below the gap between two deliberate
+         * user activations, which are a gesture or a button tap.
          */
-        private fun ownViewStoppedCounting(name: String) {
-            synchronized(ownViewsStarted) {
-                val count = ownViewsStarted[name] ?: return
-                if (count <= 1) ownViewsStarted.remove(name) else ownViewsStarted[name] = count - 1
-            }
-        }
+        private const val ACTIVATION_GUARD_MS = 750L
 
-        /** #78: the callback registered by the live service, so a restart releases it. */
-        private var ownViewCallbacks: Application.ActivityLifecycleCallbacks? = null
+        /** #105: the pause before the one capture retry. */
+        private const val CAPTURE_RETRY_DELAY_MS = 500L
 
-        /** #78: is [activity] one of the app's own full-screen views? */
-        private fun isOwnForegroundView(activity: Activity): Boolean =
-            activity.javaClass.name in OWN_FOREGROUND_VIEWS
+        /**
+         * #105: where the close button starts, in logical pixels. A default, not a
+         * per-connect reset — see [closeButtonNeedsHome].
+         */
+        private const val CLOSE_BUTTON_HOME_X = 100
+        private const val CLOSE_BUTTON_HOME_Y = 100
     }
 
 }

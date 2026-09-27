@@ -3,24 +3,34 @@ package com.holopengin.instantjpdict
 import kotlin.math.roundToInt
 
 /**
- * #93: the floating OCR trigger's rotation geometry, in physical device space.
+ * #93/#105: the OCR overlay's close button's rotation geometry, in physical
+ * device space.
  *
- * The trigger's window params are expressed in the CURRENT display's
+ * A position handed to the overlay is expressed in the CURRENT display's
  * coordinate space. On rotation the system reuses those numbers in the new
- * space, so the logical offset survives while its origin moves to a different
+ * space, so a logical offset survives while its origin moves to a different
  * physical edge, and the button appears to jump to another part of the screen.
  *
- * The trigger is taped to the device, so the canonical position here is the
- * button CENTRE in natural (rotation-0) device coordinates, and every display
- * size/rotation change re-derives the logical pixels from it. A trigger parked
- * beside the front-camera cutout stays beside that cutout in every
- * orientation: the cutout itself migrates through the logical edges as the
- * display rotates (verified against the system's own cutout placement — in
- * `ROTATION_90` the Pixel 7a cutout sits on the logical left edge).
+ * The button is taped to the device, so the canonical position is its CENTRE
+ * in natural (rotation-0) device coordinates, and the logical pixels are
+ * re-derived from it for whichever orientation the overlay is built in. A
+ * close button parked beside the front-camera cutout stays beside that cutout
+ * in every orientation: the cutout itself migrates through the logical edges
+ * as the display rotates (verified against the system's own cutout placement —
+ * in `ROTATION_90` the Pixel 7a cutout sits on the logical left edge).
  *
  * The natural centre is canonical: a logical position that must clamp at an
  * edge (the physical spot would fall outside the rotated screen) does not
- * rewrite it, so rotating back returns the trigger to the exact spot.
+ * rewrite it, so rotating back returns the button to the exact spot.
+ *
+ * #105 moved the owner. This geometry was the floating trigger's, and the
+ * overlay's close button merely borrowed the trigger's stored position; the
+ * trigger is gone and the close button is the only button left, so it keeps the
+ * storage under its own name. The frame is no longer re-derived while the
+ * button is on screen — a rotation hides the overlay ([the service's
+ * `onConfigurationChanged`]) — so what this buys now is *between sessions*: a
+ * close button dragged in portrait is still on that physical spot the next time
+ * an overlay opens in landscape.
  *
  * Pure, so the geometry is host-tested; the service owns when it is applied.
  * The rotation constants mirror `android.view.Surface` but stay local so this

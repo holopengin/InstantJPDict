@@ -133,8 +133,8 @@ import java.util.concurrent.Executors
  *    is outside what the bundled-licence index covers, where art taken from an icon set
  *    would need a notice and an index entry.
  *  - The SHUTTER is the app's own OCR-button graphic — the cyan circle on black with the
- *    cyan 辞典 ([androidx.core.ContextCompat]-loaded `R.drawable.logo`, the same
- *    drawable the accessibility service's floating trigger draws), in the same square
+ *    cyan 辞典 ([androidx.core.ContextCompat]-loaded `R.drawable.logo`, the app's own
+ *    mark), in the same square
  *    footprint the labelled button had. It is a graphic and not a new asset: a new
  *    bundled asset has to satisfy the licence index the build verifies. With no label
  *    left, the disabled state is shown by dimming ([setShutterEnabled]) and the control
@@ -486,8 +486,8 @@ class ProtoCameraActivity : AppCompatActivity() {
         captureButton = CenteredButton(this).apply {
             tag = "proto_capture"
             // The app's OWN OCR-button graphic — the cyan circle on black with the cyan
-            // 辞典, i.e. R.drawable.logo, the very drawable the accessibility service's
-            // floating button draws (logoButtonBackground). No new asset: a new bundled
+            // 辞典, i.e. R.drawable.logo, the app's mark (logoButtonBackground). No new
+            // asset: a new bundled
             // asset has to satisfy the licence index (app/licenses/components.tsv) and
             // would fail the build's verifyLicenseIndex step.
             background = logoButtonBackground(this@ProtoCameraActivity)

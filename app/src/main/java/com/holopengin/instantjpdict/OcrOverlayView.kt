@@ -67,7 +67,7 @@ import kotlin.math.roundToInt
  *
  *  Everything that differed between the two hosts lives in [Host]: the image,
  *  the engine, the shared [OcrOverlayStateController], the dismiss request and
- *  the floating-button bookkeeping. Nothing in the drawing, hit-testing,
+ *  the close button's position. Nothing in the drawing, hit-testing,
  *  lookup, popup or close code is host-specific — that is the whole point.
  *
  *  View construction cannot be JVM-unit-tested; the decision logic it calls
@@ -90,16 +90,22 @@ class OcrOverlayView(
         /** Re-apply the host window's LayoutParams (manual-input keyboard). */
         fun requestSoftInputResize()
         /**
-         * The draggable close button's starting position (floating-button
-         * coords) — or null when this host does not want that button at all.
+         * The draggable close button's starting position — or null when this host
+         * does not want that button at all.
          *
-         * #78: a host that already has its own back control asks for null here
-         * rather than the view growing a second flag, so "no close button" is one
-         * fact in one place. See [addCloseButton] for why the accessibility
-         * service — the view's other host — still passes a position.
+         * A host that already has its own back control asks for null here rather
+         * than the view growing a second flag, so "no close button" is one fact
+         * in one place. See [addCloseButtonFor] for why the accessibility service
+         * — the view's other host — still passes a position.
+         *
+         * #105: the accessibility service answers with the close button's OWN
+         * remembered position. It used to hand over the floating button's window
+         * params, with the two kept in step so that dragging this button moved the
+         * trigger too; with the trigger gone, the position is simply this button's
+         * own, and [onCloseButtonMoved] is where the host records a drag.
          */
         fun closeButtonOrigin(): Pair<Int, Int>?
-        /** The close button was dragged; keep the floating button in step. */
+        /** The close button was dragged; the host keeps its position in step. */
         fun onCloseButtonMoved(x: Int, y: Int)
     }
 
@@ -486,9 +492,9 @@ class OcrOverlayView(
      * the image-share view already puts a back control in the top-left corner, so
      * this button (the same logo graphic, floating over the image) was a second
      * exit affordance doing one thing less — the back control closes a layer at a
-     * time, this closes the whole view. The accessibility service, whose overlay
-     * is the button's own home and is unchanged, still passes a position: the
-     * close button there is the visible half of the floating trigger.
+     * time, this closes the whole view. The accessibility service still passes a
+     * position: it is this button alone that closes its overlay, and it is where
+     * the position it remembers comes from.
      */
     private fun addCloseButtonFor(host: Host) {
         val origin = host.closeButtonOrigin() ?: return
@@ -496,10 +502,11 @@ class OcrOverlayView(
     }
 
     /**
-     * The draggable close button. Its position is the floating button's, and
-     * dragging it keeps them in step — both host-specific bits go through
-     * [Host] so the share activity gets the same button without a floating
-     * button to sync.
+     * The draggable close button. Its position is the host's to supply and its
+     * own once placed (#105: the floating button it used to share a position with
+     * is gone), and a drag is reported back through [Host.onCloseButtonMoved] so
+     * the host can remember it — which is what the share activity's null origin
+     * keeps it from having to.
      */
     private fun addCloseButton(origin: Pair<Int, Int>) {
         val closeButton = CenteredButton(context).apply {
@@ -556,7 +563,7 @@ class OcrOverlayView(
                 }
             })
         }
-        val size = (44 * resources.displayMetrics.density).toInt()
+        val size = closeButtonSizePx(resources.displayMetrics.density)
         val lp = FrameLayout.LayoutParams(size, size).apply {
             leftMargin = origin.first
             topMargin = origin.second
@@ -3109,10 +3116,27 @@ class OcrOverlayView(
     }
 }
 
-/** #57: the one logo-drawable lookup for both the floating button and the
- *  overlay's close button, so the two never drift apart. */
+/** #57: the one logo-drawable lookup the app's OCR controls share — the
+ *  overlay's close button and the camera shutter — so they never drift apart.
+ *  #105: the floating button drew it too, until the system trigger replaced
+ *  that window. */
 internal fun logoButtonBackground(context: Context): Drawable =
     ContextCompat.getDrawable(context, R.drawable.logo)!!
+
+/**
+ * #105: the close button's edge length in pixels, from the display density.
+ *
+ * Shared, not repeated: [OcrOverlayView.addCloseButton] lays the button out at
+ * this size, and the service's close-button position store needs the same number
+ * to convert the button's centre between the display's coordinate spaces — which
+ * it must do *before* the button exists, so it cannot measure the view. That is
+ * why this is a top-level helper beside [logoButtonBackground] rather than
+ * something read off the (not yet built) view.
+ */
+internal fun closeButtonSizePx(density: Float): Int = (CLOSE_BUTTON_DP * density).toInt()
+
+/** The close button's designed edge length, in dp. */
+private const val CLOSE_BUTTON_DP = 44
 
 /** #53: side padding of a rotated Line's border View, in source pixels: the
  *  pad keeps the rounded fill corners inside the quad's AABB. */
