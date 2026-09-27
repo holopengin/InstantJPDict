@@ -133,6 +133,18 @@ class OcrAccessibilityService : AccessibilityService() {
     private var lastActivationAt = 0L
 
     /**
+     * #105: the service was left enabled by a Settings screen, and is waiting for
+     * the user to go somewhere else before it stands down.
+     *
+     * Disabling ourselves *while* the user is configuring makes the system's switch
+     * flip back off under them ("it appears for a moment then disappears"), so that
+     * path stays enabled and this carries the intent forward: the first window-state
+     * change to a non-Settings app is when the configuration is over and the idle
+     * service has no reason to exist. Cleared by any arming or stand-down.
+     */
+    private var standDownWhenSettingsLeave = false
+
+    /**
      * #105: whether the framework currently has us bound.
      *
      * `onServiceConnected` is not once per activation: the framework also
@@ -280,7 +292,7 @@ class OcrAccessibilityService : AccessibilityService() {
         serviceBound = true
         if (reconnected) {
             Log.d(TAG, "re-connected while already bound; not an activation; not capturing")
-            standDown()
+            resolveIdleService()
             return
         }
         // #105: the framework re-enables an accessibility service when its app is
@@ -289,10 +301,40 @@ class OcrAccessibilityService : AccessibilityService() {
         // [isFirstRunSinceUpdate].
         if (isFirstRunSinceUpdate()) {
             Log.d(TAG, "first connect since the app was updated; not an activation; not capturing")
-            standDown()
+            resolveIdleService()
             return
         }
         captureFromActivation("service connected")
+    }
+
+    /**
+     * #105: what an enabled-but-idle service should do — resolved a moment later,
+     * when the foreground can be read.
+     *
+     * The connects that are not activations (a re-connect, the re-enable after an
+     * update) cannot decide this inline: the accessibility windows list is empty
+     * when `onServiceConnected` fires. So they leave the service up and this runs
+     * after the list is populated:
+     *
+     * * **in Settings** — the user is configuring us (post-update, the first
+     *   connect is exactly the enable they just tapped in Settings). Disabling the
+     *   service there flips the system's switch back off under them, so it stays up
+     *   and [standDownWhenSettingsLeave] finishes the job when they leave.
+     * * **anywhere else** — the idle service has no reason to exist, so it stands
+     *   down and the next shortcut press is an enable that captures.
+     */
+    private fun resolveIdleService() {
+        mainHandler.postDelayed({
+            if (isDestroyed || overlayView != null) return@postDelayed
+            val foreground = activeWindowPackage()
+            if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
+                Log.d(TAG, "idle service in $foreground; staying enabled until Settings is left")
+                standDownWhenSettingsLeave = true
+            } else {
+                Log.d(TAG, "idle service with ${foreground ?: "unknown"} in front; standing down")
+                standDown()
+            }
+        }, IDLE_RESOLVE_DELAY_MS)
     }
 
     /**
@@ -382,7 +424,10 @@ class OcrAccessibilityService : AccessibilityService() {
         }
         val prefs = getSharedPreferences(ACCESSIBILITY_PREFS, Context.MODE_PRIVATE)
         if (prefs.getLong(KEY_SEEN_UPDATE_TIME, 0L) == updatedAt) return false
-        prefs.edit().putLong(KEY_SEEN_UPDATE_TIME, updatedAt).apply()
+        // commit(), not apply(): the stand-down that follows can take the process
+        // with it, and an async write that never lands re-arms this guard on every
+        // later connect — every enable would look like the post-update one.
+        prefs.edit().putLong(KEY_SEEN_UPDATE_TIME, updatedAt).commit()
         return true
     }
 
@@ -407,6 +452,7 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private fun captureFromActivation(reason: String) {
         if (isDestroyed) return
+        standDownWhenSettingsLeave = false
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
             Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
@@ -465,8 +511,13 @@ class OcrAccessibilityService : AccessibilityService() {
         // not a capture, and it is not retried.
         val foreground = activeWindowPackage()
         if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
-            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); not capturing")
-            standDown()
+            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); staying enabled until Settings is left")
+            // #105: NOT a stand-down. The system enables the service as the user
+            // picks it in the shortcut/button chooser, and disabling it here makes
+            // the switch flip back off under them. The service stays up while
+            // Settings is in front; [onAccessibilityEvent] stands it down on the
+            // first window change once they leave.
+            standDownWhenSettingsLeave = true
             return
         }
         // The value is logged on the capturing path too: a null here (no window, or
@@ -715,6 +766,7 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private fun standDown() {
         if (isDestroyed) return
+        standDownWhenSettingsLeave = false
         hideScreenshotOverlay()
         if (keepResident()) return
         Log.d(TAG, "standing down; the service disables itself until the next activation")
@@ -749,6 +801,20 @@ class OcrAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        // #105: a service kept up by a Settings screen has done its job the moment
+        // the user is looking at something else. This is the other half of the
+        // deferred stand-down in [capture]: it stays enabled while they configure,
+        // and leaves on the first window change to a non-Settings app, so the next
+        // shortcut press is an enable and captures.
+        if (standDownWhenSettingsLeave) {
+            val changed = event.packageName?.toString()
+            if (changed != null &&
+                !changed.contains("settings", ignoreCase = true) && overlayView == null
+            ) {
+                Log.d(TAG, "left Settings for $changed; standing the configuration service down")
+                standDown()
+            }
+        }
         // #105: the no-overlay branch used to re-attach the floating button here
         // (the system drops an overlay window on the way to the secure camera).
         // There is no window of ours to restore any more, so it is just a return.
@@ -824,6 +890,9 @@ class OcrAccessibilityService : AccessibilityService() {
          * user activations, which are a gesture or a button tap.
          */
         private const val ACTIVATION_GUARD_MS = 750L
+
+        /** #105: how long an idle (non-activation) connect waits before deciding. */
+        private const val IDLE_RESOLVE_DELAY_MS = 1000L
 
         /** #105: the pause before the one capture retry. */
         private const val CAPTURE_RETRY_DELAY_MS = 500L
