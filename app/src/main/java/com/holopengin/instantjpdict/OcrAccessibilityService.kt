@@ -282,6 +282,14 @@ class OcrAccessibilityService : AccessibilityService() {
             Log.d(TAG, "re-connected while already bound; not an activation; not capturing")
             return
         }
+        // #105: the framework re-enables an accessibility service when its app is
+        // updated, and that connect is not an activation — on this device it fired
+        // 1.9 s after the install, with the Settings screen on display. See
+        // [isFirstRunSinceUpdate].
+        if (isFirstRunSinceUpdate()) {
+            Log.d(TAG, "first connect since the app was updated; not an activation; not capturing")
+            return
+        }
         captureFromActivation("service connected")
     }
 
@@ -348,6 +356,35 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
     /**
+     * #105: whether this connect is the first since the app was replaced.
+     *
+     * The framework re-enables an accessibility service when its app is updated,
+     * and that connect is not a user activation: on this device it arrived 1.9 s
+     * after the install, with the Settings screen on display. `lastUpdateTime` is
+     * the signal — the first connect that sees a value different from the one this
+     * process last recorded is that re-enable, whatever its delay, and it is
+     * skipped; every later connect (the user's gestures) matches and captures.
+     *
+     * Persisted, unlike [serviceBound]: the update outlives the process, so the
+     * signal must too. The failure a stale value can cause is the *opposite* of
+     * [serviceBound]'s — one missed activation right after an update, never a
+     * permanently suppressed trigger — because the value is written on the same
+     * connect that reads it.
+     */
+    private fun isFirstRunSinceUpdate(): Boolean {
+        val updatedAt = try {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+        } catch (_: Exception) {
+            return false
+        }
+        val prefs = getSharedPreferences(ACCESSIBILITY_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getLong(KEY_SEEN_UPDATE_TIME, 0L) == updatedAt) return false
+        prefs.edit().putLong(KEY_SEEN_UPDATE_TIME, updatedAt).apply()
+        return true
+    }
+
+    /**
      * #105: the one gate in front of a capture, shared by both native activations.
      *
      * Silently skips (a log line, no toast — the user did not ask for anything, so
@@ -358,29 +395,16 @@ class OcrAccessibilityService : AccessibilityService() {
      * connect arrives while the first is still in flight, and spending the window
      * on a skipped trigger too is what stops that pair from opening two overlays.
      *
-     * The one non-`suspend` guard that is *not* stamped over is the Settings-screen
-     * skip below: configuring us there is not a capture at all, and it should not
-     * spend the interval that a real gesture a moment later needs.
+     * The Settings-screen check is *not* here: it reads the accessibility windows
+     * list, which is not populated yet when this runs (see [capture]), and the
+     * just-updated check is in [onServiceConnected] because it must also persist
+     * the signal.
      *
      * Elapsed realtime, not wall clock: this is a monotonic interval, and a user or
      * NTP changing the time must not make the guard pass or stall.
      */
     private fun captureFromActivation(reason: String) {
         if (isDestroyed) return
-        // #105: a Settings screen is where the user *configures* us — switching the
-        // service on, pinning it to the shortcut — and the capture that used to fire
-        // there was a capture of Settings, never what was wanted. The app in front is
-        // what tells the two apart: a Settings package means configuration, anything
-        // else means the gesture fired where the user was already reading. The
-        // package is logged so an on-device check can see which side it landed on.
-        //
-        // Before the interval stamp, deliberately: configuring us must not spend the
-        // guard window that a real gesture, a moment later, needs.
-        val foreground = activeWindowPackage()
-        if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
-            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); ignoring")
-            return
-        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
             Log.d(TAG, "activation '$reason' within ${ACTIVATION_GUARD_MS}ms of the last one; ignoring")
@@ -428,6 +452,21 @@ class OcrAccessibilityService : AccessibilityService() {
             Log.d(TAG, "activation '$reason': an overlay is up by capture time; not capturing")
             return
         }
+        // #105: the foreground is read HERE, not at activation time. When
+        // `onServiceConnected` fires the accessibility windows list is not
+        // populated yet — an on-device log showed the check that used to live there
+        // seeing nothing and capturing the Settings screen the user was configuring
+        // us from — but 300 ms later it is. A Settings screen means configuration,
+        // not a capture, and it is not retried.
+        val foreground = activeWindowPackage()
+        if (foreground != null && foreground.contains("settings", ignoreCase = true)) {
+            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); not capturing")
+            return
+        }
+        // The value is logged on the capturing path too: a null here (no window, or
+        // no window-content capability) is indistinguishable from "not Settings",
+        // and that is exactly the reading an on-device check needs to see.
+        Log.d(TAG, "activation '$reason': foreground=${foreground ?: "unknown"}; capturing")
         triggerCapture(
             onSuccessAction = { bitmap -> showScreenshotOverlay(bitmap) },
             onFailedAction = { errorCode ->
@@ -481,13 +520,23 @@ class OcrAccessibilityService : AccessibilityService() {
                     val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
                         ?.copy(Bitmap.Config.ARGB_8888, true)
                     buffer.close()
-                    if (bitmap != null) {
-                        onSuccessAction(bitmap)
+                    if (bitmap == null) return
+                    // #105: the service can be toggled off while the screenshot is in
+                    // flight — that is the gesture's other half — and the callback
+                    // then belongs to a window token the system has already revoked.
+                    // Drop the frame rather than trying to draw on it (the overlay
+                    // path would otherwise reach the framework as an uncaught
+                    // BadTokenException; an on-device toggle caught exactly that).
+                    if (isDestroyed) {
+                        bitmap.recycle()
+                        return
                     }
+                    onSuccessAction(bitmap)
                 }
 
                 override fun onFailure(errorCode: Int) {
                     Log.e(TAG, "Screenshot capture failed with error code: $errorCode")
+                    if (isDestroyed) return
                     Toast.makeText(this@OcrAccessibilityService, "Screenshot failed: $errorCode", Toast.LENGTH_SHORT).show()
                     onFailedAction(errorCode)
                 }
@@ -495,7 +544,7 @@ class OcrAccessibilityService : AccessibilityService() {
     }
 
     private fun showScreenshotOverlay(image: Bitmap) {
-        if (overlayView != null) return
+        if (isDestroyed || overlayView != null) return
         // A8/#86: the engine is built off the main thread, so a trigger in the
         // service's first moments can arrive before it exists. Wait for the build
         // rather than reading an uninitialised lateinit — the capture bitmap is
@@ -513,7 +562,7 @@ class OcrAccessibilityService : AccessibilityService() {
     }
 
     private fun showScreenshotOverlayNow(image: Bitmap) {
-        if (overlayView != null) return
+        if (isDestroyed || overlayView != null) return
         controller.resetState()
         Log.d(TAG, "showScreenshotOverlay detThresh=${OcrEngine.getDetThresh(this)} longSide=${OcrEngine.getDetLongSide(this)}")
 
@@ -571,8 +620,19 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
         val view = OcrOverlayView(this, host)
+        // #105: add the window BEFORE recording the overlay. A token the system has
+        // already revoked — the service was toggled off while the screenshot was in
+        // flight — then leaves no half-set state to clean up, and cannot reach the
+        // framework as an uncaught BadTokenException, which is what an on-device
+        // toggle did before this guard ("Unable to add window ... is your activity
+        // running?", on the screenshot callback).
+        try {
+            windowManager.addView(view, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "overlay window refused (service no longer able to draw)", e)
+            return
+        }
         overlayView = view
-        windowManager.addView(view, params)
         // A1/#86: the returned pass gates the deferred engine close in [onDestroy].
         ocrPass = view.startOcr()
     }
@@ -719,6 +779,10 @@ class OcrAccessibilityService : AccessibilityService() {
          */
         private const val CLOSE_BUTTON_HOME_X = 100
         private const val CLOSE_BUTTON_HOME_Y = 100
+
+        /** #105: the update signal's store (separate from the gamepad prefs). */
+        private const val ACCESSIBILITY_PREFS = "accessibility_prefs"
+        private const val KEY_SEEN_UPDATE_TIME = "seen_update_time"
     }
 
 }
