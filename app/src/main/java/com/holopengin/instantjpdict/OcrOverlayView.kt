@@ -27,8 +27,6 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -39,6 +37,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.DeinflectionChain
 import com.holopengin.instantjpdict.util.FuriganaAligner
@@ -2111,21 +2111,37 @@ class OcrOverlayView(
         // a "Enter a Character" prompt with a blank preview is worse than
         // nothing (before #102 this was `charBoxes[cIdx]`, which threw instead).
         val cropped = CharPreviewCrop.crop(bitmap, line, cIdx, CharPreviewCrop.MANUAL_PAD_RATIO) ?: return
-        // The preview, HALVED in both axes (240dp -> a 120dp box): it was
-        // gigantic and, being the widest child, it set the panel's width.  The
-        // panel is top-anchored, so the height it gives up is added back into
-        // the top margin below — its BOTTOM edge does not move; only its top
-        // sits lower.
-        val previewBox = (resources.displayMetrics.density * 240).toInt()
-        val previewHalf = previewBox / 2
-        val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(android.graphics.Color.argb(180, 0, 0, 0)); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
+        val density = resources.displayMetrics.density
+        // #103: every dimension below is a named dp value (ManualInputPanel), not a
+        // raw pixel — the panel used to be padded 30 px and to offer a 250 px (≈83 dp)
+        // entry, so its proportions came from the device's density rather than from
+        // the design. What replaced them is theme values: the surface, the title, the
+        // field and the button all come from Theme.InstantJPDict, which BOTH hosts
+        // resolve — the share activity's window and the accessibility service's
+        // context both carry the application-level theme (see the manifest), so no
+        // per-window theme plumbing is involved.
+        val ui = HarbourUi.of(context)
+        val previewPx = ManualInputPanel.previewPx(density)
+        val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(ManualInputPanel.SCRIM_COLOR); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
         // The panel's anchor is applied at addView below (top of screen); its
         // own layoutParams there were dead — FrameLayout's params replace them.
         // A vertical LinearLayout aligns its children LEFT unless told
         // otherwise, and the panel's gravity said only TOP — so the title, the
         // entry and Confirm all hugged the left edge.  Centre them.
-        val panel = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(android.graphics.Color.argb(255, 35, 35, 35)); setPadding(30, 30, 30, 30); gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; elevation = 201f; setOnClickListener { } }
-        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); layoutParams = LinearLayout.LayoutParams(previewHalf, previewHalf); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
+        // The fill is a tonal M3 surface on the dialog role (`surfaceContainerHigh`,
+        // which is what the M3 dialog container colour resolves to), rounded to the
+        // dialog corner: the panel floats over the page, so it has to read as a card
+        // of the app rather than as the hardcoded #232323 it was.
+        val panel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ui.rounded(ui.surfaceHigh, ManualInputPanel.CORNER_RADIUS_DP)
+            val pad = ManualInputPanel.panelPaddingPx(density)
+            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            elevation = 201f
+            setOnClickListener { }
+        }
+        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); layoutParams = LinearLayout.LayoutParams(previewPx, previewPx); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
         // One line, always: with a large system font scale the title's natural
         // width exceeds the panel, it wrapped to two lines, and the entry box
         // below consumed the second line.
@@ -2135,26 +2151,66 @@ class OcrOverlayView(
         // "Enter a Cha...".  Its own gravity goes with it — the panel centres
         // the (now wrap-content) row.  END ellipsis stays as the screen-narrow
         // safety net.
-        panel.addView(TextView(context).apply { text = "Enter a Character"; setTextColor(android.graphics.Color.GRAY); textSize = 14f; maxLines = 1; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.END; OverlayFont.apply(context, this); setPadding(0, 10, 0, 16) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        // The type scale and `onSurface` replace the hand-set 14sp in
+        // `Color.GRAY`; the title keeps Title Case (ui-text-design rule 10).
+        panel.addView(TextView(context).apply {
+            text = "Enter a Character"
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
+            setTextColor(ui.onSurface)
+            maxLines = 1
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // #103: the overlay's bundled face (#84) stays, deliberately. The
+            // panel is the OCR overlay's own surface, reached from the overlay,
+            // and it is the user's selected face for exactly the glyphs being
+            // compared here — the character they read off the preview and the
+            // one they type. The dictionary panel's move back to the system
+            // face (OverlayFont.applySystem) was a line-spacing fix for wrapped
+            // definition text, which this single-line panel does not have.
+            OverlayFont.apply(context, this)
+            val titleGap = ManualInputPanel.titleGapPx(density)
+            setPadding(0, titleGap, 0, titleGap)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        // The M3 outlined text field, so the entry is a themed field rather than
+        // a default EditText with a cyan-tinted background: the box, the floating
+        // label and the focus colour all come from the theme's colour roles, and
+        // the label is what gives the field an accessible name.
         // 20sp, not 36: with the bundled face's 1.448em line box plus font
         // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
         // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
-        val editText = EditText(context).apply { setTextColor(android.graphics.Color.WHITE); textSize = 20f; gravity = Gravity.CENTER; maxLines = 1; imeOptions = EditorInfo.IME_ACTION_DONE; inputType = android.text.InputType.TYPE_CLASS_TEXT; background.setTint(android.graphics.Color.CYAN); OverlayFont.apply(context, this) }
-        panel.addView(editText, LinearLayout.LayoutParams(250, LinearLayout.LayoutParams.WRAP_CONTENT))
-        panel.addView(Button(context).apply { text = "Confirm"; setOnClickListener { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) } } }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 20 })
-        // Top of the screen, clear of the status bar — NOT vertically centred.
-        // A keyboard opened over a centred panel covered exactly what you were
-        // typing (the IME does not resize an accessibility overlay), so the
-        // panel pins to the top where the keyboard cannot reach it.  The
-        // preview's height cut is added here so the panel's bottom edge stays
-        // exactly where it was — only the top edge moves down.
-        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = statusBarHeightPx() + 40 + (previewBox - previewHalf) })
+        val editText = TextInputEditText(context).apply {
+            textSize = 20f
+            gravity = Gravity.CENTER
+            maxLines = 1
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            // The face the overlay draws in, as the title above (#84).
+            OverlayFont.apply(context, this)
+        }
+        val field = TextInputLayout(context, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+            hint = "Character"
+            layoutParams = LinearLayout.LayoutParams(ManualInputPanel.fieldWidthPx(density), LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        field.addView(editText)
+        panel.addView(field)
+        // One commit path for the button and the keyboard's Done key, as before
+        // — they were the same three lines written twice.
+        val commit: () -> Unit = { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) } }
+        // A MaterialButton (the app's filled role, via HarbourUi) rather than a
+        // stock android.widget.Button, which resolved `android:buttonStyle` and
+        // so drew a platform button on a Material 3 surface.
+        panel.addView(ui.filledButton("Confirm", onClick = commit), LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = ManualInputPanel.buttonGapPx(density) })
+        // Top of the screen, clear of the status bar — NOT vertically centred, and
+        // the top margin is the panel's bottom edge less the preview it drew (the
+        // halving is paid for out of the top, so the bottom edge stays put: see
+        // ManualInputPanel.bottomEdgePx, and the invariant its test pins).
+        blocker.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = ManualInputPanel.topMarginPx(statusBarHeightPx(), density) })
         host.requestSoftInputResize()
         rootLayout.addView(blocker, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         blocker.bringToFront()
         editText.requestFocus()
         editText.postDelayed({ (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT) }, 100)
-        editText.setOnEditorActionListener { _, actionId, event -> if (actionId == EditorInfo.IME_ACTION_DONE || (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) { val text = editText.text.toString(); if (text.isNotEmpty()) { replaceCharacter(lIdx, cIdx, text[0], rootLayout); closeManualInput(rootLayout) }; true } else false }
+        editText.setOnEditorActionListener { _, actionId, event -> if (actionId == EditorInfo.IME_ACTION_DONE || (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) { commit(); true } else false }
     }
 
     private fun closeManualInput(rootLayout: FrameLayout) {
