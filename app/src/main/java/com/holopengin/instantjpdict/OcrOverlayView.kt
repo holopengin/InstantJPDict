@@ -2130,6 +2130,10 @@ class OcrOverlayView(
         // are built. Scoped to the panel on purpose — the rest of the overlay draws
         // in raw colours, and moving all of it onto the theme is #104's call (it
         // would repaint the dictionary panel and the popups with it).
+        //
+        // Every THEMED widget below takes it — the field's own constructors
+        // included: the first cut of this fix missed those two and the crash
+        // survived on device, at the very line the stack named.
         val panelContext = ContextThemeWrapper(context, R.style.Theme_InstantJPDict)
         val ui = HarbourUi.of(panelContext)
         val previewPx = ManualInputPanel.previewPx(density)
@@ -2189,7 +2193,7 @@ class OcrOverlayView(
         // 20sp, not 36: with the bundled face's 1.448em line box plus font
         // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
         // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
-        val editText = TextInputEditText(context).apply {
+        val editText = TextInputEditText(panelContext).apply {
             textSize = 20f
             gravity = Gravity.CENTER
             maxLines = 1
@@ -2198,7 +2202,7 @@ class OcrOverlayView(
             // The face the overlay draws in, as the title above (#84).
             OverlayFont.apply(panelContext, this)
         }
-        val field = TextInputLayout(context, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+        val field = TextInputLayout(panelContext, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
             hint = "Character"
             layoutParams = LinearLayout.LayoutParams(ManualInputPanel.fieldWidthPx(density), LinearLayout.LayoutParams.WRAP_CONTENT)
         }
