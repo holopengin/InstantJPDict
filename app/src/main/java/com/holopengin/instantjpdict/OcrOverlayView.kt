@@ -17,6 +17,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.PersistableBundle
 import android.util.Log
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.Menu
@@ -2116,11 +2117,21 @@ class OcrOverlayView(
         // raw pixel — the panel used to be padded 30 px and to offer a 250 px (≈83 dp)
         // entry, so its proportions came from the device's density rather than from
         // the design. What replaced them is theme values: the surface, the title, the
-        // field and the button all come from Theme.InstantJPDict, which BOTH hosts
-        // resolve — the share activity's window and the accessibility service's
-        // context both carry the application-level theme (see the manifest), so no
-        // per-window theme plumbing is involved.
-        val ui = HarbourUi.of(context)
+        // field and the button all resolve against Theme.InstantJPDict.
+        //
+        // But the context they are BUILT with has to carry that theme, and only one
+        // host does. An Activity brings its own window theme; a Service context
+        // resolves the system default — the manifest's `android:theme` is the default
+        // for activities, not for a bare service. The device said so: opening this
+        // panel in the accessibility overlay threw "The style on this component
+        // requires your app theme to be Theme.AppCompat" out of `TextInputEditText`,
+        // because Material's widgets refuse to be constructed without an AppCompat
+        // descendant. So the app theme is applied here, where this panel's widgets
+        // are built. Scoped to the panel on purpose — the rest of the overlay draws
+        // in raw colours, and moving all of it onto the theme is #104's call (it
+        // would repaint the dictionary panel and the popups with it).
+        val panelContext = ContextThemeWrapper(context, R.style.Theme_InstantJPDict)
+        val ui = HarbourUi.of(panelContext)
         val previewPx = ManualInputPanel.previewPx(density)
         val blocker = FrameLayout(context).apply { tag = "manual_input_blocker"; setBackgroundColor(ManualInputPanel.SCRIM_COLOR); setOnClickListener { closeManualInput(rootLayout) }; elevation = 200f }
         // The panel's anchor is applied at addView below (top of screen); its
@@ -2132,7 +2143,7 @@ class OcrOverlayView(
         // which is what the M3 dialog container colour resolves to), rounded to the
         // dialog corner: the panel floats over the page, so it has to read as a card
         // of the app rather than as the hardcoded #232323 it was.
-        val panel = LinearLayout(context).apply {
+        val panel = LinearLayout(panelContext).apply {
             orientation = LinearLayout.VERTICAL
             background = ui.rounded(ui.surfaceHigh, ManualInputPanel.CORNER_RADIUS_DP)
             val pad = ManualInputPanel.panelPaddingPx(density)
@@ -2141,7 +2152,7 @@ class OcrOverlayView(
             elevation = 201f
             setOnClickListener { }
         }
-        panel.addView(android.widget.ImageView(context).apply { setCropBitmap(this, cropped); layoutParams = LinearLayout.LayoutParams(previewPx, previewPx); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
+        panel.addView(android.widget.ImageView(panelContext).apply { setCropBitmap(this, cropped); layoutParams = LinearLayout.LayoutParams(previewPx, previewPx); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER })
         // One line, always: with a large system font scale the title's natural
         // width exceeds the panel, it wrapped to two lines, and the entry box
         // below consumed the second line.
@@ -2153,7 +2164,7 @@ class OcrOverlayView(
         // safety net.
         // The type scale and `onSurface` replace the hand-set 14sp in
         // `Color.GRAY`; the title keeps Title Case (ui-text-design rule 10).
-        panel.addView(TextView(context).apply {
+        panel.addView(TextView(panelContext).apply {
             text = "Enter a Character"
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
             setTextColor(ui.onSurface)
@@ -2167,7 +2178,7 @@ class OcrOverlayView(
             // one they type. The dictionary panel's move back to the system
             // face (OverlayFont.applySystem) was a line-spacing fix for wrapped
             // definition text, which this single-line panel does not have.
-            OverlayFont.apply(context, this)
+            OverlayFont.apply(panelContext, this)
             val titleGap = ManualInputPanel.titleGapPx(density)
             setPadding(0, titleGap, 0, titleGap)
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -2185,7 +2196,7 @@ class OcrOverlayView(
             imeOptions = EditorInfo.IME_ACTION_DONE
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             // The face the overlay draws in, as the title above (#84).
-            OverlayFont.apply(context, this)
+            OverlayFont.apply(panelContext, this)
         }
         val field = TextInputLayout(context, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
             hint = "Character"
