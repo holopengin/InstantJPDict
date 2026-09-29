@@ -2187,9 +2187,11 @@ class OcrOverlayView(
             setPadding(0, titleGap, 0, titleGap)
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         // The M3 outlined text field, so the entry is a themed field rather than
-        // a default EditText with a cyan-tinted background: the box, the floating
-        // label and the focus colour all come from the theme's colour roles, and
-        // the label is what gives the field an accessible name.
+        // a default EditText with a cyan-tinted background: the box and the focus
+        // colour come from the theme's colour roles.
+        // No hint: the "Character" floating label was removed on the maintainer's
+        // ask (#103) — the panel's title already says what the field is for. The
+        // field keeps an accessible name all the same, without drawing it.
         // 20sp, not 36: with the bundled face's 1.448em line box plus font
         // padding, one 36sp line measured ~52sp (~137dp) tall — the box that
         // "somehow" was too tall. 20sp still renders a fullwidth char legibly.
@@ -2198,12 +2200,12 @@ class OcrOverlayView(
             gravity = Gravity.CENTER
             maxLines = 1
             imeOptions = EditorInfo.IME_ACTION_DONE
+            contentDescription = "Character"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             // The face the overlay draws in, as the title above (#84).
             OverlayFont.apply(panelContext, this)
         }
         val field = TextInputLayout(panelContext, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
-            hint = "Character"
             layoutParams = LinearLayout.LayoutParams(ManualInputPanel.fieldWidthPx(density), LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         field.addView(editText)
