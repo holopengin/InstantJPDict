@@ -192,8 +192,8 @@ android {
         applicationId = "com.holopengin.instantjpdict"
         minSdk = 30
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.0-rc3"
+        versionCode = 4
+        versionName = "1.0.0-rc4"
 
         // The label follows the namespace decision above: two installs sitting
         // side by side must be told apart in the launcher, not just in Settings.
