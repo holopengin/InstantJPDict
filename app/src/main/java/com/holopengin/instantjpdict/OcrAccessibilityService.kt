@@ -109,6 +109,12 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private var lastActivationAt = 0L
 
+    /**
+     * #105: which activation that was, for the one timing line that says whether a
+     * trigger felt immediate ([showScreenshotOverlayNow]).
+     */
+    private var lastActivationReason = ""
+
     /** #105: the last volume-down press, for the double-press chord (0 = none yet). */
     private var lastVolumeDownAt = 0L
 
@@ -274,7 +280,7 @@ class OcrAccessibilityService : AccessibilityService() {
             Log.d(TAG, "first connect since the app was updated; not an activation; not capturing")
             return
         }
-        captureFromActivation("service connected")
+        captureFromActivation("service connected", freshBind = true)
     }
 
     /**
@@ -390,7 +396,7 @@ class OcrAccessibilityService : AccessibilityService() {
      * Elapsed realtime, not wall clock: this is a monotonic interval, and a user or
      * NTP changing the time must not make the guard pass or stall.
      */
-    private fun captureFromActivation(reason: String) {
+    private fun captureFromActivation(reason: String, freshBind: Boolean = false) {
         if (isDestroyed) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastActivationAt < ACTIVATION_GUARD_MS) {
@@ -400,6 +406,7 @@ class OcrAccessibilityService : AccessibilityService() {
             return
         }
         lastActivationAt = now
+        lastActivationReason = reason
         if (overlayView != null) {
             Log.d(TAG, "activation '$reason' with the overlay already up; ignoring")
             return
@@ -414,11 +421,16 @@ class OcrAccessibilityService : AccessibilityService() {
             Log.d(TAG, "activation '$reason' on the keyguard; ignoring")
             return
         }
-        // The window server needs a moment after the bind before a screenshot
-        // request is served; the old floating-button path posted 50 ms for the
-        // button to hide, which a bind needs twice over (its own window is being
-        // torn down as the service comes up).
-        mainHandler.postDelayed({ capture(reason, isRetry = false) }, ACTIVATION_POST_DELAY_MS)
+        // Only a fresh bind has to wait: the window server is still tearing the old
+        // service instance down and will not serve a screenshot yet, and the
+        // Settings gate that runs at capture time needs the accessibility windows
+        // list to be populated. A live trigger — the accessibility button, the
+        // volume chord — arrives on a service that is already running,
+        // where waiting 300 ms was the whole of the delay the app-owned button
+        // never had. So the bind waits [BIND_POST_DELAY_MS] and a live trigger waits
+        // the old button's own [LIVE_POST_DELAY_MS].
+        val postDelay = if (freshBind) BIND_POST_DELAY_MS else LIVE_POST_DELAY_MS
+        mainHandler.postDelayed({ capture(reason, isRetry = false, freshBind = freshBind) }, postDelay)
     }
 
     /**
@@ -432,7 +444,7 @@ class OcrAccessibilityService : AccessibilityService() {
      * re-enter it, so that code is not retried at all — nor is a second failure
      * after a retry. The escape hatch in both cases is another user activation.
      */
-    private fun capture(reason: String, isRetry: Boolean) {
+    private fun capture(reason: String, isRetry: Boolean, freshBind: Boolean = false) {
         if (isDestroyed) return
         // The gate checked this at activation time; the retry comes ~800 ms later,
         // by which point the user may have activated again (the guard window has
@@ -441,21 +453,31 @@ class OcrAccessibilityService : AccessibilityService() {
             Log.d(TAG, "activation '$reason': an overlay is up by capture time; not capturing")
             return
         }
-        // #105: the foreground is read HERE, not at activation time. When
-        // `onServiceConnected` fires the accessibility windows list is not
-        // populated yet — an on-device log showed the check that used to live there
+        // #105: the Settings gate belongs to the BIND activation — turning the
+        // service on from Settings must not scan the screen it is being configured
+        // from. The foreground is read HERE rather than at activation time because
+        // when `onServiceConnected` fires the accessibility windows list is not
+        // populated yet (an on-device log showed the check that used to live there
         // seeing nothing and capturing the Settings screen the user was configuring
-        // us from — but 300 ms later it is. A Settings screen means configuration,
-        // not a capture, and it is not retried.
-        val foreground = activeWindowPackage()
-        if (foreground != null && isSettingsSurface(foreground)) {
-            Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); no capture")
-            return
+        // us from), but the bind's post delay later it is.
+        //
+        // A live trigger — the accessibility button, the volume chord — is the user
+        // asking for a capture wherever they are, so it takes the
+        // screenshot directly: no gate, and the window-list read the gate needs stays
+        // off the path that has to feel immediate.
+        if (freshBind) {
+            val foreground = activeWindowPackage()
+            if (foreground != null && isSettingsSurface(foreground)) {
+                Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); no capture")
+                return
+            }
+            // The value is logged on the capturing path too: a null here (no window,
+            // or no window-content capability) is indistinguishable from "not
+            // Settings", and that is exactly the reading an on-device check needs.
+            Log.d(TAG, "activation '$reason': foreground=${foreground ?: "unknown"}; capturing")
+        } else {
+            Log.d(TAG, "activation '$reason': live trigger; capturing")
         }
-        // The value is logged on the capturing path too: a null here (no window, or
-        // no window-content capability) is indistinguishable from "not Settings",
-        // and that is exactly the reading an on-device check needs to see.
-        Log.d(TAG, "activation '$reason': foreground=${foreground ?: "unknown"}; capturing")
         triggerCapture(
             onSuccessAction = { bitmap -> showScreenshotOverlay(bitmap) },
             onFailedAction = { errorCode ->
@@ -464,7 +486,7 @@ class OcrAccessibilityService : AccessibilityService() {
                     return@triggerCapture
                 }
                 Log.d(TAG, "activation '$reason': screenshot failed ($errorCode); retrying in ${CAPTURE_RETRY_DELAY_MS}ms")
-                mainHandler.postDelayed({ capture(reason, isRetry = true) }, CAPTURE_RETRY_DELAY_MS)
+                mainHandler.postDelayed({ capture(reason, isRetry = true, freshBind = freshBind) }, CAPTURE_RETRY_DELAY_MS)
             },
         )
     }
@@ -577,6 +599,11 @@ class OcrAccessibilityService : AccessibilityService() {
             return
         }
         overlayView = view
+        // #105: the one number that says whether a trigger felt immediate — the gap
+        // between the activation and the overlay being on screen. A live trigger
+        // should read a screenshot's worth (~100-150 ms on the Pixel 7a); anything
+        // near the bind's 300 ms means the live path grew the bind's wait back.
+        Log.d(TAG, "overlay up ${SystemClock.elapsedRealtime() - lastActivationAt} ms after the '$lastActivationReason' activation")
         // A1/#86: the returned pass gates the deferred engine close in [onDestroy].
         ocrPass = view.startOcr()
     }
@@ -734,17 +761,29 @@ class OcrAccessibilityService : AccessibilityService() {
         private const val TAG = "OcrAccessibilityService"
 
         /**
-         * #105: how long after an activation the capture is posted.
+         * #105: how long a FRESH BIND waits before asking for the screenshot.
          *
          * A screenshot request is answered by the window server, and right after a
          * bind it is still tearing the old service instance down — which on the
-         * gesture paths includes the floating button's own window, since the
-         * gesture that enables the service is the one that disabled it. The button
-         * path posted 50 ms to let the button hide; a bind wants more, and 300 ms is
-         * short enough that the overlay still feels attached to the gesture that
-         * asked for it.
+         * gesture paths includes the floating button's own window, since the gesture
+         * that enables the service is the one that disabled it. 300 ms is short
+         * enough that the overlay still feels attached to the gesture that asked for
+         * it, and long enough for the accessibility windows list to be populated for
+         * the Settings gate that runs at capture time.
          */
-        private const val ACTIVATION_POST_DELAY_MS = 300L
+        private const val BIND_POST_DELAY_MS = 300L
+
+        /**
+         * #105: how long a LIVE trigger waits — one that arrives on a service that
+         * is already connected (the accessibility button, the volume chord).
+         *
+         * Nothing is being torn down and no window list has to be read, so this is
+         * deliberately not the bind's 300 ms: it is the 50 ms the old app-owned
+         * button posted before hiding itself, the only wait that path ever had.
+         * What is left after it is the platform's screenshot cost — the same cost
+         * the button paid.
+         */
+        private const val LIVE_POST_DELAY_MS = 50L
 
         /**
          * #105: the minimum gap between two activations.
