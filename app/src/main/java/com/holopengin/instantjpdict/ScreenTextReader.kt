@@ -157,8 +157,16 @@ object ScreenTextReader {
      *
      * [area] is the window's own bounds area, read from the window
      * (`getBoundsInScreen`) rather than from its root, so ordering costs no walk.
+     * [isOwnOverlay] marks **this app's accessibility overlay** — the window this
+     * overlay itself draws into, which must never be a source (its rects describe
+     * our drawing, not the screenshot's content).
      */
-    data class WindowCandidate(val isActive: Boolean, val packageName: String?, val area: Long)
+    data class WindowCandidate(
+        val isActive: Boolean,
+        val packageName: String?,
+        val area: Long,
+        val isOwnOverlay: Boolean,
+    )
 
     /**
      * #106: the package of the system's own chrome. Its windows are windows like
@@ -170,48 +178,51 @@ object ScreenTextReader {
     /**
      * #106: the windows to try for this capture, best first.
      *
-     * The accessibility window list cannot be trusted to name the answer, and #106
-     * learned that twice on the device. First by `isActive`: by the time this read
-     * runs, this app's own overlay window is up and can be the active one (it takes
-     * input focus for taps and the manual entry's IME), so `isActive` pointed at us.
-     * Then by area: with us excluded, the largest window was **com.android.systemui**
-     * — its shade window reports the whole screen while drawing a strip — and the
-     * read stopped there, on one five-character node, without ever looking at the
-     * app behind it (`screen text: pkg=com.android.systemui … nodes=1`).
+     * The list cannot be trusted to name the answer, and #106 learned that three
+     * times on the device: `isActive` pointed at this app's own overlay (it takes
+     * input focus for taps and the manual entry's IME); largest-first pointed at
+     * SystemUI, whose shade window reports the whole screen while drawing a strip,
+     * which answered a Chrome page with one five-character node and stopped the
+     * read; and excluding this app's *package* outright meant a capture over our own
+     * app had no tree to read and fell through to that same status-bar node.
      *
-     * So the answer is not inferred from the list at all: [preferredPackage] is the
-     * package that was in the foreground when the capture was asked for, recorded
-     * before this app's overlay window existed. That is the app the user is looking
-     * at, and it is tried first. The rest of the order is the fallback for when
-     * nothing recorded it (no window content, a race): system chrome last, then the
-     * remaining windows largest-first, since the app under the overlay covers the
-     * screen while chrome is a strip. The caller walks the order and keeps the first
-     * window that actually carries text, so a wrong guess costs one bounded walk.
+     * So [preferredPackage] — the package that was in the foreground when the
+     * capture was asked for, recorded before this app's overlay window existed —
+     * *is* the answer when it is known: only that package's windows are offered,
+     * largest and active first, and if none of them carries text the capture
+     * recognises everything (the pre-#106 path) instead of reaching for chrome. A
+     * status-bar node drawn as a line over someone else's app was never useful.
      *
-     * Ours is skipped outright: its rects describe this overlay's drawing, not the
-     * screenshot's content, and the boxes have to line up with what was captured. A
-     * window with no package to name is skipped with it. When nothing usable is
-     * left, the capture recognises everything, which is the pre-#106 path.
+     * With no preference recorded (a race, a window the framework would not name),
+     * the fallback order is all that is left: system chrome last, then largest
+     * first, since the app under the overlay covers the screen and chrome is a
+     * strip. The caller walks the order and keeps the first window that carries
+     * text, so a wrong guess costs one bounded walk.
+     *
+     * This app's own overlay is never offered — but this app's *activity* is, which
+     * is what a capture of our own app needs. A window with no package to name is
+     * skipped too.
      *
      * Pure, so the order is pinned by tests rather than by a device.
      */
-    fun windowsToTry(
-        candidates: List<WindowCandidate>,
-        ownPackage: String,
-        preferredPackage: String? = null,
-    ): List<Int> {
+    fun windowsToTry(candidates: List<WindowCandidate>, preferredPackage: String? = null): List<Int> {
         val usable = candidates.withIndex().filter {
             val pkg = it.value.packageName
-            !pkg.isNullOrEmpty() && pkg != ownPackage
+            !it.value.isOwnOverlay && !pkg.isNullOrEmpty()
+        }
+        if (preferredPackage != null) {
+            return usable
+                .filter { it.value.packageName == preferredPackage }
+                .sortedWith(
+                    compareByDescending<IndexedValue<WindowCandidate>> { it.value.isActive }
+                        .thenByDescending { it.value.area },
+                )
+                .map { it.index }
         }
         return usable
             .sortedWith(
                 compareBy<IndexedValue<WindowCandidate>> {
-                    when (it.value.packageName) {
-                        preferredPackage -> 0
-                        SYSTEM_CHROME_PACKAGE -> 2
-                        else -> 1
-                    }
+                    if (it.value.packageName == SYSTEM_CHROME_PACKAGE) 1 else 0
                 }.thenByDescending { it.value.area },
             )
             .map { it.index }

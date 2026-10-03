@@ -41,6 +41,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.google.gson.Gson
@@ -374,17 +375,23 @@ class OcrAccessibilityService : AccessibilityService() {
         val bounds = Rect()
         val candidates = list.map { window ->
             window.getBoundsInScreen(bounds)
+            val pkg = try {
+                window.root?.packageName?.toString()
+            } catch (_: Exception) {
+                null
+            }
             ScreenTextReader.WindowCandidate(
                 isActive = window.isActive,
-                packageName = try {
-                    window.root?.packageName?.toString()
-                } catch (_: Exception) {
-                    null
-                },
+                packageName = pkg,
                 area = bounds.width().toLong() * bounds.height().toLong(),
+                // #106: our own overlay window is the one to refuse; our *activity*
+                // window carries the same package and is a legitimate source when the
+                // user captures our own app.
+                isOwnOverlay = pkg == packageName &&
+                    window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY,
             )
         }
-        return ScreenTextReader.windowsToTry(candidates, packageName, captureForeground).mapNotNull { index ->
+        return ScreenTextReader.windowsToTry(candidates, captureForeground).mapNotNull { index ->
             try {
                 list[index].root
             } catch (_: Exception) {

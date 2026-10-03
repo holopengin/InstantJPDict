@@ -171,121 +171,128 @@ class ScreenTextReaderTest {
 
     // ── which windows to try ────────────────────────────────────────────────
 
-    private fun candidate(active: Boolean, pkg: String?, area: Long = 1_000) =
-        ScreenTextReader.WindowCandidate(active, pkg, area)
+    private fun candidate(
+        active: Boolean = false,
+        pkg: String?,
+        area: Long = 1_000,
+        ownOverlay: Boolean = false,
+    ) = ScreenTextReader.WindowCandidate(active, pkg, area, ownOverlay)
 
     @Test
-    fun theForegroundPackageIsTriedFirst() {
-        // The recorded foreground is the app the user triggered over, and it beats
-        // both the chrome and a larger window — the whole point is that the answer
-        // is not inferred from the list.
+    fun withAForegroundPackageOnlyThatPackageIsOffered() {
+        // No chrome fallback: a status-bar node drawn as a line over someone else's
+        // app was never useful — and it is what answered a Chrome page before this.
         assertEquals(
-            listOf(1, 2, 0),
+            listOf(1),
             ScreenTextReader.windowsToTry(
                 listOf(
-                    candidate(active = false, pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
-                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
-                    candidate(active = false, pkg = "com.termux", area = 2_000_000),
+                    candidate(pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
+                    candidate(pkg = "com.android.chrome"),
                 ),
-                ownPackage = "com.holopengin.instantjpdict.dev",
                 preferredPackage = "com.android.chrome",
             ),
         )
     }
 
     @Test
-    fun systemChromeIsTriedLast() {
-        // The device report: with no preference recorded, the largest window was
-        // com.android.systemui — its shade window reports the whole screen while
-        // drawing a strip — and it answered a Chrome page with one node, so the read
-        // stopped before ever reaching the app. Chrome goes last even at nine times
-        // the area.
+    fun withAForegroundPackageThatIsNotPresentNothingIsOffered() {
+        // Nothing to read is the pre-#106 path (every box recognises), rather than
+        // reading whatever else happens to be on screen.
         assertEquals(
-            listOf(1, 0),
+            emptyList<Int>(),
             ScreenTextReader.windowsToTry(
-                listOf(
-                    candidate(active = false, pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
-                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
-                ),
-                ownPackage = "com.holopengin.instantjpdict",
+                listOf(candidate(pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000)),
+                preferredPackage = "com.android.chrome",
             ),
         )
     }
 
     @Test
-    fun withoutAPreferenceTheLargestForeignWindowIsFirst() {
-        assertEquals(
-            listOf(1, 0),
-            ScreenTextReader.windowsToTry(
-                listOf(
-                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
-                    candidate(active = false, pkg = "com.termux", area = 2_000_000),
-                ),
-                ownPackage = "com.holopengin.instantjpdict",
-            ),
-        )
-    }
-
-    @Test
-    fun ourOwnOverlayIsNeverTried() {
-        // Ours is skipped even when it is the active window and the largest: its
-        // rects describe this overlay's drawing, not the screenshot's content.
+    fun ourOwnOverlayIsNeverOfferedButOurActivityIs() {
+        // The distinction the device needed: excluding our whole package left a
+        // capture of our own app with no tree at all, and the status bar answered
+        // instead (`foreground=com.holopengin.instantjpdict.dev` beside
+        // `pkg=com.android.systemui`, one node, no Japanese).
         assertEquals(
             listOf(1),
             ScreenTextReader.windowsToTry(
                 listOf(
-                    candidate(active = true, pkg = "com.holopengin.instantjpdict.dev", area = 9_000_000),
-                    candidate(active = false, pkg = "com.android.chrome"),
+                    candidate(active = true, pkg = "com.holopengin.instantjpdict.dev", area = 9_000_000, ownOverlay = true),
+                    candidate(pkg = "com.holopengin.instantjpdict.dev", area = 2_000_000),
                 ),
-                ownPackage = "com.holopengin.instantjpdict.dev",
+                preferredPackage = "com.holopengin.instantjpdict.dev",
             ),
         )
     }
 
     @Test
-    fun aPreferredWindowThatIsOursIsIgnored() {
-        // The preference can be stale or, on a capture of our own app, be us; the
-        // skip rules win over the preference.
+    fun theActiveWindowWinsWithinAPreferredPackage() {
+        // Two windows of the same app (a dialog over it) — the one taking input is
+        // the one the user is looking at.
         assertEquals(
-            listOf(1),
+            listOf(1, 0),
             ScreenTextReader.windowsToTry(
                 listOf(
-                    candidate(active = false, pkg = "com.holopengin.instantjpdict", area = 9_000_000),
-                    candidate(active = false, pkg = "com.android.chrome"),
+                    candidate(pkg = "com.android.chrome", area = 9_000_000),
+                    candidate(active = true, pkg = "com.android.chrome", area = 1_000),
                 ),
-                ownPackage = "com.holopengin.instantjpdict",
-                preferredPackage = "com.holopengin.instantjpdict",
+                preferredPackage = "com.android.chrome",
             ),
         )
     }
 
     @Test
-    fun aWindowWithNoPackageIsNeverTried() {
+    fun withNoPreferenceSystemChromeIsTriedLast() {
+        // The fallback, for when no foreground package was recorded: chrome last
+        // even at nine times the area, because its shade window reports the whole
+        // screen while drawing a strip.
+        assertEquals(
+            listOf(1, 0),
+            ScreenTextReader.windowsToTry(
+                listOf(
+                    candidate(pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
+                    candidate(pkg = "com.android.chrome"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun withNoPreferenceTheLargestForeignWindowIsFirst() {
+        assertEquals(
+            listOf(1, 0),
+            ScreenTextReader.windowsToTry(
+                listOf(
+                    candidate(pkg = "com.android.chrome"),
+                    candidate(pkg = "com.termux", area = 2_000_000),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun aWindowWithNoPackageIsNeverOffered() {
         assertEquals(
             listOf(2),
             ScreenTextReader.windowsToTry(
                 listOf(
                     candidate(active = true, pkg = null, area = 9_000_000),
-                    candidate(active = false, pkg = "", area = 5_000_000),
-                    candidate(active = false, pkg = "com.android.chrome"),
+                    candidate(pkg = "", area = 5_000_000),
+                    candidate(pkg = "com.android.chrome"),
                 ),
-                ownPackage = "com.holopengin.instantjpdict",
             ),
         )
     }
 
     @Test
-    fun withNothingButOursNothingIsTried() {
-        // No readable window means the pre-#106 path (every box recognises) rather
-        // than reading our own overlay back at ourselves.
+    fun withNothingUsableNothingIsOffered() {
         assertEquals(
             emptyList<Int>(),
             ScreenTextReader.windowsToTry(
-                listOf(candidate(active = true, pkg = "com.holopengin.instantjpdict")),
-                ownPackage = "com.holopengin.instantjpdict",
+                listOf(candidate(active = true, pkg = "com.holopengin.instantjpdict", ownOverlay = true)),
             ),
         )
-        assertEquals(emptyList<Int>(), ScreenTextReader.windowsToTry(emptyList(), ownPackage = "com.holopengin.instantjpdict"))
+        assertEquals(emptyList<Int>(), ScreenTextReader.windowsToTry(emptyList()))
     }
 
     // ── containment: one node per pixel ─────────────────────────────────────
