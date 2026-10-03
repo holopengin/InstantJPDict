@@ -715,6 +715,10 @@ class OcrOverlayView(
                             // #106 rule 4's guard, and only here: a node no box
                             // vouches for is one nothing has read the pixels of.
                             inkOk = { ScreenTextInk.isDrawn(srcBitmap, it.rect) },
+                            // #106: the same width classes the char boxes are laid
+                            // out with, for the "can this text be what is drawn?"
+                            // test (an elided node's string cannot).
+                            isFullWidth = { !OcrEngine.isHalfWidth(it) },
                         )
                         logScreenTextSplit(mode, screenNodes.size, plan)
                         plan
@@ -950,6 +954,7 @@ class OcrOverlayView(
         // cause the moment the foreground was printed beside it.
         val line = "screen text: pkg=$pkg mode=$mode nodes=$nodes boxes=${plan.detected} " +
             "node_paid=${plan.nodePaid} recovered=${plan.recovered} recognised=${plan.recognise.size} " +
+            "elided=${plan.elided} " +
             "seen=${ScreenTextReader.lastTextNodes} japanese=${ScreenTextReader.lastJapanese} " +
             "long=${ScreenTextReader.lastDroppedLong}"
         Log.i("OcrOverlayView", line)

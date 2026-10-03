@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -469,5 +470,54 @@ class ScreenTextPlanTest {
         for (halfwidth in listOf('A', '7', 'ｶ', ' ', '\n')) {
             assertTrue("$halfwidth should be halfwidth", !ScreenTextPlan.isFullWidth(halfwidth))
         }
+    }
+
+    // ── does the text fit the rect it is drawn in? (#106 elision) ────────────
+
+    @Test
+    fun aLineOfTextThatMatchesItsRowFits() {
+        // 20 fullwidth glyphs in a 1000x60 row: what a normal line of Japanese
+        // looks like, and the case that must never be refused.
+        val row = box(0, 0, 1000, 60)
+        assertTrue(ScreenTextPlan.fits("吾輩は猫である名前はまだ無い所で", row, listOf(row)))
+    }
+
+    @Test
+    fun anElidedNotificationDoesNotFit() {
+        // The device case: a collapsed card draws two lines while its node carries
+        // the whole notification. Laying it out would squeeze hundreds of glyphs
+        // into those two rows, which is what the maintainer saw stacked.
+        val row1 = box(0, 0, 1000, 70)
+        val row2 = box(0, 80, 1000, 150)
+        val notification = "新しいメッセージがあります。" .repeat(40)
+        assertFalse(ScreenTextPlan.fits(notification, box(0, 0, 1000, 150), listOf(row1, row2)))
+    }
+
+    @Test
+    fun aHalfwidthLineHoldsTwiceTheCharacters() {
+        // Extent is per character class, not per character: 30 ASCII glyphs are 15
+        // em, so they fit a row that 30 fullwidth ones would not.
+        val row = box(0, 0, 1000, 60)
+        assertTrue(ScreenTextPlan.fits("a".repeat(30), row, listOf(row)))
+        assertFalse(ScreenTextPlan.fits("あ".repeat(60), row, listOf(row)))
+    }
+
+    @Test
+    fun moreLinesThanRowsDoesNotFit() {
+        val row = box(0, 0, 1000, 60)
+        assertFalse(ScreenTextPlan.fits("あ\nい\nう", row, listOf(row)))
+    }
+
+    @Test
+    fun aTrailingNewlineStillFits() {
+        val row = box(0, 0, 1000, 60)
+        assertTrue(ScreenTextPlan.fits("あい\n", row, listOf(row)))
+    }
+
+    @Test
+    fun withNoRowsThereIsNothingToMeasureSoItFits() {
+        // The recovered-node case: no detected box lies inside, so there is no
+        // evidence either way and the node is left exactly as it was.
+        assertTrue(ScreenTextPlan.fits("あ".repeat(500), box(0, 0, 1000, 200), emptyList()))
     }
 }

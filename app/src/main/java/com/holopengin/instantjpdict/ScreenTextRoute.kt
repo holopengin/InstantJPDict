@@ -43,6 +43,11 @@ object ScreenTextRoute {
         val nodePaid: Int,
         /** How many nodes no box covered and the ink sample kept. */
         val recovered: Int,
+        /**
+         * #106: how many nodes were refused because their text cannot fit the rect
+         * they are drawn in — an elided notification, a scrolled page. Log-only.
+         */
+        val elided: Int,
     )
 
     /**
@@ -85,9 +90,17 @@ object ScreenTextRoute {
         recogniseBoxes: Boolean,
         isVertical: (JpDictRect) -> Boolean,
         inkOk: (ScreenTextNode) -> Boolean,
+        isFullWidth: (Char) -> Boolean = ScreenTextPlan::isFullWidth,
     ): Routing {
         val detectedRects = boxes.map { it.rect }
-        val kept = answeringIndices(nodes, detectedRects, isVertical)
+        val kept = answeringIndices(nodes, detectedRects, isVertical, isFullWidth)
+        // #106: log-only — how many nodes were refused because their text cannot fit
+        // the rect they are drawn in (an elided notification, a scrolled page). The
+        // number that says whether the tree path answered for the page or handed it
+        // to recognition.
+        val elided = nodes.count {
+            !ScreenTextPlan.fits(it.text, it.rect, detectedRects, isFullWidth)
+        }
         // Every index below addresses `answering`, and [Routing.nodeAt] is
         // translated back to the CALLER's node list on the way out. The filter
         // renumbers, so carrying a filtered index across would put one node's text
@@ -119,6 +132,7 @@ object ScreenTextRoute {
             detected = boxes.size,
             nodePaid = plan.nodePaid.size,
             recovered = recovered.size,
+            elided = elided,
         )
     }
 
@@ -156,12 +170,16 @@ object ScreenTextRoute {
         nodes: List<ScreenTextNode>,
         boxes: List<JpDictRect>,
         isVertical: (JpDictRect) -> Boolean,
+        isFullWidth: (Char) -> Boolean = ScreenTextPlan::isFullWidth,
     ): List<Int> {
         if (nodes.isEmpty()) return emptyList()
         return nodes.indices.filter { i ->
             val node = nodes[i]
             !isVertical(node.rect) &&
-                ScreenTextPlan.visualRows(node.rect, boxes).none { isVertical(it) }
+                ScreenTextPlan.visualRows(node.rect, boxes).none { isVertical(it) } &&
+                // #106: and an elided node does not answer either — its text is not
+                // what is drawn. See [ScreenTextPlan.fits].
+                ScreenTextPlan.fits(node.text, node.rect, boxes, isFullWidth)
         }
     }
 

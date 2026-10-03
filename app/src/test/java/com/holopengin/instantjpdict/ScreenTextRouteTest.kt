@@ -55,6 +55,37 @@ class ScreenTextRouteTest {
         inkOk = inkOk,
     )
 
+    // ── elision: a node whose text cannot be what is drawn ──────────────────
+
+    @Test
+    fun anElidedNodeDoesNotAnswerSoItsBoxesRecognise() {
+        // A collapsed notification: the node's text is the whole message, the row it
+        // is drawn in holds two lines. Answering would squeeze the lot into the row —
+        // the maintainer's stacked glyphs — so it does not answer, its box goes to
+        // recognition, and the split says so.
+        val row = box(0, 0, 1000, 150)
+        val plan = route(
+            boxes = listOf(row),
+            nodes = listOf(node("新しいメッセージがあります。".repeat(40), 0, 0, 1000, 150)),
+        )
+        assertEquals(listOf(0), plan.recognise)
+        assertEquals(0, plan.nodePaid)
+        assertEquals(emptyMap<Int, Int>(), plan.nodeAt)
+        assertEquals(1, plan.elided)
+    }
+
+    @Test
+    fun aNodeWhoseTextFitsItsRowAnswersAndIsNotElided() {
+        val row = box(0, 0, 1000, 60)
+        val plan = route(
+            boxes = listOf(row),
+            nodes = listOf(node("吾輩は猫である名前はまだ無い", 0, 0, 1000, 60)),
+        )
+        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(mapOf(0 to 0), plan.nodeAt)
+        assertEquals(0, plan.elided)
+    }
+
     // ── no nodes: the pre-#106 pipeline ─────────────────────────────────────
 
     @Test

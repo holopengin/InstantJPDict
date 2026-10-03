@@ -444,4 +444,74 @@ object ScreenTextPlan {
         box.right.coerceAtMost(bounds.right),
         box.bottom.coerceAtMost(bounds.bottom),
     )
+
+    /**
+     * #106: the narrowest fullwidth glyph a node's row may hold, as a fraction of
+     * that row's height, before its text is treated as **not drawn**.
+     *
+     * The overlay draws a node's text at `0.90 × the row height` per fullwidth
+     * glyph, so a row really holds `rowWidth / (0.9 × rowHeight)` of them. This
+     * floor is deliberately looser than that: it is a *legibility* bound, not a
+     * measurement, and the cost of guessing low is that a dense but honest node goes
+     * to recognition instead of the tree, while guessing high is what squashes an
+     * elided node's string into two lines.
+     */
+    const val MIN_EM_RATIO = 0.55f
+
+    /**
+     * #106: slack on [fits]'s capacity, so a line that exactly fills its row is not
+     * read as not-fitting by rounding.
+     */
+    const val FIT_SLACK = 1.05f
+
+    /**
+     * #106: whether [text] can plausibly be the text **drawn** in [nodeRect].
+     *
+     * An app may elide: a collapsed notification's node carries the whole
+     * notification while the card draws its first two lines and an ellipsis, and a
+     * scrolled page's node can carry more text than its rect shows. Laying that
+     * string out over the rect squeezes hundreds of glyphs into two lines — the
+     * maintainer's "many lines on top of each other" in the notification shade — and
+     * every lookup then answers with characters that are not on screen.
+     *
+     * So a node whose text cannot fit does not answer at all: its boxes go to
+     * recognition, which reads exactly the characters that *are* drawn (ellipsis and
+     * all, since OCR only ever sees pixels). That is the safe direction — a wrong
+     * answer is worse than a slower one — and it is why the bound is loose.
+     *
+     * Rows are [visualRows] (the detected boxes inside the node) and the text is
+     * walked through them in order, breaking where it has newlines. With no rows
+     * there is nothing to measure against, so the node is left alone — the
+     * recovered-node case is exactly as it was.
+     */
+    fun fits(
+        text: String,
+        nodeRect: JpDictRect,
+        lineBoxes: List<JpDictRect>,
+        isFullWidth: (Char) -> Boolean = ::isFullWidth,
+    ): Boolean {
+        val rows = visualRows(nodeRect, lineBoxes)
+        if (rows.isEmpty()) return true
+        var row = 0
+        var used = 0f
+        for (i in text.indices) {
+            val ch = text[i]
+            if (ch == '\n') {
+                row++
+                used = 0f
+                if (row >= rows.size) {
+                    // More visual lines than the node has rows: only a trailing
+                    // newline may run past the last one.
+                    return text.substring(i + 1).isBlank()
+                }
+                continue
+            }
+            val extent = if (isFullWidth(ch)) 1f else 0.5f
+            val capacity = rows[row].width().toFloat() /
+                (MIN_EM_RATIO * rows[row].height().coerceAtLeast(1))
+            if (used + extent > capacity * FIT_SLACK) return false
+            used += extent
+        }
+        return true
+    }
 }
