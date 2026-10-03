@@ -108,19 +108,24 @@ object ScreenTextRoute {
         val answering = kept.map { nodes[it] }
         val plan = ScreenTextPlan.plan(detectedRects, answering, window)
         val recognise = if (answering.isEmpty() || recogniseBoxes) plan.recognise else emptyList()
-        // #106: a RECOVERED node — one the detector found nothing inside — must not
-        // overlap a box that another source is going to draw. Its line is laid out
-        // over its whole rect (it has no rows to follow), so anywhere it overlaps a
-        // paid or recognised box, two sets of glyphs land on the same pixels: the last
-        // overlap class, and the one the device kept showing. The box wins there — it
-        // is the detector's own evidence that something is drawn, and recognition reads
-        // it exactly — so the node is dropped for that region rather than drawn over
-        // OCR. A node with nothing overlapping it is unaffected.
-        val claimedBoxes = plan.nodePaid.keys + recognise
+        // #106: a RECOVERED node — one the detector found nothing inside — yields only
+        // where OCR is going to draw, never to a box the tree already owns.
+        //
+        // Both halves of that were learned on the device. It yields to a RECOGNISED box
+        // because its own line is laid out over its whole rect and two sets of glyphs
+        // would land on the same pixels (and recognition reads those pixels exactly).
+        // It must NOT yield to a merely PAID box, which was the maintainer's next
+        // report: one detector box can cover several lines, each with its own node, and
+        // its centre falls inside exactly one of them. Yielding to the paid box dropped
+        // the others, so a box over four lines of text rendered one of them — "only one
+        // screenreader text gets rendered instead of all of them". The owned box is not
+        // recognised, so there is no OCR text to overlap; the siblings have their own
+        // rects and draw their own lines.
+        val recognisedBoxes = recognise.map { boxes[it].rect }
         val recovered = plan.recovered.filter { index ->
             val nodeRect = answering[index].rect
             inkOk(answering[index]) &&
-                claimedBoxes.none { ScreenTextPlan.overlapShare(nodeRect, boxes[it].rect) > 0f }
+                recognisedBoxes.none { ScreenTextPlan.overlapShare(nodeRect, it) > 0f }
         }
 
         val augmented = ArrayList<LineBox>(boxes.size + recovered.size)

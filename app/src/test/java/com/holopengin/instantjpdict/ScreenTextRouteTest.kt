@@ -130,6 +130,30 @@ class ScreenTextRouteTest {
     }
 
     @Test
+    fun oneBoxOverSeveralNodesRendersAllOfThem() {
+        // The maintainer's report: a detected box covering several screen-reader texts
+        // rendered only one. The box's centre lies inside exactly one node, so the
+        // others are recovered — and they used to yield to the *paid* box, which is the
+        // tree's own, not OCR's. Each node draws its own line; the box is not
+        // recognised, so nothing is doubled.
+        val wide = box(0, 0, 600, 180)
+        val plan = route(
+            boxes = listOf(wide),
+            nodes = listOf(
+                node("一行目のテキスト", 0, 0, 600, 60),
+                node("二行目のテキスト", 0, 60, 600, 120),
+                node("三行目のテキスト", 0, 120, 600, 180),
+            ),
+        )
+        // The box's centre (300, 90) lands in the MIDDLE line, so that one owns the
+        // detector's box (page 0 → node 1) and the other two are appended as their own
+        // pages. The point is that all three are installed: three lines, not one.
+        assertEquals(mapOf(0 to 1, 1 to 0, 2 to 2), plan.nodeAt)
+        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(2, plan.recovered)
+    }
+
+    @Test
     fun anElidedNodeWithNoBoxInsideStillAnswers() {
         // No detected box inside it, so refusing would leave the region with no source
         // — nothing for recognition to read. The node answers, the view draws the
