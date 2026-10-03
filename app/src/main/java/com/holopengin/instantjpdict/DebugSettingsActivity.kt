@@ -17,6 +17,7 @@ import androidx.core.widget.NestedScrollView
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.slider.Slider
 import com.holopengin.instantjpdict.util.BlankGaps
 import com.holopengin.instantjpdict.util.InferLog
@@ -202,6 +203,44 @@ class DebugSettingsActivity : AppCompatActivity() {
             NcnnVerboseLog.setEnabled(this, checked)
             Log.d(TAG, "ppocr_ncnn_verbose=$checked")
         })
+        // #106: the per-app override's control. Three single-choice rows in the
+        // screen's own list-row language, a trailing MaterialRadioButton as the
+        // indicator; the service reads the pref per capture, so a selection is
+        // written through now and applies from the next one.
+        behaviourBody.addView(ui.sectionHeader(R.drawable.ic_text_fields, "Capture text source"))
+        val screenTextMode = ScreenTextPrefs.mode(this)
+        val modeRadios = mutableMapOf<String, MaterialRadioButton>()
+        fun selectScreenTextMode(mode: String) {
+            ScreenTextPrefs.setMode(this, mode)
+            Log.d(TAG, "screen_text_mode=$mode")
+            modeRadios.forEach { (m, radio) -> radio.isChecked = m == mode }
+        }
+        fun modeTitle(mode: String): String = when (mode) {
+            ScreenTextPrefs.NODES -> "App text only"
+            ScreenTextPrefs.OCR -> "OCR only"
+            else -> "Auto"
+        }
+        fun modeSupporting(mode: String): String = when (mode) {
+            ScreenTextPrefs.NODES ->
+                "Never recognise; anything the app doesn't cover is not shown. " +
+                    "Screens with no app text still use OCR."
+            ScreenTextPrefs.OCR -> "Always recognise; never use the app's text."
+            else -> "Prefer the app's text; recognise the rest. Recommended."
+        }
+        ScreenTextPrefs.MODES.forEach { mode ->
+            val radio = MaterialRadioButton(this).apply {
+                isChecked = mode == screenTextMode
+                setOnClickListener { selectScreenTextMode(mode) }
+            }
+            modeRadios[mode] = radio
+            behaviourBody.addView(ui.listRow(
+                null,
+                modeTitle(mode),
+                modeSupporting(mode),
+                trailing = radio,
+            ) { selectScreenTextMode(mode) })
+        }
+        behaviourBody.addView(ui.body("Takes effect on the next capture."))
         behaviourCard.addView(behaviourBody)
         content.addView(behaviourCard)
 
