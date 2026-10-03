@@ -943,8 +943,15 @@ class OcrOverlayView(
      */
     private fun logScreenTextSplit(mode: String, nodes: Int, plan: ScreenTextRoute.Routing) {
         val pkg = ScreenTextReader.lastPackage ?: "unknown"
+        // #106: the walk's own numbers, and the package the capture said was in
+        // front. They are here because this line is the one that reaches the
+        // InferLog a tester copies out, and the maintainer's first device report —
+        // `pkg=com.android.systemui … nodes=1` on a Chrome page — named its own
+        // cause the moment the foreground was printed beside it.
         val line = "screen text: pkg=$pkg mode=$mode nodes=$nodes boxes=${plan.detected} " +
-            "node_paid=${plan.nodePaid} recovered=${plan.recovered} recognised=${plan.recognise.size}"
+            "node_paid=${plan.nodePaid} recovered=${plan.recovered} recognised=${plan.recognise.size} " +
+            "seen=${ScreenTextReader.lastTextNodes} japanese=${ScreenTextReader.lastJapanese} " +
+            "long=${ScreenTextReader.lastDroppedLong}"
         Log.i("OcrOverlayView", line)
         InferLog.add(line)
     }

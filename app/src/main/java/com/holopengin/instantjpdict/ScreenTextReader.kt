@@ -161,42 +161,58 @@ object ScreenTextReader {
     data class WindowCandidate(val isActive: Boolean, val packageName: String?, val area: Long)
 
     /**
+     * #106: the package of the system's own chrome. Its windows are windows like
+     * any other, and one of them — the shade — reports the whole screen while it
+     * draws a strip; on the maintainer's device it answered before the app did.
+     */
+    const val SYSTEM_CHROME_PACKAGE = "com.android.systemui"
+
+    /**
      * #106: the windows to try for this capture, best first.
      *
      * The accessibility window list cannot be trusted to name the answer, and #106
-     * learned that on the device: by the time this read runs, this app's own overlay
-     * window is up and can be the *active* one (it takes input focus for taps and
-     * the manual entry's IME), while the other windows it reports include system
-     * chrome — the status bar is a window like any other, it sits above the app,
-     * and its tree carries no Japanese. Choosing one window by `isActive`, or the
-     * first usable one by list order, therefore chose our own overlay or a strip of
-     * system UI and answered "no text" on a Chrome page: the feature never ran.
+     * learned that twice on the device. First by `isActive`: by the time this read
+     * runs, this app's own overlay window is up and can be the active one (it takes
+     * input focus for taps and the manual entry's IME), so `isActive` pointed at us.
+     * Then by area: with us excluded, the largest window was **com.android.systemui**
+     * — its shade window reports the whole screen while drawing a strip — and the
+     * read stopped there, on one five-character node, without ever looking at the
+     * app behind it (`screen text: pkg=com.android.systemui … nodes=1`).
      *
-     * So the caller walks this order and keeps the **first window that actually
-     * carries text**, instead of betting on one:
-     *
-     * 1. the active window, when it is not ours — the app in front is what the user
-     *    is looking at;
-     * 2. then every other non-ours window, **largest first** — the app under the
-     *    overlay covers the screen, while the chrome that also answers is a strip;
-     *    a window that yields no text costs one bounded walk and is passed over.
+     * So the answer is not inferred from the list at all: [preferredPackage] is the
+     * package that was in the foreground when the capture was asked for, recorded
+     * before this app's overlay window existed. That is the app the user is looking
+     * at, and it is tried first. The rest of the order is the fallback for when
+     * nothing recorded it (no window content, a race): system chrome last, then the
+     * remaining windows largest-first, since the app under the overlay covers the
+     * screen while chrome is a strip. The caller walks the order and keeps the first
+     * window that actually carries text, so a wrong guess costs one bounded walk.
      *
      * Ours is skipped outright: its rects describe this overlay's drawing, not the
      * screenshot's content, and the boxes have to line up with what was captured. A
      * window with no package to name is skipped with it. When nothing usable is
      * left, the capture recognises everything, which is the pre-#106 path.
      *
-     * Pure, so the order is pinned by a test rather than by a device.
+     * Pure, so the order is pinned by tests rather than by a device.
      */
-    fun windowsToTry(candidates: List<WindowCandidate>, ownPackage: String): List<Int> {
+    fun windowsToTry(
+        candidates: List<WindowCandidate>,
+        ownPackage: String,
+        preferredPackage: String? = null,
+    ): List<Int> {
         val usable = candidates.withIndex().filter {
             val pkg = it.value.packageName
             !pkg.isNullOrEmpty() && pkg != ownPackage
         }
         return usable
             .sortedWith(
-                compareByDescending<IndexedValue<WindowCandidate>> { it.value.isActive }
-                    .thenByDescending { it.value.area },
+                compareBy<IndexedValue<WindowCandidate>> {
+                    when (it.value.packageName) {
+                        preferredPackage -> 0
+                        SYSTEM_CHROME_PACKAGE -> 2
+                        else -> 1
+                    }
+                }.thenByDescending { it.value.area },
             )
             .map { it.index }
     }

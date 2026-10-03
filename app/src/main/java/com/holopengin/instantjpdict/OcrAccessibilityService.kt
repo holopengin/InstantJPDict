@@ -116,6 +116,17 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private var lastActivationReason = ""
 
+    /**
+     * #106: the package that was in front when this capture was asked for, recorded
+     * before the overlay window exists (see [capture]).
+     *
+     * It names which window's tree answers. Without it the read has to guess among
+     * windows that are *not* the app — and on the maintainer's device it guessed the
+     * status bar, whose tree answered a Chrome page with one five-character node
+     * while the app's tree was never read.
+     */
+    private var captureForeground: String? = null
+
     /** #105: the last volume-down press, for the double-press chord (0 = none yet). */
     private var lastVolumeDownAt = 0L
 
@@ -373,7 +384,7 @@ class OcrAccessibilityService : AccessibilityService() {
                 area = bounds.width().toLong() * bounds.height().toLong(),
             )
         }
-        return ScreenTextReader.windowsToTry(candidates, packageName).mapNotNull { index ->
+        return ScreenTextReader.windowsToTry(candidates, packageName, captureForeground).mapNotNull { index ->
             try {
                 list[index].root
             } catch (_: Exception) {
@@ -498,12 +509,16 @@ class OcrAccessibilityService : AccessibilityService() {
         // seeing nothing and capturing the Settings screen the user was configuring
         // us from), but the bind's post delay later it is.
         //
-        // A live trigger — the accessibility button, the volume chord — is the user
-        // asking for a capture wherever they are, so it takes the
-        // screenshot directly: no gate, and the window-list read the gate needs stays
-        // off the path that has to feel immediate.
+        // #106: and the same read now names the app whose tree #106 should read.
+        // It has to happen HERE, before the overlay window goes up: once that is up
+        // it can be the active window itself (it takes input focus), and then the
+        // only thing left to ask is which *other* window is the app — which is how
+        // the status bar's tree came to answer for a Chrome page on the maintainer's
+        // device (`screen text: pkg=com.android.systemui … nodes=1`). The window-list
+        // read is one call either way, so a live trigger pays nothing new for it.
+        val foreground = activeWindowPackage()
+        captureForeground = foreground
         if (freshBind) {
-            val foreground = activeWindowPackage()
             if (foreground != null && isSettingsSurface(foreground)) {
                 Log.d(TAG, "activation '$reason' from $foreground (configuration, not a capture); no capture")
                 return
@@ -513,7 +528,7 @@ class OcrAccessibilityService : AccessibilityService() {
             // Settings", and that is exactly the reading an on-device check needs.
             Log.d(TAG, "activation '$reason': foreground=${foreground ?: "unknown"}; capturing")
         } else {
-            Log.d(TAG, "activation '$reason': live trigger; capturing")
+            Log.d(TAG, "activation '$reason': foreground=${foreground ?: "unknown"}; capturing")
         }
         triggerCapture(
             onSuccessAction = { bitmap -> showScreenshotOverlay(bitmap) },
@@ -642,13 +657,16 @@ class OcrAccessibilityService : AccessibilityService() {
                     for (root in roots) {
                         val nodes = ScreenTextReader.read(root, screen)
                         if (nodes.isNotEmpty()) {
-                            Log.d(
-                                TAG,
-                                "screen text: ${ScreenTextReader.lastPackage} answered with ${nodes.size} nodes" +
-                                    " (${ScreenTextReader.lastTextNodes} text nodes seen," +
-                                    " ${ScreenTextReader.lastJapanese} Japanese," +
-                                    " ${ScreenTextReader.lastDroppedLong} dropped as too long)",
-                            )
+                            val line = "screen text: ${ScreenTextReader.lastPackage} answered with ${nodes.size} nodes" +
+                                " (foreground=${captureForeground ?: "unknown"}," +
+                                " ${ScreenTextReader.lastTextNodes} text nodes seen," +
+                                " ${ScreenTextReader.lastJapanese} Japanese," +
+                                " ${ScreenTextReader.lastDroppedLong} dropped as too long)"
+                            Log.d(TAG, line)
+                            // The InferLog is the log a tester copies out, and the
+                            // answered window against the foreground is the pair that
+                            // named the last misfire; keep it in both.
+                            InferLog.add(line)
                             return nodes
                         }
                     }
@@ -656,12 +674,12 @@ class OcrAccessibilityService : AccessibilityService() {
                     // it should have text: nothing readable carried any, or nothing
                     // but our own overlay and system chrome was there to read. This
                     // is the line a "the tree path never runs" report needs.
-                    Log.d(
-                        TAG,
-                        "screen text: ${roots.size} readable windows, none answered" +
-                            " (${ScreenTextReader.lastTextNodes} text nodes seen," +
-                            " ${ScreenTextReader.lastDroppedLong} dropped as too long, mode=$mode)",
-                    )
+                    val none = "screen text: ${roots.size} readable windows, none answered" +
+                        " (foreground=${captureForeground ?: "unknown"}," +
+                        " ${ScreenTextReader.lastTextNodes} text nodes seen," +
+                        " ${ScreenTextReader.lastDroppedLong} dropped as too long, mode=$mode)"
+                    Log.d(TAG, none)
+                    InferLog.add(none)
                     emptyList()
                 } catch (t: Throwable) {
                     // The tree is not something a capture may fail on. A window that

@@ -175,15 +175,53 @@ class ScreenTextReaderTest {
         ScreenTextReader.WindowCandidate(active, pkg, area)
 
     @Test
-    fun theActiveForeignWindowComesFirst() {
+    fun theForegroundPackageIsTriedFirst() {
+        // The recorded foreground is the app the user triggered over, and it beats
+        // both the chrome and a larger window — the whole point is that the answer
+        // is not inferred from the list.
+        assertEquals(
+            listOf(1, 2, 0),
+            ScreenTextReader.windowsToTry(
+                listOf(
+                    candidate(active = false, pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
+                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
+                    candidate(active = false, pkg = "com.termux", area = 2_000_000),
+                ),
+                ownPackage = "com.holopengin.instantjpdict.dev",
+                preferredPackage = "com.android.chrome",
+            ),
+        )
+    }
+
+    @Test
+    fun systemChromeIsTriedLast() {
+        // The device report: with no preference recorded, the largest window was
+        // com.android.systemui — its shade window reports the whole screen while
+        // drawing a strip — and it answered a Chrome page with one node, so the read
+        // stopped before ever reaching the app. Chrome goes last even at nine times
+        // the area.
         assertEquals(
             listOf(1, 0),
             ScreenTextReader.windowsToTry(
                 listOf(
-                    candidate(active = false, pkg = "com.android.systemui", area = 10_000),
-                    candidate(active = true, pkg = "com.android.chrome"),
+                    candidate(active = false, pkg = ScreenTextReader.SYSTEM_CHROME_PACKAGE, area = 9_000_000),
+                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
                 ),
-                ownPackage = "com.holopengin.instantjpdict.dev",
+                ownPackage = "com.holopengin.instantjpdict",
+            ),
+        )
+    }
+
+    @Test
+    fun withoutAPreferenceTheLargestForeignWindowIsFirst() {
+        assertEquals(
+            listOf(1, 0),
+            ScreenTextReader.windowsToTry(
+                listOf(
+                    candidate(active = false, pkg = "com.android.chrome", area = 1_000),
+                    candidate(active = false, pkg = "com.termux", area = 2_000_000),
+                ),
+                ownPackage = "com.holopengin.instantjpdict",
             ),
         )
     }
@@ -205,20 +243,18 @@ class ScreenTextReaderTest {
     }
 
     @Test
-    fun theLargestForeignWindowIsTriedBeforeAStrip() {
-        // The bug this ordering exists for: our overlay is the active window, so
-        // nothing foreign is active and the z-order list would offer the system
-        // chrome first — a status-bar strip that carries no Japanese. Area puts the
-        // app under the overlay ahead of it.
+    fun aPreferredWindowThatIsOursIsIgnored() {
+        // The preference can be stale or, on a capture of our own app, be us; the
+        // skip rules win over the preference.
         assertEquals(
-            listOf(2, 1, 0),
+            listOf(1),
             ScreenTextReader.windowsToTry(
                 listOf(
-                    candidate(active = false, pkg = "com.android.systemui", area = 1080 * 80L),
-                    candidate(active = false, pkg = "com.android.systemui", area = 1080 * 130L),
-                    candidate(active = false, pkg = "com.android.chrome", area = 1080 * 2400L),
+                    candidate(active = false, pkg = "com.holopengin.instantjpdict", area = 9_000_000),
+                    candidate(active = false, pkg = "com.android.chrome"),
                 ),
                 ownPackage = "com.holopengin.instantjpdict",
+                preferredPackage = "com.holopengin.instantjpdict",
             ),
         )
     }
