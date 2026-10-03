@@ -2507,10 +2507,43 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 
     fun toUtf8(value: String): ByteBuffer {
         // Make sure we don't have invalid UTF-16, check for lone surrogates.
+        //
+        // LOCAL PATCH -- #106. Keep after regenerating: `tools/patch_uniffi_string_sanitise.py`
+        // re-applies it. An unpaired surrogate in `value` (legal in a Java String,
+        // impossible to encode as UTF-8) used to throw out of this strict encoder on
+        // every Rust call taking a string. U+FFFD is substituted one-for-one, so
+        // character indices keep their meaning; valid pairs are untouched.
+        val sanitised = sanitiseUnpairedSurrogates(value)
         return Charsets.UTF_8.newEncoder().run {
             onMalformedInput(CodingErrorAction.REPORT)
-            encode(CharBuffer.wrap(value))
+            encode(CharBuffer.wrap(sanitised))
         }
+    }
+
+    /** See the LOCAL PATCH note in [toUtf8]. */
+    private fun sanitiseUnpairedSurrogates(value: String): String {
+        var i = 0
+        var out: StringBuilder? = null
+        while (i < value.length) {
+            val c = value[i]
+            val pair = Character.isHighSurrogate(c) &&
+                i + 1 < value.length && Character.isLowSurrogate(value[i + 1])
+            val lone = (Character.isHighSurrogate(c) && !pair) || Character.isLowSurrogate(c)
+            if (lone) {
+                if (out == null) out = StringBuilder(value.length).append(value, 0, i)
+                out.append('\uFFFD')
+                i++
+            } else {
+                out?.append(c)
+                if (pair) {
+                    out?.append(value[i + 1])
+                    i += 2
+                } else {
+                    i++
+                }
+            }
+        }
+        return out?.toString() ?: value
     }
 
     override fun lower(value: String): RustBuffer.ByValue {

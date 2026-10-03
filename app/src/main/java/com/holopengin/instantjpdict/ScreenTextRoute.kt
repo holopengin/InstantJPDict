@@ -236,8 +236,9 @@ object ScreenTextRoute {
         nodeRect: JpDictRect,
         boxes: List<JpDictRect> = emptyList(),
         isFullWidth: (Char) -> Boolean = ScreenTextPlan::isFullWidth,
+        advanceOf: ((Char) -> Float)? = null,
     ): List<JpDictRect> {
-        val at = ScreenTextPlan.charBoxesAt(text, nodeRect, boxes, isFullWidth)
+        val at = ScreenTextPlan.charBoxesAt(text, nodeRect, boxes, isFullWidth, advanceOf)
         val out = arrayOfNulls<JpDictRect>(at.size)
         for (i in at.indices) out[i] = at[i]
         // Forward: a gap takes the trailing edge of the character before it.

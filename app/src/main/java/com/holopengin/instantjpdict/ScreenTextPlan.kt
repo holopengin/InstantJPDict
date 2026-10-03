@@ -335,10 +335,12 @@ object ScreenTextPlan {
         nodeRect: JpDictRect,
         lineBoxes: List<JpDictRect> = emptyList(),
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
+        advanceOf: ((Char) -> Float)? = null,
     ): List<JpDictRect?> {
         if (text.isEmpty()) return emptyList()
         val rows = visualRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
         if (rows.isEmpty()) return List(text.length) { null }
+        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf)
 
         // Step 2's arithmetic, extracted so the walk below reads as "which row is
         // this character in" and nothing else.
@@ -390,6 +392,65 @@ object ScreenTextPlan {
                 if (hasInk(text[i])) out[i] = JpDictRect(prevEdge, rows[r].top, edge, rows[r].bottom)
                 prevEdge = edge
             }
+        }
+        return out.toList()
+    }
+
+    /**
+     * #106: the boxes a node's text is drawn with when the caller can **measure the
+     * font** — which the overlay can, because it draws those glyphs itself.
+     *
+     * The extent model above is a guess: every character is a full or half em, and
+     * one global scale stretches the string to fill the rows' total width. On the
+     * device that showed up as the maintainer reported: character and inter-word
+     * spacing "weird and inconsistent" in node-backed lines. Two reasons, both
+     * fixed by measuring instead:
+     *
+     *  - the scale is shared by the whole node, so any mismatch between how much
+     *    text there is and how wide the detected rows are (a trailing space in the
+     *    box, an ink-hugging box narrower than the advances, two rows of different
+     *    heights) rescales *every* glyph — and differently for every node;
+     *  - fullwidth/halfwidth is not what a proportional face does, and `LineOverlayView`
+     *    then fits each glyph into the box it was handed, so a wrong box makes a
+     *    wrong size next to its neighbour.
+     *
+     * With real advances each character takes exactly the width the face gives it at
+     * the size that line is drawn at, so spacing is the font's own and is identical
+     * from line to line; a row that runs out wraps to the next, and a row that the
+     * text does not fill stays unfilled instead of stretching.
+     */
+    private fun measuredBoxes(
+        text: String,
+        rows: List<JpDictRect>,
+        advanceOf: (Char) -> Float,
+    ): List<JpDictRect?> {
+        val out = arrayOfNulls<JpDictRect>(text.length)
+        val lastRow = rows.size - 1
+        var row = 0
+        var x = rows[0].left.toFloat()
+        for (i in text.indices) {
+            val ch = text[i]
+            if (isLineBreak(ch)) {
+                if (row < lastRow) row++
+                x = rows[row].left.toFloat()
+                continue
+            }
+            val advance = advanceOf(ch)
+            // Wrap by the same rule the extent model uses: never split a character,
+            // and an empty row always takes the next one (even one wider than the row).
+            if (row < lastRow && x > rows[row].left && x + advance > rows[row].right) {
+                row++
+                x = rows[row].left.toFloat()
+            }
+            if (hasInk(ch)) {
+                out[i] = JpDictRect(
+                    x.roundToInt(),
+                    rows[row].top,
+                    (x + advance).roundToInt().coerceIn(rows[row].left, rows[row].right),
+                    rows[row].bottom,
+                )
+            }
+            x += advance
         }
         return out.toList()
     }

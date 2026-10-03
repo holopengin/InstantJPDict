@@ -568,6 +568,32 @@ class ScreenTextPlanTest {
         assertEquals(mixed.length, ScreenTextPlan.wellFormed(mixed).length)
     }
 
+    // ── measured advances (#106 spacing) ────────────────────────────────────
+
+    @Test
+    fun measuredAdvancesKeepTheirOwnWidthsAndDoNotStretch() {
+        // The spacing report: with the font's real advances a row the text does not
+        // fill stays unfilled. The proportional model stretched "あい" across the
+        // whole 1000px row, which is what made spacing wrong and node-dependent.
+        val row = box(0, 0, 1000, 60)
+        val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
+        assertEquals(2, at.size)
+        assertEquals(0, at[0]!!.left)
+        assertEquals(40, at[0]!!.right)
+        assertEquals(40, at[1]!!.left)
+        assertEquals(80, at[1]!!.right)
+    }
+
+    @Test
+    fun measuredAdvancesWrapWhenTheRowRunsOut() {
+        val node = box(0, 0, 100, 120)
+        val row1 = box(0, 0, 100, 60)
+        val row2 = box(0, 60, 100, 120)
+        val at = ScreenTextPlan.charBoxesAt("ああああ", node, listOf(row1, row2), advanceOf = { 40f })
+        assertEquals(0, at[2]!!.left)
+        assertEquals(60, at[2]!!.top)
+    }
+
     @Test
     fun aPrefixIsWhatFitsInTheBox() {
         // The visible-prefix rule: a 200x40 box holds about six fullwidth glyphs, so

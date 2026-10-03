@@ -383,6 +383,49 @@ tasks.register<Exec>("buildNavGraphCore") {
     commandLine("bash", "./build_nav_graph.sh")
 }
 
+// ————— #106: keep the generated shim's string sanitiser —————
+//
+// `app/src/main/java/uniffi/nav_graph_core/nav_graph_core.kt` is generated, and
+// `buildNavGraphCore` regenerates it as part of the build. The #106 patch inside it
+// (an unpaired surrogate in app text used to throw `MalformedInputException` out of
+// every Rust call taking a string) is therefore re-applied here, after the generator
+// and before any Kotlin is compiled, rather than by hand — observed on this repo:
+// patched file, unit tests green, `assembleRelease`, patch gone.
+//
+// The script is idempotent and fails loudly if the generated shape changes.
+val patchShimStringSanitise by tasks.registering {
+    group = "build"
+    description = "Re-applies the #106 lone-surrogate sanitiser to the generated shim bindings"
+    mustRunAfter("buildNavGraphCore")
+    val script = rootProject.file("tools/patch_uniffi_string_sanitise.py")
+    inputs.file(script)
+    // The file it patches is generated output; never cache a run.
+    outputs.upToDateWhen { false }
+    doLast {
+        var ran = false
+        for (interpreter in listOf("python3", "python3.11", "python")) {
+            try {
+                val process = ProcessBuilder(interpreter, script.absolutePath)
+                    .redirectErrorStream(true)
+                    .start()
+                val output = process.inputStream.bufferedReader().readText().trim()
+                val exit = process.waitFor()
+                logger.lifecycle("patchShimStringSanitise: $output")
+                if (exit != 0) error("patch_uniffi_string_sanitise.py failed (exit $exit)")
+                ran = true
+                break
+            } catch (_: java.io.IOException) {
+                // Not this interpreter; try the next.
+            }
+        }
+        if (!ran) error("no python interpreter found for tools/patch_uniffi_string_sanitise.py")
+    }
+}
+
+tasks.matching { it.name.startsWith("compile") && it.name.endsWith("Kotlin") }.configureEach {
+    dependsOn(patchShimStringSanitise)
+}
+
 // Host build of the same crate for the JVM nav-graph mirror (NavGraphCoreTest,
 // pipeline-sharing/04): unit tests run on x86-64 and cannot load the arm64
 // `.so` from jniLibs, so they load this host artifact instead (see the `Test`

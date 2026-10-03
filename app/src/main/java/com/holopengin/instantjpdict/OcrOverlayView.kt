@@ -822,7 +822,7 @@ class OcrOverlayView(
                         // the page once per node.
                         val detectedRects = lineBoxes.map { it.rect }
                         plan.nodeAt.map { (pageIndex, nodeIndex) ->
-                            pageIndex to nodeLineResult(screenNodes[nodeIndex], detectedRects)
+                            pageIndex to nodeLineResult(screenNodes[nodeIndex], detectedRects, pageBoxes[pageIndex].rect)
                         }
                     } ?: emptyList()
                     for ((pageIndex, line) in nodeLines) {
@@ -888,30 +888,13 @@ class OcrOverlayView(
     /**
      * #106: the [LineResult] a node's own text is drawn and looked up as.
      *
-     * Structurally a recognised line, with the fields a tree answer cannot have:
-     *
-     *  - **`text`** is the node's string, verbatim. Nothing normalises it, nothing
-     *    corrects it (see the `KanaSizeFix` note in [startOcr]) — the whole point
-     *    of answering from the tree is that these are the characters the app drew.
-     *  - **`charBoxes`** are [ScreenTextRoute.charBoxes]: one box per character,
-     *    positionally aligned with `text`, measured from the string rather than
-     *    from a recogniser's timesteps, over the detected boxes that fall inside
-     *    the node.
-     *  - **`alternatives`/`rawAlternatives` empty.** There is no model output to
-     *    offer; the alternatives panel's manual-entry path is what a user has
-     *    there instead, and every consumer already treats an empty list as "no
-     *    alternatives" (`getAlternativesUiState` returns null and the panel shows
-     *    nothing rather than an empty card).
-     *  - **`quad` null and `isVertical` false**: the node's text is laid out
-     *    horizontally (a vertical node is filtered out in
-     *    [ScreenTextRoute.horizontal]), so there is no tilt to carry.
-     *  - **crop fields** are the node's own rect — the box this line's boxes were
-     *    measured from, which is what [CharPreviewCrop] and the nav graph want.
-     *
-     * [boxes] is the page's whole detected-box list; [ScreenTextPlan.visualRows]
-     * picks out the ones inside this node, so a caller does not have to.
+     * [installed] is the page box this line is installed at — the view sizes the
+     * glyphs from that box's height (`0.90 × height`, [LineOverlayView]'s rule), so
+     * the measurer here uses the same size. That is what makes the spacing right:
+     * every character gets the advance the face actually gives it at the size it is
+     * drawn, instead of a proportional share of the row's width.
      */
-    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult {
+    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>, installed: JpDictRect): LineResult {
         // #106: a node whose text cannot fit its rect (an elided notification, a
         // scrolled page) answers with only the part that fits — see
         // [ScreenTextPlan.visiblePrefix]. For an ellipsis the visible characters ARE
@@ -919,19 +902,49 @@ class OcrOverlayView(
         // detector found no box inside the node there would be nothing else to read.
         val shown = ScreenTextPlan.visiblePrefix(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) }
         return LineResult(
-        text = shown,
-        charBoxes = ScreenTextRoute.charBoxes(shown, node.rect, boxes) { !OcrEngine.isHalfWidth(it) },
-        alternatives = emptyList(),
-        isVertical = false,
-        cropW = node.rect.width(),
-        cropH = node.rect.height(),
-        cropX = node.rect.left,
-        cropY = node.rect.top,
-        // #106: drawn in the tree's own colour, so a glance tells a tree-sourced
-        // line from a recognised one.
-        fromScreenText = true,
+            text = shown,
+            charBoxes = ScreenTextRoute.charBoxes(
+                text = shown,
+                nodeRect = node.rect,
+                boxes = boxes,
+                isFullWidth = { !OcrEngine.isHalfWidth(it) },
+                advanceOf = advanceMeasurer(installed.height() * 0.90f),
+            ),
+            alternatives = emptyList(),
+            isVertical = false,
+            cropW = node.rect.width(),
+            cropH = node.rect.height(),
+            cropX = node.rect.left,
+            cropY = node.rect.top,
+            // #106: drawn in the tree's own colour, so a glance tells a tree-sourced
+            // line from a recognised one.
+            fromScreenText = true,
         )
     }
+
+    /**
+     * #106: a character's advance, in pixels, from the face this overlay draws in at
+     * [textSize] — the same face and size [LineOverlayView] paints a node-backed
+     * line's glyphs with, so its character boxes are the glyphs' own widths.
+     *
+     * Cached per character: a page of node-backed text asks for the same few hundred
+     * characters, and `Paint.measureText` is a layout call, not a lookup.
+     */
+    private fun advanceMeasurer(textSize: Float): (Char) -> Float {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = OverlayFont.typeface(context)
+            this.textSize = textSize.coerceAtLeast(1f)
+        }
+        val cache = HashMap<Char, Float>()
+        val one = CharArray(1)
+        return { ch ->
+            cache.getOrPut(ch) {
+                one[0] = ch
+                paint.measureText(one, 0, 1)
+            }
+        }
+    }
+
 
     /**
      * #106: the split, once per capture — how many detected boxes the tree paid
