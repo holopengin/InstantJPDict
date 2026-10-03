@@ -394,6 +394,41 @@ class ScreenTextReaderTest {
     }
 
     @Test
+    fun identicalTextOverlappingAtAllIsOneLine() {
+        // The maintainer's case, and why "mostly inside" was not enough: these two
+        // overlap by only about a third, so half-the-smaller-rect let both answer and
+        // the same line was drawn twice. Identical text plus any overlap is the
+        // evidence; the geometry only has to confirm it.
+        // Equal areas resolve in the outer-first order, which starts at the later
+        // index, and identical text means that one is the survivor. Either would do:
+        // the same string is drawn once, not twice.
+        assertEquals(
+            listOf(1),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("新しいメッセージ", JpDictRect(0, 0, 300, 60)),
+                    node("新しいメッセージ", JpDictRect(200, 10, 500, 70)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun identicalTextInDifferentPlacesIsStillTwoLines() {
+        // Two list rows reading the same word are two drawn instances, not one line
+        // seen twice — the rule must not merge them.
+        assertEquals(
+            listOf(0, 1),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("詳細併", JpDictRect(0, 0, 100, 40)),
+                    node("詳細併", JpDictRect(0, 200, 100, 240)),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun twoNearlyCoincidingRectsResolveToOneSurvivor() {
         // Containment proper was not enough on the device: a notification's card and
         // the row drawn inside it overlap almost completely without either enclosing

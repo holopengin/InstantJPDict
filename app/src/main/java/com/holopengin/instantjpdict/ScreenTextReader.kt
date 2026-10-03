@@ -357,6 +357,15 @@ object ScreenTextReader {
         // Phase 2: an inner node carried by a surviving outer one is dropped — the
         // outer node lays that whole text out once, in order, over all of it. The
         // reader's page container keeps its page; its per-line children go.
+        //
+        // And the special case that needed its own evidence: **identical text that
+        // overlaps at all** is one line seen twice — a view reported at two tree
+        // positions, a WebView's virtual node beside the real one — and half the
+        // smaller rect was too strict for it. The maintainer's "screenreader returns
+        // two copies of exactly the same line in basically the same location, we end
+        // up drawing both overlapping" was a pair overlapping by a third. Identical
+        // strings at *different* places stay two lines (two list rows reading the same
+        // word are two drawn instances), so the overlap is what separates them.
         for (p in order.indices) {
             val outer = order[p]
             if (dropped[outer]) continue
@@ -364,7 +373,11 @@ object ScreenTextReader {
             for (q in p + 1 until order.size) {
                 val inner = order[q]
                 if (dropped[inner]) continue
-                if (mostlyInside(nodes[inner].rect, rect) && nodes[outer].text.contains(nodes[inner].text)) {
+                val sameText = nodes[outer].text == nodes[inner].text &&
+                    ScreenTextPlan.overlapShare(nodes[inner].rect, rect) > 0f
+                val carried = mostlyInside(nodes[inner].rect, rect) &&
+                    nodes[outer].text.contains(nodes[inner].text)
+                if (sameText || carried) {
                     dropped[inner] = true
                 }
             }
