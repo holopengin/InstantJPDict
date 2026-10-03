@@ -503,9 +503,15 @@ object ScreenTextPlan {
      * answer is worse than a slower one — and it is why the bound is loose.
      *
      * Rows are [visualRows] (the detected boxes inside the node) and the text is
-     * walked through them in order, breaking where it has newlines. With no rows
-     * there is nothing to measure against, so the node is left alone — the
-     * recovered-node case is exactly as it was.
+     * walked through them in order, breaking where it has newlines.
+     *
+     * **With no detected box inside, the node's own rect is the one row to measure
+     * against.** It used to return "fits" in that case, on the reasoning that there
+     * was no evidence either way — and the maintainer found the hole it left: a
+     * small box whose node carries an entire notification's detail has no detected
+     * box inside it (there is nothing small enough to detect there), so it was kept
+     * and its hundreds of characters were squashed into the box. The rect is
+     * evidence: a box that size cannot be showing that much text.
      */
     fun fits(
         text: String,
@@ -513,8 +519,8 @@ object ScreenTextPlan {
         lineBoxes: List<JpDictRect>,
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
     ): Boolean {
-        val rows = visualRows(nodeRect, lineBoxes)
-        if (rows.isEmpty()) return true
+        // The node's own rect as a single row when the detector saw nothing inside it.
+        val rows = visualRows(nodeRect, lineBoxes).ifEmpty { listOf(nodeRect) }
         var row = 0
         var used = 0f
         for (i in text.indices) {

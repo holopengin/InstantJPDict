@@ -515,9 +515,25 @@ class ScreenTextPlanTest {
     }
 
     @Test
-    fun withNoRowsThereIsNothingToMeasureSoItFits() {
-        // The recovered-node case: no detected box lies inside, so there is no
-        // evidence either way and the node is left exactly as it was.
-        assertTrue(ScreenTextPlan.fits("あ".repeat(500), box(0, 0, 1000, 200), emptyList()))
+    fun aSmallBoxClaimingATonOfTextDoesNotFit() {
+        // The maintainer's case: a node whose rect is a tiny box while its text is an
+        // entire notification's detail. With no detected box inside it, the box
+        // itself is the evidence — a rect that size cannot be showing that much.
+        assertFalse(ScreenTextPlan.fits("詳細".repeat(100), box(0, 0, 200, 40), emptyList()))
+    }
+
+    @Test
+    fun aSmallBoxWithTheTextItCanHoldStillFits() {
+        // The same box, text it can actually show: recovered as #106 rule 4 intends.
+        assertTrue(ScreenTextPlan.fits("詳細", box(0, 0, 200, 40), emptyList()))
+    }
+
+    @Test
+    fun aTallBoxWithNothingDetectedInItIsMeasuredAsOneRow() {
+        // The conservative side of the same rule, pinned so it is a choice and not a
+        // surprise: with no detected box inside a tall rect, the rect reads as one
+        // row and long text fails. That node goes to OCR rather than the tree — the
+        // safe direction, since the detector found nothing there to answer for.
+        assertFalse(ScreenTextPlan.fits("あ".repeat(500), box(0, 0, 1000, 2000), emptyList()))
     }
 }
