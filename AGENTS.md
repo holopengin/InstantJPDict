@@ -59,3 +59,12 @@ camera shortcut is generated per variant from `app/shortcuts.xml.template` — a
 Build a debug or benchmark variant only when there is a real reason (native
 symbol triage, a benchmark run, or a bug that only reproduces outside R8), and
 say why when you deliver it. See #90 for the size history behind this choice.
+
+## Shim bindings (generated)
+
+`app/src/main/java/uniffi/nav_graph_core/nav_graph_core.kt` is generated from the
+`nav_graph_core` crate. After regenerating it, run
+`tools/patch_uniffi_string_sanitise.py`: it re-applies the #106 lone-surrogate
+sanitiser in `FfiConverterString.toUtf8`. Without it, one malformed app string
+(an accessibility node's text, or a slice of one) crashes any Rust call that
+takes a string. The script is idempotent and is the only owner of that patch.

@@ -893,18 +893,15 @@ class OcrOverlayStateController {
         followingText: String,
         deinflector: Deinflector
     ): Pair<Set<String>, List<Pair<Int, List<SearchCandidate>>>> {
-        // #106: `followingText` is a SLICE of a line's characters, so it can begin or
-        // end in the middle of a surrogate pair — tap the lower half of an emoji and
-        // the slice starts with a lone surrogate. That is manufactured here, after the
-        // tree's own text was sanitised, and it is what still threw
-        // `MalformedInputException` out of the UniFFI converter on the maintainer's
-        // device (the robot emoji, tapped). Sanitised once, at the boundary that feeds
-        // the engine, so every caller and both shim calls below are covered.
-        val engineText = ScreenTextPlan.wellFormed(followingText)
         // Candidate preparation runs in jpdict_core; the facade passes its
         // UniFFI-backed handle so Rust deinflects in-process (no callback
         // round-trip per prefix).
-        val prepared = lookupPrepareCandidates(engineText, deinflector.inner)
+        // #106: `followingText` is a SLICE of a line's characters, so it can begin
+        // or end in the middle of a surrogate pair — tap the lower half of an emoji
+        // and the slice starts with a lone surrogate. That is handled at the shim
+        // boundary itself (a LOCAL PATCH in FfiConverterString.toUtf8, re-applied by
+        // tools/patch_uniffi_string_sanitise.py), so no caller has to remember it.
+        val prepared = lookupPrepareCandidates(followingText, deinflector.inner)
         val candidatesByLength = prepared.byLength.map { group ->
             group.length.toInt() to group.candidates.map { candidate ->
                 SearchCandidate(
@@ -945,9 +942,7 @@ class OcrOverlayStateController {
         val processed = lookupProcessResults(
             rows = dbResults.map { it.toRow() },
             prepared = prepared,
-            // #106: the same surrogate-slice hazard as [prepareSearchCandidates] —
-            // this is a caller's slice of a line, so it is sanitised at the shim too.
-            followingText = ScreenTextPlan.wellFormed(followingText),
+            followingText = followingText,
         )
         val matches = processed.matches.map { match ->
             TermMatch(
