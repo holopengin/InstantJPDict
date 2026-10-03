@@ -513,12 +513,12 @@ object ScreenTextPlan {
      * and its hundreds of characters were squashed into the box. The rect is
      * evidence: a box that size cannot be showing that much text.
      */
-    fun fits(
+    fun visiblePrefix(
         text: String,
         nodeRect: JpDictRect,
         lineBoxes: List<JpDictRect>,
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
-    ): Boolean {
+    ): String {
         // The node's own rect as a single row when the detector saw nothing inside it.
         val rows = visualRows(nodeRect, lineBoxes).ifEmpty { listOf(nodeRect) }
         var row = 0
@@ -531,16 +531,40 @@ object ScreenTextPlan {
                 if (row >= rows.size) {
                     // More visual lines than the node has rows: only a trailing
                     // newline may run past the last one.
-                    return text.substring(i + 1).isBlank()
+                    return if (text.substring(i + 1).isBlank()) text else text.substring(0, i)
                 }
                 continue
             }
             val extent = if (isFullWidth(ch)) 1f else 0.5f
             val capacity = rows[row].width().toFloat() /
                 (MIN_EM_RATIO * rows[row].height().coerceAtLeast(1))
-            if (used + extent > capacity * FIT_SLACK) return false
+            if (used + extent > capacity * FIT_SLACK) return text.substring(0, i)
             used += extent
         }
-        return true
+        return text
     }
+
+    /**
+     * #106: whether [text] can plausibly be the text **drawn** in [nodeRect] — that
+     * is, whether [visiblePrefix] returns all of it.
+     *
+     * An app may elide: a collapsed notification's node carries the whole
+     * notification while the card draws its first two lines and an ellipsis, and a
+     * scrolled page's node can carry more text than its rect shows. Laying that
+     * string out over the rect squeezes hundreds of glyphs into two lines — the
+     * maintainer's "many lines on top of each other" in the notification shade.
+     *
+     * A node that fails this is refused **when the detector has a box inside it** to
+     * hand the region to: recognition reads exactly the pixels that are drawn,
+     * ellipsis and all. When the detector found no box inside it, refusing would
+     * leave that region with no source at all, so such a node answers with
+     * [visiblePrefix] — for an ellipsis the visible part *is* the prefix of the
+     * string, and showing that beats showing nothing.
+     */
+    fun fits(
+        text: String,
+        nodeRect: JpDictRect,
+        lineBoxes: List<JpDictRect>,
+        isFullWidth: (Char) -> Boolean = ::isFullWidth,
+    ): Boolean = visiblePrefix(text, nodeRect, lineBoxes, isFullWidth) == text
 }

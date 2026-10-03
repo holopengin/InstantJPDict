@@ -515,6 +515,24 @@ class ScreenTextPlanTest {
     }
 
     @Test
+    fun aPrefixIsWhatFitsInTheBox() {
+        // The visible-prefix rule: a 200x40 box holds about six fullwidth glyphs, so
+        // the drawn text is the leading part of the string — which is what an ellipsis
+        // shows, and what keeps the region from being empty when nothing was detected
+        // inside it.
+        val text = "詳細".repeat(100)
+        val prefix = ScreenTextPlan.visiblePrefix(text, box(0, 0, 200, 40), emptyList())
+        assertTrue("prefix was ${prefix.length} chars", prefix.length in 4..8)
+        assertTrue(text.startsWith(prefix))
+    }
+
+    @Test
+    fun aFittingStringIsItsOwnPrefix() {
+        val row = box(0, 0, 1000, 60)
+        assertEquals("吾輩は猫である名前はまだ無い", ScreenTextPlan.visiblePrefix("吾輩は猫である名前はまだ無い", row, listOf(row)))
+    }
+
+    @Test
     fun aSmallBoxClaimingATonOfTextDoesNotFit() {
         // The maintainer's case: a node whose rect is a tiny box while its text is an
         // entire notification's detail. With no detected box inside it, the box

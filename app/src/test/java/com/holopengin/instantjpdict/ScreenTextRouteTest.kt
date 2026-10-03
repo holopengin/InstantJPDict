@@ -87,20 +87,34 @@ class ScreenTextRouteTest {
     }
 
     @Test
-    fun aBoxPartlyOverlappingANodeIsNotRecognised() {
-        // The double-text case: a detection whose centre falls outside the node but
-        // which covers part of it (a merged or rotated box beside the node). It used
-        // to be recognised while the node's line was drawn across the same pixels, so
-        // one line showed tree text and OCR text at once.
+    fun aBoxPartlyOverlappingANodeIsStillRecognised() {
+        // The invariant: recognition covers every box a node's own line does not. A
+        // box whose centre lies outside the node is not covered by that node's text,
+        // so it is recognised. Suppressing overlaps (an earlier revision) took OCR
+        // away from whole regions whenever a large container answered, and when the
+        // tree then refused an elided node the region had no source at all.
         val paid = box(10, 0, 390, 60)
         val overlapping = box(300, 0, 700, 60)
         val plan = route(
             boxes = listOf(paid, overlapping),
             nodes = listOf(node("新しい", 0, 0, 400, 60)),
         )
-        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(listOf(1), plan.recognise)
         assertEquals(mapOf(0 to 0), plan.nodeAt)
-        assertEquals(2, plan.nodePaid)
+        assertEquals(1, plan.nodePaid)
+    }
+
+    @Test
+    fun anElidedNodeWithNoBoxInsideStillAnswers() {
+        // No detected box inside it, so refusing would leave the region with no source
+        // — nothing for recognition to read. The node answers, the view draws the
+        // visible prefix, and the split still counts it as elided.
+        val plan = route(
+            boxes = emptyList(),
+            nodes = listOf(node("新しいメッセージがあります。".repeat(20), 0, 0, 200, 40)),
+        )
+        assertEquals(mapOf(0 to 0), plan.nodeAt)
+        assertEquals(1, plan.elided)
     }
 
     // ── no nodes: the pre-#106 pipeline ─────────────────────────────────────

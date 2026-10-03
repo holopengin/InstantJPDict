@@ -911,9 +911,16 @@ class OcrOverlayView(
      * [boxes] is the page's whole detected-box list; [ScreenTextPlan.visualRows]
      * picks out the ones inside this node, so a caller does not have to.
      */
-    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult = LineResult(
-        text = node.text,
-        charBoxes = ScreenTextRoute.charBoxes(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) },
+    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult {
+        // #106: a node whose text cannot fit its rect (an elided notification, a
+        // scrolled page) answers with only the part that fits — see
+        // [ScreenTextPlan.visiblePrefix]. For an ellipsis the visible characters ARE
+        // the prefix, which is why this is a truncation and not a refusal: when the
+        // detector found no box inside the node there would be nothing else to read.
+        val shown = ScreenTextPlan.visiblePrefix(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) }
+        return LineResult(
+        text = shown,
+        charBoxes = ScreenTextRoute.charBoxes(shown, node.rect, boxes) { !OcrEngine.isHalfWidth(it) },
         alternatives = emptyList(),
         isVertical = false,
         cropW = node.rect.width(),
@@ -923,7 +930,8 @@ class OcrOverlayView(
         // #106: drawn in the tree's own colour, so a glance tells a tree-sourced
         // line from a recognised one.
         fromScreenText = true,
-    )
+        )
+    }
 
     /**
      * #106: the split, once per capture — how many detected boxes the tree paid
