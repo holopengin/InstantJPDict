@@ -40,6 +40,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.google.gson.Gson
@@ -346,6 +347,23 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
     /**
+     * #106: the active window's root node, or null when the framework will not
+     * say.
+     *
+     * The same read [activeWindowPackage] makes — the accessibility windows list
+     * and its `isActive` window are the only source of it a service has, and
+     * `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` is what populates that list — split out
+     * because #106 needs the node itself, not only its package. #105's guard is
+     * untouched: same try/catch, same null-means-cannot-tell reading, same callers.
+     */
+    private fun activeWindowRoot(): AccessibilityNodeInfo? =
+        try {
+            windows.firstOrNull { it.isActive }?.root
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
      * #105: whether this connect is the first since the app was replaced.
      *
      * The framework re-enables an accessibility service when its app is updated,
@@ -583,6 +601,34 @@ class OcrAccessibilityService : AccessibilityService() {
             // (top-left). The share activity hosts the same view and declines it
             // in favour of the back control it has had in that corner since #78.
             override fun wantsBackButton(): Boolean = true
+
+            // #106: the screen's text, read from the tree this service already
+            // consults for the Settings guard — the active window's root, the same
+            // node [activeWindowPackage] reads. Called on IO once per capture by
+            // `OcrOverlayView.startOcr`.
+            //
+            // `ocr` mode skips the walk: nothing downstream would use the result,
+            // and walking a WebView's virtual hierarchy is real work. That is also
+            // what makes "OCR always" the *old* pipeline rather than "an empty tree
+            // routed through the new one".
+            override fun screenTextNodes(): List<ScreenTextNode> {
+                val mode = ScreenTextPrefs.mode(this@OcrAccessibilityService)
+                if (!ScreenTextPrefs.readsTree(mode)) {
+                    Log.d(TAG, "screen text: mode=$mode, not reading the tree")
+                    return emptyList()
+                }
+                return try {
+                    val root = activeWindowRoot() ?: return emptyList()
+                    ScreenTextReader.read(root, JpDictRect(0, 0, image.width, image.height))
+                } catch (t: Throwable) {
+                    // The tree is not something a capture may fail on. A window that
+                    // closed under the walk, a capability the framework withdrew, an
+                    // OEM node provider that throws — each of those means "no nodes
+                    // this time", which is exactly the pre-#106 path.
+                    Log.w(TAG, "screen text: tree walk failed; OCR answers as before", t)
+                    emptyList()
+                }
+            }
         }
 
         val view = OcrOverlayView(this, host)

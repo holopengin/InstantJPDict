@@ -100,6 +100,21 @@ class OcrOverlayView(
          * accessibility overlay was given one).
          */
         fun wantsBackButton(): Boolean
+
+        /**
+         * #106: the screen's text read from the accessibility tree, in bitmap
+         *  coordinates; empty when this host has no tree (the share activity) or
+         *  the user asked for OCR always.
+         *
+         * The default is the whole of #106 rule 5 on the host side: a host that
+         * cannot read a tree returns nothing, [startOcr] recognises every detected
+         * box, and the capture is byte-for-byte the pipeline it was. Only the
+         * accessibility service has a tree to offer.
+         *
+         * Read once per capture, off the main thread, and never on the share
+         * activity's behalf — it has no accessibility connection at all.
+         */
+        fun screenTextNodes(): List<ScreenTextNode> = emptyList()
     }
 
     private val srcBitmap: Bitmap get() = host.bitmap
@@ -678,7 +693,38 @@ class OcrOverlayView(
                     val tDet = System.currentTimeMillis()
                     val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detectLines(srcBitmap) }
                     val detMs = System.currentTimeMillis() - tDet
-                    controller.activeLineBoxes = lineBoxes
+
+                    // #106: the accessibility tree's answer for this screen, if this
+                    // host has one. Empty for the share activity (no tree) and for a
+                    // game, an emulator, a canvas or a photo (no text nodes), and
+                    // empty for a host or a mode that asks for OCR always — in all of
+                    // which cases `routing` is null and every line below takes exactly
+                    // the path it took before #106. That is the branch the ticket's
+                    // "byte-for-byte on a canvas" guarantee rests on, and it is a
+                    // branch rather than a uniform path on purpose: the empty case has
+                    // to run the code it always ran, not a re-derived equivalent.
+                    val mode = ScreenTextPrefs.mode(context)
+                    val screenNodes = withContext(Dispatchers.IO) { host.screenTextNodes() }
+                    val routing = if (screenNodes.isEmpty()) null else {
+                        val plan = ScreenTextRoute.route(
+                            boxes = lineBoxes,
+                            nodes = screenNodes,
+                            window = JpDictRect(0, 0, srcBitmap.width, srcBitmap.height),
+                            recogniseBoxes = ScreenTextPrefs.recognises(mode),
+                            isVertical = { OcrEngine.isVerticalBox(it) },
+                            // #106 rule 4's guard, and only here: a node no box
+                            // vouches for is one nothing has read the pixels of.
+                            inkOk = { ScreenTextInk.isDrawn(srcBitmap, it.rect) },
+                        )
+                        logScreenTextSplit(mode, screenNodes.size, plan)
+                        plan
+                    }
+                    // The augmented list: every detected box, unchanged and in place,
+                    // plus one box per recovered node. `buildBoxLayers` and the refit
+                    // path read the same list, so a node-backed line gets its border
+                    // and a rotated detect box keeps its quad.
+                    val pageBoxes = routing?.boxes ?: lineBoxes
+                    controller.activeLineBoxes = pageBoxes
 
                     postStatus(gen, "Recognizing...")
 
@@ -693,13 +739,13 @@ class OcrOverlayView(
                     // Both box layers, and the per-line click containers inside them,
                     // are built from either the fresh detect boxes (here) or the KEPT
                     // ones after a container re-fit (refitContent) — see buildBoxLayers.
-                    val clicksLayer = buildBoxLayers(lineBoxes)
+                    val clicksLayer = buildBoxLayers(pageBoxes)
 
                     findViewWithTag<View>("confidence_controls")?.isVisible = true
 
                     textViews.clear()
                     lineViews.clear()
-                    controller.activeLineResults = MutableList(lineBoxes.size) { null as LineResult? }
+                    controller.activeLineResults = MutableList(pageBoxes.size) { null as LineResult? }
                     controller.activeAllChars = mutableListOf()
                     controller.activeAllAlternatives = mutableListOf()
 
@@ -709,10 +755,20 @@ class OcrOverlayView(
                     // so progressive rendering bought nothing and its per-line
                     // Main work congested the queue mid-run.
                     val finishedLines = mutableListOf<Pair<Int, LineResult>>()
+                    // #106: recognition runs for the page indices the routing left and
+                    // only those. `recognizeStreaming` numbers its results against the
+                    // list it was handed, so that sublist is what its indices address
+                    // and `recogniseOrder` maps them back to page indices. With no
+                    // nodes this is `pageBoxes.indices` — the exact list, in the exact
+                    // order, the pre-#106 code passed.
+                    val recogniseOrder = routing?.recognise ?: pageBoxes.indices.toList()
+                    val recogniseBoxes = recogniseOrder.map { pageBoxes[it] }
                     withContext(Dispatchers.IO) {
-                        ocrEngine.recognizeStreaming(srcBitmap, lineBoxes) { results ->
+                        ocrEngine.recognizeStreaming(srcBitmap, recogniseBoxes) { results ->
                             if (closed) return@recognizeStreaming
-                            finishedLines.addAll(results)
+                            results.forEach { (i, line) ->
+                                finishedLines.add(recogniseOrder[i] to line)
+                            }
                         }
                     }
                     // #44 Feature 3: kana size correction. Runs over the whole page before any
@@ -724,18 +780,50 @@ class OcrOverlayView(
                     // native batch of one extractor per candidate; on Main that work janked
                     // the transition into the results UI for no reason — nothing here
                     // touches views.
-                    val correctedLines = withContext(Dispatchers.IO) {
+                    //
+                    // #106: over the recognised lines only, and only when there are
+                    // any. The corrector exists to fix OCR evidence — it rewrites
+                    // `つ`→`っ` where a size pair makes the model confident — and a
+                    // node's text is the app's own string, already exact, so a
+                    // node-backed line must not be rewritten at all. And a fully
+                    // covered page recognises nothing, where asking would load the
+                    // kana model (two assets and a native net) to correct no lines —
+                    // a visible slice of what #106 just saved.
+                    val correctedLines = if (orderedLines.isEmpty()) emptyList() else withContext(Dispatchers.IO) {
                         KanaSizeFix.correctPage(context, orderedLines.map { it.second })
                     }
                     // Surface the decline detail: without this the correction is
                     // invisible whether or not it fired. No surrounding text: this
-                    // log gets copied out and shared.
-                    if (KanaSizeFix.lastDeclined.isNotEmpty()) {
+                    // log gets copied out and shared. Inside the same guard as the
+                    // correction itself, so a page that skipped it cannot report the
+                    // previous capture's declines.
+                    if (orderedLines.isNotEmpty() && KanaSizeFix.lastDeclined.isNotEmpty()) {
                         InferLog.add("kana declined: " + KanaSizeFix.lastDeclined)
                     }
                     for ((i, entry) in orderedLines.withIndex()) {
                         if (closed) break
                         addLineToResults(this@OcrOverlayView, clicksLayer, entry.first, correctedLines[i])
+                    }
+                    // #106: the tree's own lines, installed through the same
+                    // `addLineToResults` a recognised line uses, so a node-backed line
+                    // is indistinguishable downstream — same border, same glyph views,
+                    // same per-character hit rects, same dictionary and popup. One
+                    // `LineResult` per NODE (the routing collapses a paragraph's
+                    // several boxes onto the node's first), laid over the detected
+                    // boxes inside it.
+                    val nodeLines = routing?.let { plan ->
+                        // Hoisted: every node lays its text out over the same
+                        // page-wide box list (the plan filters it down to the rows
+                        // inside that node), so mapping it per node would re-box
+                        // the page once per node.
+                        val detectedRects = lineBoxes.map { it.rect }
+                        plan.nodeAt.map { (pageIndex, nodeIndex) ->
+                            pageIndex to nodeLineResult(screenNodes[nodeIndex], detectedRects)
+                        }
+                    } ?: emptyList()
+                    for ((pageIndex, line) in nodeLines) {
+                        if (closed) break
+                        addLineToResults(this@OcrOverlayView, clicksLayer, pageIndex, line)
                     }
                     // 2026-09-25 overlay-install perf pass: the page's derived
                     // globals, ONCE, after the whole page is installed.
@@ -768,7 +856,11 @@ class OcrOverlayView(
                         updateCursor()
                     }
                     val recMs = System.currentTimeMillis() - startTime
-                    postStatus(gen, "${finishedLines.size} ln | ${controller.activeAllChars.size} chr | Time ${detMs + recMs}ms", hideProgress = true)
+                    // #106: the line count is every INSTALLED line, node-backed ones
+                    // included — `finishedLines` alone would report a fully covered
+                    // browser page as ~0 lines while the overlay is full of them, and
+                    // with no nodes the two counts are the same number.
+                    postStatus(gen, "${installedLines} ln | ${controller.activeAllChars.size} chr | Time ${detMs + recMs}ms", hideProgress = true)
                 } else {
                     postStatus(gen, "Error: Failed to start OCR engine", hideProgress = true)
                 }
@@ -787,6 +879,71 @@ class OcrOverlayView(
         }
         ocrJob = run
         return run
+    }
+
+    /**
+     * #106: the [LineResult] a node's own text is drawn and looked up as.
+     *
+     * Structurally a recognised line, with the fields a tree answer cannot have:
+     *
+     *  - **`text`** is the node's string, verbatim. Nothing normalises it, nothing
+     *    corrects it (see the `KanaSizeFix` note in [startOcr]) — the whole point
+     *    of answering from the tree is that these are the characters the app drew.
+     *  - **`charBoxes`** are [ScreenTextRoute.charBoxes]: one box per character,
+     *    positionally aligned with `text`, measured from the string rather than
+     *    from a recogniser's timesteps, over the detected boxes that fall inside
+     *    the node.
+     *  - **`alternatives`/`rawAlternatives` empty.** There is no model output to
+     *    offer; the alternatives panel's manual-entry path is what a user has
+     *    there instead, and every consumer already treats an empty list as "no
+     *    alternatives" (`getAlternativesUiState` returns null and the panel shows
+     *    nothing rather than an empty card).
+     *  - **`quad` null and `isVertical` false**: the node's text is laid out
+     *    horizontally (a vertical node is filtered out in
+     *    [ScreenTextRoute.horizontal]), so there is no tilt to carry.
+     *  - **crop fields** are the node's own rect — the box this line's boxes were
+     *    measured from, which is what [CharPreviewCrop] and the nav graph want.
+     *
+     * [boxes] is the page's whole detected-box list; [ScreenTextPlan.visualRows]
+     * picks out the ones inside this node, so a caller does not have to.
+     */
+    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult = LineResult(
+        text = node.text,
+        charBoxes = ScreenTextRoute.charBoxes(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) },
+        alternatives = emptyList(),
+        isVertical = false,
+        cropW = node.rect.width(),
+        cropH = node.rect.height(),
+        cropX = node.rect.left,
+        cropY = node.rect.top,
+    )
+
+    /**
+     * #106: the split, once per capture — how many detected boxes the tree paid
+     * for, how many nodes detection missed and recovery kept, and how many boxes
+     * recognition still ran.
+     *
+     * This is the line that names a misfire's own cause: a browser page that
+     * recognised everything says the tree published nothing usable; `recovered=0
+     * recognised=0` says the page is fully covered and costs only detect.
+     *
+     * **A capture with no nodes logs no split**, and that is deliberate rather
+     * than an omission: the absence *is* rule 5's condition — a game, an emulator,
+     * a canvas or a photo published no text — and the OCR half of such a capture
+     * is already visible in the engine's own `Processing N boxes` line and in the
+     * service's `overlay up <n> ms`, both untouched. Logging the zeros would also
+     * mean naming a package the reader never read, which for the share activity
+     * would be whichever app last held an accessibility window.
+     *
+     * No surrounding text (this log gets copied out and shared), and it goes to
+     * [InferLog] as well as logcat so the copied bundle carries it.
+     */
+    private fun logScreenTextSplit(mode: String, nodes: Int, plan: ScreenTextRoute.Routing) {
+        val pkg = ScreenTextReader.lastPackage ?: "unknown"
+        val line = "screen text: pkg=$pkg mode=$mode nodes=$nodes boxes=${plan.detected} " +
+            "node_paid=${plan.nodePaid} recovered=${plan.recovered} recognised=${plan.recognise.size}"
+        Log.i("OcrOverlayView", line)
+        InferLog.add(line)
     }
 
     /**
