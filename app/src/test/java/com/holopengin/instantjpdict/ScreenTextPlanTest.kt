@@ -548,6 +548,21 @@ class ScreenTextPlanTest {
     }
 
     @Test
+    fun aSliceThatCutsAPairInHalfIsStillEncodable() {
+        // The robot-emoji crash: the lookup slices the line's characters, so a tap
+        // inside 🤖 (a valid pair) can produce a string that starts with its lower
+        // half. Sanitising at the shim boundary is what makes that encodable; the
+        // half becomes U+FFFD and the lookup simply finds nothing.
+        val robot = "\uD83E\uDD16"
+        val encoder = java.nio.charset.Charset.forName("UTF-8").newEncoder()
+        val fromLowHalf = robot.substring(1) + "の"
+        assertEquals("\uFFFDの", ScreenTextPlan.wellFormed(fromLowHalf))
+        assertTrue(encoder.canEncode(ScreenTextPlan.wellFormed(fromLowHalf)))
+        val toHighHalf = "猫" + robot.substring(0, 1)
+        assertTrue(encoder.canEncode(ScreenTextPlan.wellFormed(toHighHalf)))
+    }
+
+    @Test
     fun substitutionIsOneForOneSoBoxesStayAligned() {
         val mixed = "猫\uD83D犬"
         assertEquals(mixed.length, ScreenTextPlan.wellFormed(mixed).length)
