@@ -446,6 +446,47 @@ object ScreenTextPlan {
     )
 
     /**
+     * #106: [text] with unpaired surrogates replaced by U+FFFD.
+     *
+     * An app's own text can be malformed UTF-16: a lone surrogate left by a broken
+     * emoji, a truncated pair in a scrolled virtual node. That is legal in a Java
+     * `String` and *impossible* to encode as UTF-8, so handing it to the engine
+     * throws `MalformedInputException: Input length = 1` out of the UniFFI string
+     * converter — a crash on the next dictionary lookup, reported from a capture
+     * whose screen-reader text contained one. The OCR path cannot produce this (its
+     * characters come from a fixed table); the tree path is the one that forwards
+     * whatever the app published, so it is sanitised here, at the boundary.
+     *
+     * Substitution is one-for-one, so every index still means what it meant: the
+     * character boxes and the text stay aligned, and a highlight or an override
+     * cannot land on the wrong glyph. Valid pairs are untouched.
+     */
+    fun wellFormed(text: String): String {
+        var i = 0
+        var out: StringBuilder? = null
+        while (i < text.length) {
+            val c = text[i]
+            val pair = Character.isHighSurrogate(c) &&
+                i + 1 < text.length && Character.isLowSurrogate(text[i + 1])
+            val lone = (Character.isHighSurrogate(c) && !pair) || Character.isLowSurrogate(c)
+            if (lone) {
+                if (out == null) out = StringBuilder(text.length).append(text, 0, i)
+                out.append('\uFFFD')
+                i++
+            } else {
+                out?.append(c)
+                if (pair) {
+                    out?.append(text[i + 1])
+                    i += 2
+                } else {
+                    i++
+                }
+            }
+        }
+        return out?.toString() ?: text
+    }
+
+    /**
      * #106: the widest a fullwidth glyph may be assumed to be, as a fraction of its
      * row's height, before a node's text is judged **not drawn**.
      *

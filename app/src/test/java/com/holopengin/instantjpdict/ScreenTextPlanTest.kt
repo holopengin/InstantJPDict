@@ -514,6 +514,45 @@ class ScreenTextPlanTest {
         assertTrue(ScreenTextPlan.fits("あい\n", row, listOf(row)))
     }
 
+    // ── malformed UTF-16 from an app's own text (#106) ──────────────────────
+
+    @Test
+    fun aLoneSurrogateBecomesAReplacementCharacter() {
+        // The crash in the ticket: a screen-reader node whose text carried one of
+        // these threw out of the UniFFI string converter on the next lookup.
+        val bad = "a\uD83Db"           // high surrogate, no pair
+        val low = "a\uDE00b"           // low surrogate, no pair
+        assertEquals("a\uFFFDb", ScreenTextPlan.wellFormed(bad))
+        assertEquals("a\uFFFDb", ScreenTextPlan.wellFormed(low))
+        assertEquals("\uFFFD", ScreenTextPlan.wellFormed("\uD83D"))
+    }
+
+    @Test
+    fun aWellFormedStringComesBackUntouched() {
+        for (text in listOf("", "abc", "吾輩は猫である", "😀 絵文字 \uD83D\uDE00")) {
+            assertEquals(text, ScreenTextPlan.wellFormed(text))
+            assertEquals("same length for $text", text.length, ScreenTextPlan.wellFormed(text).length)
+        }
+    }
+
+    @Test
+    fun theResultIsAlwaysEncodableAsUtf8() {
+        // What the crash actually was: the engine encodes the string to UTF-8.
+        val encoder = java.nio.charset.Charset.forName("UTF-8").newEncoder()
+        for (text in listOf("a\uD83Db", "\uDE00", "あ\uD83D", "ok", "😀")) {
+            assertTrue(
+                "should encode: $text",
+                encoder.canEncode(ScreenTextPlan.wellFormed(text)),
+            )
+        }
+    }
+
+    @Test
+    fun substitutionIsOneForOneSoBoxesStayAligned() {
+        val mixed = "猫\uD83D犬"
+        assertEquals(mixed.length, ScreenTextPlan.wellFormed(mixed).length)
+    }
+
     @Test
     fun aPrefixIsWhatFitsInTheBox() {
         // The visible-prefix rule: a 200x40 box holds about six fullwidth glyphs, so

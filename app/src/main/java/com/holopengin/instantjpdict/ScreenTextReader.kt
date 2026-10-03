@@ -462,7 +462,11 @@ object ScreenTextReader {
      * four filters.
      */
     private fun candidateOf(node: AccessibilityNodeInfo, window: JpDictRect): ScreenTextNode? {
-        val text = node.text?.toString() ?: return null
+        val raw = node.text?.toString() ?: return null
+        // #106: an app's text can carry unpaired surrogates, and the engine cannot
+        // encode those (MalformedInputException, on the next lookup). One-for-one
+        // substitution keeps the character boxes aligned. See [ScreenTextPlan.wellFormed].
+        val text = ScreenTextPlan.wellFormed(raw)
         if (text.isBlank()) return null
         lastTextNodes++
         if (text.length > MAX_TEXT) {
