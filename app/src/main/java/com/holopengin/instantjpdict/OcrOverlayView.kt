@@ -901,6 +901,14 @@ class OcrOverlayView(
         // the prefix, which is why this is a truncation and not a refusal: when the
         // detector found no box inside the node there would be nothing else to read.
         val shown = ScreenTextPlan.visiblePrefix(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) }
+        val measurer = advanceMeasurer(installed.height() * 0.90f)
+        // #106: the box's height is the ink's height, which is smaller than the font
+        // that drew it (Japanese ink is ~0.88em of a 1.2-1.4em line), so measuring
+        // alone left every node-backed line short. The box's WIDTH is the drawn
+        // line's width, so the measured advances are scaled to match it — spacing
+        // stays the font's own, only the size is recovered. See
+        // [ScreenTextPlan.measuredScale].
+        val rows = ScreenTextPlan.visualRows(node.rect, boxes).ifEmpty { listOf(node.rect) }
         return LineResult(
             text = shown,
             charBoxes = ScreenTextRoute.charBoxes(
@@ -908,8 +916,9 @@ class OcrOverlayView(
                 nodeRect = node.rect,
                 boxes = boxes,
                 isFullWidth = { !OcrEngine.isHalfWidth(it) },
-                advanceOf = advanceMeasurer(installed.height() * 0.90f),
+                advanceOf = measurer,
             ),
+            glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer),
             alternatives = emptyList(),
             isVertical = false,
             cropW = node.rect.width(),

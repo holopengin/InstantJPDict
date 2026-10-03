@@ -61,6 +61,14 @@ data class LineResult(
      * and a field added in the middle would silently shift those arguments.
      */
     val fromScreenText: Boolean = false,
+    /**
+     * #106: how much a node-backed line's glyphs are scaled so their measured width
+     * matches the width of the line they were drawn as ([ScreenTextPlan.measuredScale]
+     * computes it). 1 for every recognised line, and for any line whose text already
+     * spans its box. Last parameter on purpose, like [fromScreenText]: this class is
+     * built positionally in places.
+     */
+    val glyphScale: Float = 1f,
 ) {
     /** #53: clockwise glyph rotation in source pixels; 0 = exactly as today. */
     val tiltDeg: Float get() = quad?.tiltDeg ?: 0f

@@ -29,7 +29,7 @@ class LineOverlayView(
         // the bundled faces ship Regular only, and a BOLD request against a
         // single-font family selects the same outlines.
         typeface = OverlayFont.typeface(context)
-        textSize = fixedSize * 0.90f
+        textSize = fixedSize * 0.90f * line.glyphScale
         isAntiAlias = true
     }
     private val bounds = Rect()
@@ -145,7 +145,7 @@ class LineOverlayView(
         lineLeft = newLineLeft
         lineTop = newLineTop
         margin = marginFor(fixedSize)
-        paint.textSize = fixedSize * 0.90f
+        paint.textSize = fixedSize * 0.90f * line.glyphScale
         if (line.isVertical) {
             paint.textLocale = java.util.Locale.JAPANESE
             paint.fontFeatureSettings = "'vert' 1"

@@ -571,27 +571,55 @@ class ScreenTextPlanTest {
     // ── measured advances (#106 spacing) ────────────────────────────────────
 
     @Test
-    fun measuredAdvancesKeepTheirOwnWidthsAndDoNotStretch() {
-        // The spacing report: with the font's real advances a row the text does not
-        // fill stays unfilled. The proportional model stretched "あい" across the
-        // whole 1000px row, which is what made spacing wrong and node-dependent.
-        val row = box(0, 0, 1000, 60)
+    fun aMeasuredLineIsScaledToTheRowWidth() {
+        // The maintainer: "font size should scale up to fit the real width of the
+        // line; right now the font is too small, so the string is too short". A box
+        // whose height is the ink's height under-estimates the font, and the box's
+        // width is the drawn line's width — so the measured advances are scaled to
+        // it. Two 40px advances in an 80px row are already right (scale 1)…
+        val row = box(0, 0, 80, 60)
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
-        assertEquals(2, at.size)
         assertEquals(0, at[0]!!.left)
         assertEquals(40, at[0]!!.right)
-        assertEquals(40, at[1]!!.left)
         assertEquals(80, at[1]!!.right)
+        assertEquals(1f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
     }
 
     @Test
-    fun measuredAdvancesWrapWhenTheRowRunsOut() {
+    fun aMeasuredLineShorterThanItsRowScalesUp() {
+        // …and the same text in a 160px row is scaled 2x, filling it, instead of
+        // ending half way across.
+        val row = box(0, 0, 160, 60)
+        val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
+        assertEquals(80, at[0]!!.right)
+        assertEquals(160, at[1]!!.right)
+        assertEquals(2f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+    }
+
+    @Test
+    fun theScaleIsClampedSoAShortLabelIsNotBlownUpToFillAWideBox() {
+        // A two-character label in a thousand-pixel box is not a font 12x too small.
+        val row = box(0, 0, 1000, 60)
+        assertEquals(2.5f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(0.5f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row)) { 40f })
+    }
+
+    @Test
+    fun measuredAdvancesWrapWhenTheRowsRunOut() {
+        // Four 40px advances in two 100px rows: the fit is 1.25x, so two characters
+        // per row and the third wraps.
         val node = box(0, 0, 100, 120)
         val row1 = box(0, 0, 100, 60)
         val row2 = box(0, 60, 100, 120)
         val at = ScreenTextPlan.charBoxesAt("ああああ", node, listOf(row1, row2), advanceOf = { 40f })
         assertEquals(0, at[2]!!.left)
         assertEquals(60, at[2]!!.top)
+    }
+
+    @Test
+    fun nothingMeasurableLeavesTheScaleAlone() {
+        assertEquals(1f, ScreenTextPlan.measuredScale("", listOf(box(0, 0, 10, 10))) { 40f })
+        assertEquals(1f, ScreenTextPlan.measuredScale("あ", emptyList()) { 40f })
     }
 
     @Test

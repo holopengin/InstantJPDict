@@ -424,6 +424,7 @@ object ScreenTextPlan {
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
     ): List<JpDictRect?> {
+        val scale = measuredScale(text, rows, advanceOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
         val lastRow = rows.size - 1
         var row = 0
@@ -435,7 +436,7 @@ object ScreenTextPlan {
                 x = rows[row].left.toFloat()
                 continue
             }
-            val advance = advanceOf(ch)
+            val advance = advanceOf(ch) * scale
             // Wrap by the same rule the extent model uses: never split a character,
             // and an empty row always takes the next one (even one wider than the row).
             if (row < lastRow && x > rows[row].left && x + advance > rows[row].right) {
@@ -454,6 +455,45 @@ object ScreenTextPlan {
         }
         return out.toList()
     }
+
+    /**
+     * #106: how much the measured advances are scaled so the text fills the rows it
+     * is drawn in — the maintainer's "font size should scale up to fit the real
+     * width of the line; right now the font is too small, so the string is too
+     * short".
+     *
+     * The height of a detected box is the *ink's* height, which is smaller than the
+     * font: a line of Japanese sits in roughly 0.88 em of ink while the size that
+     * drew it is 1.2-1.4 em, so measuring at `0.90 × boxHeight` came out under the
+     * real size and every node-backed line was short. The box's **width**, by
+     * contrast, is the width of the drawn line, so matching the string's measured
+     * width to it recovers the size that drew it — without touching the proportional
+     * spacing, which stays the font's own.
+     *
+     * Clamped, because a node whose text is much shorter than its box (a label in a
+     * wide row) must not be blown up to fill it: 0.5x to 2.5x is the range where a
+     * fit is a size estimate rather than a distortion. Line breaks contribute
+     * nothing on either side, and nothing measurable means 1 (unchanged).
+     */
+    fun measuredScale(
+        text: String,
+        rows: List<JpDictRect>,
+        advanceOf: (Char) -> Float,
+    ): Float {
+        if (rows.isEmpty()) return 1f
+        var natural = 0f
+        for (ch in text) {
+            if (!isLineBreak(ch)) natural += advanceOf(ch)
+        }
+        if (natural <= 0f) return 1f
+        val width = rows.sumOf { it.width() }.toFloat()
+        if (width <= 0f) return 1f
+        return (width / natural).coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
+    }
+
+    /** #106: the narrowest and widest a measured fit may scale a line's text. */
+    const val MIN_MEASURED_SCALE = 0.5f
+    const val MAX_MEASURED_SCALE = 2.5f
 
     /**
      * The node's own rect as the only row, or no rows at all when it has no area —
