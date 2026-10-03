@@ -23,7 +23,7 @@ class LineOverlayView(
 ) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#FF7777")
+        color = OCR_TEXT_COLOR
         // #84: the setting's face (default sans), read once per line view. The
         // highlighted glyphs keep the same face and are fake-bolded in onDraw —
         // the bundled faces ship Regular only, and a BOLD request against a
@@ -91,6 +91,30 @@ class LineOverlayView(
          *  glyph below 85% of the line's paint size, so a too-narrow box
          *  cannot make one character visibly smaller than its neighbours. */
         const val BOX_FIT_SCALE_FLOOR = 0.85f
+
+        /**
+         * The glyph colour of a line the recogniser produced, and the app's own red
+         * since long before #106: `#FF7777`.
+         *
+         * An ARGB int rather than a `Color.parseColor` call, deliberately: this
+         * companion is initialised by the host tests ([halfWidthOf] is one of their
+         * seams), and the platform stubs throw on any `android.graphics` call made
+         * at class-init time. The instance `Paint` below may use a real colour
+         * because no host test builds a view.
+         */
+        private val OCR_TEXT_COLOR = 0xFFFF7777.toInt()
+
+        /**
+         * #106: the glyph colour of a line whose characters came from the
+         * accessibility tree ([LineResult.fromScreenText]) — orange, `#FFA500`.
+         *
+         * Chosen to be told apart at a glance from both states it can be confused
+         * with: the recognition red above (a pink-leaning red) and the yellow of the
+         * lookup highlight. Which source drew a line is the first thing that matters
+         * when comparing the two paths on a device, and until #106 there was no way
+         * to see it.
+         */
+        private val SCREEN_TEXT_COLOR = 0xFFFFA500.toInt()
         fun marginFor(fixedSize: Int): Int =
             (fixedSize * INK_MARGIN_RATIO).roundToInt().coerceAtLeast(1)
 
@@ -241,7 +265,14 @@ class LineOverlayView(
             scale = scale.coerceAtLeast(BOX_FIT_SCALE_FLOOR)
 
             val isHighlighted = highlightedIndices.contains(i)
-            paint.color = if (isHighlighted) Color.YELLOW else Color.parseColor("#FF7777")
+            // #106: which source drew this line — the app's red for a recognition,
+            // orange for a line whose characters came from the accessibility tree,
+            // yellow for the highlight. Three states, three colours.
+            paint.color = when {
+                isHighlighted -> Color.YELLOW
+                line.fromScreenText -> SCREEN_TEXT_COLOR
+                else -> OCR_TEXT_COLOR
+            }
             // #84: emphasis without a second font file — same face, synthetic bold.
             paint.isFakeBoldText = isHighlighted
 

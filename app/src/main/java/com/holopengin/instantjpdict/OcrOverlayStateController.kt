@@ -51,6 +51,16 @@ data class LineResult(
      * knows rects keeps working; [tiltDeg] tells the renderer how far to turn
      * each glyph, and [glyphSizePx] measures text in the upright frame. */
     val quad: JpDictQuad? = null,
+    /**
+     * #106: this line's characters came from the accessibility tree rather than
+     * from recognition, and the overlay draws them in the tree's own colour
+     * (orange) so the two sources can be told apart at a glance — the app's red is
+     * a recognition. Purely a display fact: nothing downstream branches on it.
+     *
+     * Last parameter on purpose: this class is built positionally in a few places,
+     * and a field added in the middle would silently shift those arguments.
+     */
+    val fromScreenText: Boolean = false,
 ) {
     /** #53: clockwise glyph rotation in source pixels; 0 = exactly as today. */
     val tiltDeg: Float get() = quad?.tiltDeg ?: 0f

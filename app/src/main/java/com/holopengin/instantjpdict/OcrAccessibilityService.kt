@@ -347,29 +347,40 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
     /**
-     * #106: the window whose tree answers for this capture — the active one,
-     * unless it is our own overlay.
+     * #106: the windows to read for this capture, best first (see
+     * [ScreenTextReader.windowsToTry] for why the order is a walk, not a choice).
      *
-     * The same read [activeWindowPackage] makes (the accessibility windows list,
-     * its `isActive` entry, `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` populating it),
-     * split out because #106 needs the node itself, and *not* the same selection:
-     * by the time this runs the overlay window is up and can be the active one, so
-     * [ScreenTextReader.windowToRead] skips our package and reads the app under it.
-     * #105's guard is untouched — [activeWindowPackage] still reads the plain active
+     * #105's guard is untouched: [activeWindowPackage] still reads the plain active
      * window, because it runs before the overlay exists and must keep saying
      * "Settings" rather than "whatever is behind Settings".
      */
-    private fun activeWindowRoot(): AccessibilityNodeInfo? =
-        try {
-            val list = windows
-            val candidates = list.map {
-                ScreenTextReader.WindowCandidate(it.isActive, it.root?.packageName?.toString())
-            }
-            val index = ScreenTextReader.windowToRead(candidates, packageName) ?: return null
-            list[index].root
+    private fun screenTextRoots(): List<AccessibilityNodeInfo> {
+        val list = try {
+            windows
         } catch (_: Exception) {
-            null
+            return emptyList()
         }
+        val bounds = Rect()
+        val candidates = list.map { window ->
+            window.getBoundsInScreen(bounds)
+            ScreenTextReader.WindowCandidate(
+                isActive = window.isActive,
+                packageName = try {
+                    window.root?.packageName?.toString()
+                } catch (_: Exception) {
+                    null
+                },
+                area = bounds.width().toLong() * bounds.height().toLong(),
+            )
+        }
+        return ScreenTextReader.windowsToTry(candidates, packageName).mapNotNull { index ->
+            try {
+                list[index].root
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
 
     /**
      * #105: whether this connect is the first since the app was replaced.
@@ -626,8 +637,24 @@ class OcrAccessibilityService : AccessibilityService() {
                     return emptyList()
                 }
                 return try {
-                    val root = activeWindowRoot() ?: return emptyList()
-                    ScreenTextReader.read(root, JpDictRect(0, 0, image.width, image.height))
+                    val screen = JpDictRect(0, 0, image.width, image.height)
+                    val roots = screenTextRoots()
+                    for (root in roots) {
+                        val nodes = ScreenTextReader.read(root, screen)
+                        if (nodes.isNotEmpty()) {
+                            Log.d(
+                                TAG,
+                                "screen text: ${ScreenTextReader.lastPackage} answered with ${nodes.size} nodes",
+                            )
+                            return nodes
+                        }
+                    }
+                    // Why the OCR path is about to run on a screen that looked like
+                    // it should have text: nothing readable carried any, or nothing
+                    // but our own overlay and system chrome was there to read. This
+                    // is the line a "the tree path never runs" report needs.
+                    Log.d(TAG, "screen text: ${roots.size} readable windows, none carried Japanese text (mode=$mode)")
+                    emptyList()
                 } catch (t: Throwable) {
                     // The tree is not something a capture may fail on. A window that
                     // closed under the walk, a capability the framework withdrew, an

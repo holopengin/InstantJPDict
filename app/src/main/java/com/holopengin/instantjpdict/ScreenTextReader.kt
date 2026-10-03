@@ -122,32 +122,52 @@ object ScreenTextReader {
     const val MAX_TEXT = 1000
 
     /**
-     * One entry of the service's window list, as [windowToRead] needs it.
+     * One entry of the service's window list, as [windowsToTry] needs it.
+     *
+     * [area] is the window's own bounds area, read from the window
+     * (`getBoundsInScreen`) rather than from its root, so ordering costs no walk.
      */
-    data class WindowCandidate(val isActive: Boolean, val packageName: String?)
+    data class WindowCandidate(val isActive: Boolean, val packageName: String?, val area: Long)
 
     /**
-     * #106: which of the service's windows to read — the active one, unless it is
-     * ours.
+     * #106: the windows to try for this capture, best first.
      *
-     * The read runs once this app's own overlay window is up, and that window takes
-     * input focus (taps, the manual entry's IME), so it can be the active one.
-     * Reading it would route our own box layers back through the routing, and its
-     * rects describe the overlay's drawing rather than the screenshot's content —
-     * the boxes have to line up with what was captured, which is the window under
-     * it. So our own package is skipped, and so is a window with no package to name
-     * (nothing identifiable to answer with). When nothing is left, the capture
-     * recognises everything, which is the pre-#106 path.
+     * The accessibility window list cannot be trusted to name the answer, and #106
+     * learned that on the device: by the time this read runs, this app's own overlay
+     * window is up and can be the *active* one (it takes input focus for taps and
+     * the manual entry's IME), while the other windows it reports include system
+     * chrome — the status bar is a window like any other, it sits above the app,
+     * and its tree carries no Japanese. Choosing one window by `isActive`, or the
+     * first usable one by list order, therefore chose our own overlay or a strip of
+     * system UI and answered "no text" on a Chrome page: the feature never ran.
      *
-     * Pure, so the choice is pinned by a test rather than by a device; the caller
-     * reads the window's root for the index this returns.
+     * So the caller walks this order and keeps the **first window that actually
+     * carries text**, instead of betting on one:
+     *
+     * 1. the active window, when it is not ours — the app in front is what the user
+     *    is looking at;
+     * 2. then every other non-ours window, **largest first** — the app under the
+     *    overlay covers the screen, while the chrome that also answers is a strip;
+     *    a window that yields no text costs one bounded walk and is passed over.
+     *
+     * Ours is skipped outright: its rects describe this overlay's drawing, not the
+     * screenshot's content, and the boxes have to line up with what was captured. A
+     * window with no package to name is skipped with it. When nothing usable is
+     * left, the capture recognises everything, which is the pre-#106 path.
+     *
+     * Pure, so the order is pinned by a test rather than by a device.
      */
-    fun windowToRead(candidates: List<WindowCandidate>, ownPackage: String): Int? {
+    fun windowsToTry(candidates: List<WindowCandidate>, ownPackage: String): List<Int> {
         val usable = candidates.withIndex().filter {
             val pkg = it.value.packageName
             !pkg.isNullOrEmpty() && pkg != ownPackage
         }
-        return usable.firstOrNull { it.value.isActive }?.index ?: usable.firstOrNull()?.index
+        return usable
+            .sortedWith(
+                compareByDescending<IndexedValue<WindowCandidate>> { it.value.isActive }
+                    .thenByDescending { it.value.area },
+            )
+            .map { it.index }
     }
 
     /**

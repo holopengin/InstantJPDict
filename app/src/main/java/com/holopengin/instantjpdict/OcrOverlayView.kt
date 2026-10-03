@@ -916,6 +916,9 @@ class OcrOverlayView(
         cropH = node.rect.height(),
         cropX = node.rect.left,
         cropY = node.rect.top,
+        // #106: drawn in the tree's own colour, so a glance tells a tree-sourced
+        // line from a recognised one.
+        fromScreenText = true,
     )
 
     /**
