@@ -86,6 +86,23 @@ class ScreenTextRouteTest {
         assertEquals(0, plan.elided)
     }
 
+    @Test
+    fun aBoxPartlyOverlappingANodeIsNotRecognised() {
+        // The double-text case: a detection whose centre falls outside the node but
+        // which covers part of it (a merged or rotated box beside the node). It used
+        // to be recognised while the node's line was drawn across the same pixels, so
+        // one line showed tree text and OCR text at once.
+        val paid = box(10, 0, 390, 60)
+        val overlapping = box(300, 0, 700, 60)
+        val plan = route(
+            boxes = listOf(paid, overlapping),
+            nodes = listOf(node("新しい", 0, 0, 400, 60)),
+        )
+        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(mapOf(0 to 0), plan.nodeAt)
+        assertEquals(2, plan.nodePaid)
+    }
+
     // ── no nodes: the pre-#106 pipeline ─────────────────────────────────────
 
     @Test

@@ -394,6 +394,24 @@ class ScreenTextReaderTest {
     }
 
     @Test
+    fun twoNearlyCoincidingRectsResolveToOneSurvivor() {
+        // Containment proper was not enough on the device: a notification's card and
+        // the row drawn inside it overlap almost completely without either enclosing
+        // the other, so both answered and their lines were drawn over each other. The
+        // rule is now "mostly inside" (half the smaller rect), and as with
+        // containment the inner one wins when the outer does not carry its text.
+        assertEquals(
+            listOf(1),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("お知らせ", JpDictRect(0, 0, 500, 200)),
+                    node("新しいメッセージ", JpDictRect(10, 20, 490, 190)),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun fewerThanTwoNodesAreUntouched() {
         assertEquals(emptyList<Int>(), ScreenTextReader.dropContained(emptyList()))
         assertEquals(

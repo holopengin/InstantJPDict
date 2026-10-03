@@ -446,23 +446,46 @@ object ScreenTextPlan {
     )
 
     /**
-     * #106: the narrowest fullwidth glyph a node's row may hold, as a fraction of
-     * that row's height, before its text is treated as **not drawn**.
+     * #106: the widest a fullwidth glyph may be assumed to be, as a fraction of its
+     * row's height, before a node's text is judged **not drawn**.
      *
-     * The overlay draws a node's text at `0.90 × the row height` per fullwidth
-     * glyph, so a row really holds `rowWidth / (0.9 × rowHeight)` of them. This
-     * floor is deliberately looser than that: it is a *legibility* bound, not a
-     * measurement, and the cost of guessing low is that a dense but honest node goes
-     * to recognition instead of the tree, while guessing high is what squashes an
-     * elided node's string into two lines.
+     * The overlay draws a node's text at `0.90 × the row height`, and the detector's
+     * boxes hug the ink, so a line of Japanese has roughly `rowWidth / (0.9 ×
+     * rowHeight)` characters in it: this is the estimate of *how much text the rect
+     * can be showing*, and the whole elision test rests on it.
+     *
+     * It was 0.55 at first, on the reasoning that a wrong *drop* costs only a slower
+     * capture — and the device showed the other edge: a collapsed notification's
+     * text is often only twice what it draws, so a bound with 1.6x of slack let
+     * almost every elided node through (`elided=2 … 6` against dozens of affected
+     * nodes) and their strings were still laid over all of their lines. At 0.85 the
+     * tolerance is ~1.2x, which drops the elided ones and still clears honest dense
+     * text.
      */
-    const val MIN_EM_RATIO = 0.55f
+    const val MIN_EM_RATIO = 0.85f
 
     /**
      * #106: slack on [fits]'s capacity, so a line that exactly fills its row is not
      * read as not-fitting by rounding.
      */
     const val FIT_SLACK = 1.05f
+
+    /**
+     * #106: what share of [box]'s area lies inside [rect], 0..1.
+     *
+     * The routing uses it to keep recognition off a box that an answering node
+     * already covers: two boxes over one line (a rotated and an axis-aligned
+     * detection, a node whose rect covers the line but not its centre) used to give
+     * the line both a tree line and an OCR line, drawn on top of each other.
+     */
+    fun overlapShare(box: JpDictRect, rect: JpDictRect): Float {
+        val w = minOf(box.right, rect.right) - maxOf(box.left, rect.left)
+        val h = minOf(box.bottom, rect.bottom) - maxOf(box.top, rect.top)
+        if (w <= 0 || h <= 0) return 0f
+        val boxArea = box.width().toLong() * box.height()
+        if (boxArea <= 0) return 0f
+        return (w.toLong() * h).toFloat() / boxArea
+    }
 
     /**
      * #106: whether [text] can plausibly be the text **drawn** in [nodeRect].

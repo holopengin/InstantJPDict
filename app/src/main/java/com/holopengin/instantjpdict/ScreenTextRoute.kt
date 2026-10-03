@@ -123,14 +123,33 @@ object ScreenTextRoute {
         val firstRecovered = boxes.size
         for (k in recovered.indices) nodeAt[firstRecovered + k] = kept[recovered[k]]
 
+        // #106: a box that overlaps an answering node AT ALL does not run
+        // recognition. The centre test alone let a box whose centre happens to fall
+        // outside the node — a merged or rotated detection spanning the node and its
+        // neighbours, a node whose rect sits inside a bigger detected box — be
+        // recognised while the node's own line was drawn across the same pixels, so
+        // one line showed tree text and OCR text at once. The tree is exact and the
+        // detection there is a second opinion about the same ink, so the tree wins
+        // that region: the box is suppressed and the node's line covers it.
+        val answeringRects = answering.map { it.rect }
+        val suppressed = if (answeringRects.isEmpty()) emptyList() else {
+            plan.recognise.filter { boxIndex ->
+                answeringRects.any { ScreenTextPlan.overlapShare(boxes[boxIndex].rect, it) > 0f }
+            }
+        }
+
         return Routing(
             boxes = augmented,
             // Empty node list ⇒ everything recognises, whatever the mode asked for:
             // see the KDoc above. Otherwise the mode decides.
-            recognise = if (answering.isEmpty() || recogniseBoxes) plan.recognise else emptyList(),
+            recognise = if (answering.isEmpty() || recogniseBoxes) {
+                plan.recognise.filter { it !in suppressed }
+            } else {
+                emptyList()
+            },
             nodeAt = nodeAt,
             detected = boxes.size,
-            nodePaid = plan.nodePaid.size,
+            nodePaid = plan.nodePaid.size + suppressed.size,
             recovered = recovered.size,
             elided = elided,
         )

@@ -349,7 +349,7 @@ object ScreenTextReader {
             val rect = nodes[outer].rect
             val unrelated = (p + 1 until order.size).any { q ->
                 val inner = order[q]
-                contains(rect, nodes[inner].rect) && !nodes[outer].text.contains(nodes[inner].text)
+                mostlyInside(nodes[inner].rect, rect) && !nodes[outer].text.contains(nodes[inner].text)
             }
             if (unrelated) dropped[outer] = true
         }
@@ -364,7 +364,7 @@ object ScreenTextReader {
             for (q in p + 1 until order.size) {
                 val inner = order[q]
                 if (dropped[inner]) continue
-                if (contains(rect, nodes[inner].rect) && nodes[outer].text.contains(nodes[inner].text)) {
+                if (mostlyInside(nodes[inner].rect, rect) && nodes[outer].text.contains(nodes[inner].text)) {
                     dropped[inner] = true
                 }
             }
@@ -372,10 +372,18 @@ object ScreenTextReader {
         return nodes.indices.filter { !dropped[it] }
     }
 
-    /** Whether [outer] encloses [inner] (equal rects count as enclosing). */
-    private fun contains(outer: JpDictRect, inner: JpDictRect): Boolean =
-        outer.left <= inner.left && outer.top <= inner.top &&
-            outer.right >= inner.right && outer.bottom >= inner.bottom
+    /**
+     * #106: whether [inner] lies mostly inside [outer] — half its area or more.
+     *
+     * Containment proper was the first rule and the device showed the gap: two
+     * rects that *nearly* coincide (a notification's card and the row drawn inside
+     * it, two reports of one line) overlap almost completely without either
+     * enclosing the other, so both answered and their lines were drawn over each
+     * other. Half the smaller rect is the point where "these are the same pixels"
+     * stops being a judgement call.
+     */
+    private fun mostlyInside(inner: JpDictRect, outer: JpDictRect): Boolean =
+        ScreenTextPlan.overlapShare(inner, outer) >= 0.5f
 
     /**
      * #106: the indices of the nodes no descendant repeats verbatim — the pure
