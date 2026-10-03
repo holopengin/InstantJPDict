@@ -277,14 +277,94 @@ object ScreenTextReader {
         while (pending.isNotEmpty()) recycle(pending.removeLast().node)
 
         val keep = dropRepeatedAncestors(texts, parents)
+        // #106: and the CONTAINMENT rule, which is what stops a page drawing twice.
+        // A reader as common as Kindle publishes a container whose text is its
+        // children's text run together; the exact-duplicate rule above does not see
+        // it (the strings differ), so both the container and every child became a
+        // line and the overlay drew them on top of each other — the maintainer's
+        // "many lines on top of each other", with `nodes=5 … node_paid=7` in the
+        // split line.
+        val candidates = keep.map { ScreenTextNode(texts[it], rects[it]) }
+        val survivors = dropContained(candidates).map { keep[it] }
         var japanese = 0
-        val out = keep.map {
+        val out = survivors.map {
             if (carriesJapanese(texts[it])) japanese++
             ScreenTextNode(texts[it], rects[it])
         }
         lastJapanese = japanese
         return out
     }
+
+    /**
+     * #106: which nodes survive when one node's rect contains another's — the pure
+     * half of the containment rule, host-tested like [dropRepeatedAncestors].
+     *
+     * A node is drawn as one line laid out over its whole rect, so two answering
+     * nodes whose rects overlap are two sets of glyphs on the same pixels. The two
+     * ways that arises are told apart by the text, not the geometry:
+     *
+     * - **The outer node's text carries the inner one's** (a paragraph with a link
+     *   inside it, a reader's page container over its per-line children): the outer
+     *   node is the fuller truth and is kept, and the inner nodes it carries are
+     *   dropped. Its own layout covers their pixels, in order, once.
+     * - **It does not** (a card whose own text is a heading while its children carry
+     *   the body, a list container whose text is one row): the outer node is
+     *   dropped and the inner ones are kept. The alternative — keeping both — is
+     *   the overlap; the cost is the outer node's own text, which no longer answers
+     *   and goes to recognition like any other uncovered region.
+     *
+     * Worked outermost-first, so a chain resolves bottom-up: a grandparent whose
+     * text carries its whole subtree keeps it whole, and one whose text does not is
+     * dropped in favour of its children. Equal rects resolve by input order (one
+     * survives; two lines in the same pixels is what this exists to prevent).
+     *
+     * Returns indices into [nodes], ascending.
+     */
+    internal fun dropContained(nodes: List<ScreenTextNode>): List<Int> {
+        if (nodes.size < 2) return nodes.indices.toList()
+        // Outermost first; equal rects resolve to the eariler index (see the KDoc).
+        val order = nodes.indices.sortedWith(
+            compareByDescending<Int> { nodes[it].rect.width().toLong() * nodes[it].rect.height() }
+                .thenByDescending { it },
+        )
+        val dropped = BooleanArray(nodes.size)
+
+        // Phase 1: an outer node that holds an inner node it does NOT carry would be
+        // drawn over that inner node's pixels, so the OUTER one goes. This is the
+        // card-with-a-heading case; its own text then goes to recognition with any
+        // other uncovered region.
+        for (p in order.indices) {
+            val outer = order[p]
+            val rect = nodes[outer].rect
+            val unrelated = (p + 1 until order.size).any { q ->
+                val inner = order[q]
+                contains(rect, nodes[inner].rect) && !nodes[outer].text.contains(nodes[inner].text)
+            }
+            if (unrelated) dropped[outer] = true
+        }
+
+        // Phase 2: an inner node carried by a surviving outer one is dropped — the
+        // outer node lays that whole text out once, in order, over all of it. The
+        // reader's page container keeps its page; its per-line children go.
+        for (p in order.indices) {
+            val outer = order[p]
+            if (dropped[outer]) continue
+            val rect = nodes[outer].rect
+            for (q in p + 1 until order.size) {
+                val inner = order[q]
+                if (dropped[inner]) continue
+                if (contains(rect, nodes[inner].rect) && nodes[outer].text.contains(nodes[inner].text)) {
+                    dropped[inner] = true
+                }
+            }
+        }
+        return nodes.indices.filter { !dropped[it] }
+    }
+
+    /** Whether [outer] encloses [inner] (equal rects count as enclosing). */
+    private fun contains(outer: JpDictRect, inner: JpDictRect): Boolean =
+        outer.left <= inner.left && outer.top <= inner.top &&
+            outer.right >= inner.right && outer.bottom >= inner.bottom
 
     /**
      * #106: the indices of the nodes no descendant repeats verbatim — the pure

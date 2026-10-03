@@ -287,4 +287,111 @@ class ScreenTextReaderTest {
         )
         assertEquals(emptyList<Int>(), ScreenTextReader.windowsToTry(emptyList(), ownPackage = "com.holopengin.instantjpdict"))
     }
+
+    // ── containment: one node per pixel ─────────────────────────────────────
+
+    private fun node(text: String, rect: JpDictRect) = ScreenTextNode(text, rect)
+
+    @Test
+    fun aContainerThatCarriesItsChildrenIsKeptAndTheyAreDropped() {
+        // The reader case (Kindle on the device): the page container's text is its
+        // children's run together, so it is the fuller truth. Keeping the children
+        // instead would draw the page twice over the same pixels.
+        assertEquals(
+            listOf(0),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("これは一行目です。これは二行目です。", JpDictRect(0, 0, 1000, 2000)),
+                    node("これは一行目です。", JpDictRect(10, 10, 990, 80)),
+                    node("これは二行目です。", JpDictRect(10, 90, 990, 160)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun anUnrelatedContainerIsDroppedForItsChild() {
+        // The card case: the container's own text is a heading while its child carries
+        // the body. Neither contains the other, so keeping both would lay two lines
+        // over the same pixels — the container is dropped and its text goes to
+        // recognition, where an uncovered region belongs.
+        assertEquals(
+            listOf(1),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("見出し", JpDictRect(0, 0, 500, 400)),
+                    node("本文のテキストです。", JpDictRect(20, 100, 480, 200)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun aContainerWithOneUnrelatedChildIsDroppedForAllOfThem() {
+        // One child it does not carry is enough: the container would overlap that
+        // child, so it goes, and every child stays (the ones it did carry too).
+        assertEquals(
+            listOf(1, 2),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("見出し 本文のテキスト", JpDictRect(0, 0, 500, 400)),
+                    node("本文のテキスト", JpDictRect(20, 100, 480, 200)),
+                    node("別の段落", JpDictRect(20, 220, 480, 300)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun siblingsAreAllKept() {
+        assertEquals(
+            listOf(0, 1, 2),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("一行目", JpDictRect(10, 10, 990, 80)),
+                    node("二行目", JpDictRect(10, 90, 990, 160)),
+                    node("三行目", JpDictRect(10, 170, 990, 240)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun threeDeepResolvesToTheOutermostThatCarriesThem() {
+        // Outermost-first: the grandparent carries both levels, so it survives alone.
+        assertEquals(
+            listOf(0),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("あい", JpDictRect(0, 0, 300, 300)),
+                    node("あい", JpDictRect(10, 10, 200, 200)),
+                    node("あ", JpDictRect(20, 20, 100, 100)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun equalRectsResolveToOneSurvivor() {
+        // Two nodes reporting the same pixels with different text: one line, and the
+        // earlier index is the deterministic winner.
+        assertEquals(
+            listOf(0),
+            ScreenTextReader.dropContained(
+                listOf(
+                    node("同じ場所", JpDictRect(10, 10, 200, 200)),
+                    node("別の文字列", JpDictRect(10, 10, 200, 200)),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun fewerThanTwoNodesAreUntouched() {
+        assertEquals(emptyList<Int>(), ScreenTextReader.dropContained(emptyList()))
+        assertEquals(
+            listOf(0),
+            ScreenTextReader.dropContained(listOf(node("一", JpDictRect(0, 0, 10, 10)))),
+        )
+    }
 }
