@@ -107,7 +107,12 @@ object ScreenTextRoute {
         // under another's rect — the two never agree once anything is filtered.
         val answering = kept.map { nodes[it] }
         val plan = ScreenTextPlan.plan(detectedRects, answering, window)
-        val recognise = if (answering.isEmpty() || recogniseBoxes) plan.recognise else emptyList()
+        val recognise = when {
+            // No nodes: byte-for-byte the pre-#106 pipeline, dedupe included or not.
+            answering.isEmpty() -> plan.recognise
+            !recogniseBoxes -> emptyList()
+            else -> withoutOverlappingDetections(plan.recognise, boxes, plan.nodePaid.keys)
+        }
         // #106: a RECOVERED node — one the detector found nothing inside — yields only
         // where OCR is going to draw, never to a box the tree already owns.
         //
@@ -154,6 +159,55 @@ object ScreenTextRoute {
             elided = elided,
         )
     }
+
+    /**
+     * #106: recognition's boxes minus the detector's own duplicates.
+     *
+     * The detector can report the same line twice — a rotated box beside the
+     * axis-aligned one, a merged block box around a line box — and when the tree owns
+     * one of them the other is recognised anyway, so the line is drawn twice: the
+     * maintainer's "two copies of exactly the same line in basically the same
+     * location, we end up drawing both overlapping".
+     *
+     * A recognised box yields to a **paid** box it mostly overlaps, in either
+     * direction (the node's line already draws those pixels), and two recognised
+     * boxes that mostly overlap resolve to the **smaller** one — a block box
+     * recognised as a single line is not a reading of anything, and the line boxes
+     * inside it are the units recognition wants.
+     *
+     * "Mostly" is half the smaller box's area, the same threshold the reader uses to
+     * decide that two rects are the same pixels.
+     */
+    private fun withoutOverlappingDetections(
+        recognise: List<Int>,
+        boxes: List<LineBox>,
+        paid: Set<Int>,
+    ): List<Int> {
+        if (recognise.size < 2 && paid.isEmpty()) return recognise
+        val paidRects = paid.map { boxes[it].rect }
+        val kept = ArrayList<Int>(recognise.size)
+        for (index in recognise) {
+            val rect = boxes[index].rect
+            val paidClash = paidRects.any { overlapShareOfEither(rect, it) >= 0.5f }
+            if (paidClash) continue
+            val clash = kept.indexOfFirst { overlapShareOfEither(rect, boxes[it].rect) >= 0.5f }
+            if (clash < 0) {
+                kept.add(index)
+                continue
+            }
+            // Keep the smaller, line-sized box; the larger one was its container.
+            if (areaOf(rect) < areaOf(boxes[kept[clash]].rect)) {
+                kept[clash] = index
+            }
+        }
+        return kept
+    }
+
+    /** The larger of the two overlap shares — "these two rects are the same pixels". */
+    private fun overlapShareOfEither(a: JpDictRect, b: JpDictRect): Float =
+        maxOf(ScreenTextPlan.overlapShare(a, b), ScreenTextPlan.overlapShare(b, a))
+
+    private fun areaOf(rect: JpDictRect): Long = rect.width().toLong() * rect.height()
 
     /**
      * #106: the indices of the nodes whose text [ScreenTextPlan.charBoxesAt] can

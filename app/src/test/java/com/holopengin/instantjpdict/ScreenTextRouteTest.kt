@@ -154,6 +154,47 @@ class ScreenTextRouteTest {
     }
 
     @Test
+    fun aDetectionDuplicatingAPaidBoxIsNotRecognised() {
+        // Two boxes over one line — the axis-aligned one the node paid for, and a
+        // rotated or merged duplicate beside it. The duplicate used to be recognised,
+        // so the line was drawn twice: the maintainer's "two copies of exactly the
+        // same line ... we end up drawing both overlapping".
+        val paidBox = box(0, 0, 400, 60)
+        val duplicate = box(10, 5, 410, 65)
+        val plan = route(
+            boxes = listOf(paidBox, duplicate),
+            nodes = listOf(node("新しいメッセージ", 0, 0, 400, 60)),
+        )
+        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(mapOf(0 to 0), plan.nodeAt)
+    }
+
+    @Test
+    fun twoRecognisedBoxesOverOneLineResolveToTheSmaller() {
+        // No node involved: a merged block box and the line box inside it. Recognition
+        // reads lines, so the smaller box is the one to keep.
+        val line = box(40, 20, 400, 60)
+        val block = box(0, 0, 420, 120)
+        val plan = route(boxes = listOf(block, line), nodes = emptyList())
+        // With no nodes nothing is deduped — the pre-#106 pipeline is byte-for-byte.
+        assertEquals(listOf(0, 1), plan.recognise)
+    }
+
+    @Test
+    fun theDedupeOnlyRunsWhenTheTreeAnswers() {
+        // The same two overlapping boxes with a node that answers: the block yields to
+        // the line, and the line is the node's.
+        val line = box(40, 20, 400, 60)
+        val block = box(0, 0, 420, 120)
+        val plan = route(
+            boxes = listOf(block, line),
+            nodes = listOf(node("新しい", 40, 20, 400, 60)),
+        )
+        assertEquals(emptyList<Int>(), plan.recognise)
+        assertEquals(mapOf(1 to 0), plan.nodeAt)
+    }
+
+    @Test
     fun anElidedNodeWithNoBoxInsideStillAnswers() {
         // No detected box inside it, so refusing would leave the region with no source
         // — nothing for recognition to read. The node answers, the view draws the
