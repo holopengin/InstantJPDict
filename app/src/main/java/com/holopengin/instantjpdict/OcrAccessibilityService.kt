@@ -644,7 +644,10 @@ class OcrAccessibilityService : AccessibilityService() {
                         if (nodes.isNotEmpty()) {
                             Log.d(
                                 TAG,
-                                "screen text: ${ScreenTextReader.lastPackage} answered with ${nodes.size} nodes",
+                                "screen text: ${ScreenTextReader.lastPackage} answered with ${nodes.size} nodes" +
+                                    " (${ScreenTextReader.lastTextNodes} text nodes seen," +
+                                    " ${ScreenTextReader.lastJapanese} Japanese," +
+                                    " ${ScreenTextReader.lastDroppedLong} dropped as too long)",
                             )
                             return nodes
                         }
@@ -653,7 +656,12 @@ class OcrAccessibilityService : AccessibilityService() {
                     // it should have text: nothing readable carried any, or nothing
                     // but our own overlay and system chrome was there to read. This
                     // is the line a "the tree path never runs" report needs.
-                    Log.d(TAG, "screen text: ${roots.size} readable windows, none carried Japanese text (mode=$mode)")
+                    Log.d(
+                        TAG,
+                        "screen text: ${roots.size} readable windows, none answered" +
+                            " (${ScreenTextReader.lastTextNodes} text nodes seen," +
+                            " ${ScreenTextReader.lastDroppedLong} dropped as too long, mode=$mode)",
+                    )
                     emptyList()
                 } catch (t: Throwable) {
                     // The tree is not something a capture may fail on. A window that

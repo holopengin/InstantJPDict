@@ -14,7 +14,7 @@ import android.view.accessibility.AccessibilityNodeInfo
  * the routing as pure arithmetic; everything the reader decides here is a
  * question only an `AccessibilityNodeInfo` can answer.
  *
- * ## The four filters
+ * ## The filters
  *
  * 1. **`text`, not `contentDescription`** and not blank. The ticket's rule is the
  *    node's own string — an accessibility *label* is often not the drawn text
@@ -30,8 +30,15 @@ import android.view.accessibility.AccessibilityNodeInfo
  *    the bitmap must not place character boxes outside it. [window] is the
  *    screenshot's own bounds — screen coordinates *are* bitmap coordinates here,
  *    which is the same identity the detector's boxes already assume.
- * 4. **[carriesJapanese]** — an English page publishes text nodes too, and the
- *    tree must not answer for it.
+ * 4. **A length cap** ([MAX_TEXT]) — see the note there.
+ *
+ * There is deliberately **no language filter**. It used to require Japanese and
+ * that read, on device, as "the tree path barely finds anything": a page whose
+ * Japanese sits among English answered with a handful of nodes. The tree is the
+ * authority on what is drawn, so an English node is kept too — it looks up to
+ * nothing, which is the same outcome as a misread, and the routing (a leaf's own
+ * rect, smallest wins) is what keeps a node from claiming boxes that are not its
+ * own. [carriesJapanese] stays as the log's Japanese/other split.
  *
  * ## Duplicate text: one node per string, the leaf wins
  *
@@ -90,6 +97,30 @@ object ScreenTextReader {
      */
     @Volatile
     var lastPackage: String? = null
+        private set
+
+    /**
+     * #106: log-only walk counters, all reset at the top of every [read].
+     *
+     * They exist because "the tree path only picks up a few texts" is a report
+     * that needs a number to act on: [lastTextNodes] is how much text the window
+     * published at all, [lastDroppedLong] how much of it the length cap removed
+     * (a novel page is commonly ONE node longer than [MAX_TEXT]), and
+     * [lastJapanese] how many of the nodes that answered actually carry Japanese —
+     * the split that says whether a low count is the app's text or the cap.
+     */
+    @Volatile
+    var lastTextNodes: Int = 0
+        private set
+
+    /** #106: the nodes that answered and carry Japanese; log-only. */
+    @Volatile
+    var lastJapanese: Int = 0
+        private set
+
+    /** #106: text-bearing nodes the length cap [MAX_TEXT] removed; log-only. */
+    @Volatile
+    var lastDroppedLong: Int = 0
         private set
 
     /**
@@ -182,6 +213,9 @@ object ScreenTextReader {
         } catch (_: Throwable) {
             null
         }
+        lastTextNodes = 0
+        lastJapanese = 0
+        lastDroppedLong = 0
         if (root == null) return emptyList()
 
         // Parallel lists, so the ancestor test below is index arithmetic rather
@@ -227,7 +261,13 @@ object ScreenTextReader {
         while (pending.isNotEmpty()) recycle(pending.removeLast().node)
 
         val keep = dropRepeatedAncestors(texts, parents)
-        return keep.map { ScreenTextNode(texts[it], rects[it]) }
+        var japanese = 0
+        val out = keep.map {
+            if (carriesJapanese(texts[it])) japanese++
+            ScreenTextNode(texts[it], rects[it])
+        }
+        lastJapanese = japanese
+        return out
     }
 
     /**
@@ -308,8 +348,26 @@ object ScreenTextReader {
      */
     private fun candidateOf(node: AccessibilityNodeInfo, window: JpDictRect): ScreenTextNode? {
         val text = node.text?.toString() ?: return null
-        if (text.isBlank() || text.length > MAX_TEXT) return null
-        if (!carriesJapanese(text)) return null
+        if (text.isBlank()) return null
+        lastTextNodes++
+        if (text.length > MAX_TEXT) {
+            lastDroppedLong++
+            return null
+        }
+        // #106: NO language filter. It used to require Japanese, and on device that
+        // read as "the tree path barely finds anything" — a page whose Japanese sits
+        // among English (a bilingual article, an English UI around Japanese content,
+        // a reader's chrome) answered with a handful of nodes. The maintainer's call
+        // was to include the rest, and the argument for it is that the tree is the
+        // authority on what is drawn: an English node is still exactly the text on
+        // screen, it just looks up to nothing, the same as a misread would. What
+        // keeps that from claiming Japanese boxes is the routing, not this filter —
+        // a node pays only for a box whose centre is inside its own (leaf) rect, and
+        // the smallest such node wins.
+        //
+        // `carriesJapanese` survives below as a *log* distinction (a page's
+        // Japanese/other split is the first thing a "too few nodes" report wants),
+        // not as a gate.
         // A method, not a property: `AccessibilityNodeInfo.isVisibleToUser()` has
         // no `get`/`is` bean convention Kotlin can synthesise from.
         if (!node.isVisibleToUser()) return null
