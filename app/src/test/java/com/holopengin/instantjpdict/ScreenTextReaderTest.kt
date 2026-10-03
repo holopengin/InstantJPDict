@@ -168,4 +168,82 @@ class ScreenTextReaderTest {
     fun nothingInGivesNothingOut() {
         assertEquals(emptyList<String>(), survivors())
     }
+
+    // ── which window answers ────────────────────────────────────────────────
+
+    @Test
+    fun theActiveWindowIsReadWhenItIsNotOurs() {
+        assertEquals(
+            1,
+            ScreenTextReader.windowToRead(
+                listOf(
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.android.systemui"),
+                    ScreenTextReader.WindowCandidate(isActive = true, packageName = "com.android.chrome"),
+                ),
+                ownPackage = "com.holopengin.instantjpdict.dev",
+            ),
+        )
+    }
+
+    @Test
+    fun ourOwnActiveOverlayIsSkippedForTheWindowUnderIt() {
+        // The read runs once our overlay is up, and that window takes input focus
+        // (taps, the manual entry's IME), so it can be the active one. It is our
+        // own drawing rather than the screenshot's content, and the boxes have to
+        // line up with what was captured — the window under it.
+        assertEquals(
+            1,
+            ScreenTextReader.windowToRead(
+                listOf(
+                    ScreenTextReader.WindowCandidate(isActive = true, packageName = "com.holopengin.instantjpdict.dev"),
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.android.chrome"),
+                ),
+                ownPackage = "com.holopengin.instantjpdict.dev",
+            ),
+        )
+    }
+
+    @Test
+    fun aWindowWithNoPackageIsNotRead() {
+        assertEquals(
+            2,
+            ScreenTextReader.windowToRead(
+                listOf(
+                    ScreenTextReader.WindowCandidate(isActive = true, packageName = null),
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = ""),
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.android.chrome"),
+                ),
+                ownPackage = "com.holopengin.instantjpdict",
+            ),
+        )
+    }
+
+    @Test
+    fun withoutAnActiveWindowTheFirstUsableOneIsRead() {
+        assertEquals(
+            1,
+            ScreenTextReader.windowToRead(
+                listOf(
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.holopengin.instantjpdict"),
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.android.chrome"),
+                    ScreenTextReader.WindowCandidate(isActive = false, packageName = "com.android.systemui"),
+                ),
+                ownPackage = "com.holopengin.instantjpdict",
+            ),
+        )
+    }
+
+    @Test
+    fun withNothingButOursNothingIsRead() {
+        // No readable window means the pre-#106 path (every box recognises) rather
+        // than reading our own overlay back at ourselves.
+        assertEquals(
+            null,
+            ScreenTextReader.windowToRead(
+                listOf(ScreenTextReader.WindowCandidate(isActive = true, packageName = "com.holopengin.instantjpdict")),
+                ownPackage = "com.holopengin.instantjpdict",
+            ),
+        )
+        assertEquals(null, ScreenTextReader.windowToRead(emptyList(), ownPackage = "com.holopengin.instantjpdict"))
+    }
 }

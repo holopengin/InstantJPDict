@@ -347,18 +347,26 @@ class OcrAccessibilityService : AccessibilityService() {
         }
 
     /**
-     * #106: the active window's root node, or null when the framework will not
-     * say.
+     * #106: the window whose tree answers for this capture — the active one,
+     * unless it is our own overlay.
      *
-     * The same read [activeWindowPackage] makes — the accessibility windows list
-     * and its `isActive` window are the only source of it a service has, and
-     * `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` is what populates that list — split out
-     * because #106 needs the node itself, not only its package. #105's guard is
-     * untouched: same try/catch, same null-means-cannot-tell reading, same callers.
+     * The same read [activeWindowPackage] makes (the accessibility windows list,
+     * its `isActive` entry, `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` populating it),
+     * split out because #106 needs the node itself, and *not* the same selection:
+     * by the time this runs the overlay window is up and can be the active one, so
+     * [ScreenTextReader.windowToRead] skips our package and reads the app under it.
+     * #105's guard is untouched — [activeWindowPackage] still reads the plain active
+     * window, because it runs before the overlay exists and must keep saying
+     * "Settings" rather than "whatever is behind Settings".
      */
     private fun activeWindowRoot(): AccessibilityNodeInfo? =
         try {
-            windows.firstOrNull { it.isActive }?.root
+            val list = windows
+            val candidates = list.map {
+                ScreenTextReader.WindowCandidate(it.isActive, it.root?.packageName?.toString())
+            }
+            val index = ScreenTextReader.windowToRead(candidates, packageName) ?: return null
+            list[index].root
         } catch (_: Exception) {
             null
         }

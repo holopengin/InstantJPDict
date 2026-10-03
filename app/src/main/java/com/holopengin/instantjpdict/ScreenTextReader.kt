@@ -122,6 +122,35 @@ object ScreenTextReader {
     const val MAX_TEXT = 1000
 
     /**
+     * One entry of the service's window list, as [windowToRead] needs it.
+     */
+    data class WindowCandidate(val isActive: Boolean, val packageName: String?)
+
+    /**
+     * #106: which of the service's windows to read — the active one, unless it is
+     * ours.
+     *
+     * The read runs once this app's own overlay window is up, and that window takes
+     * input focus (taps, the manual entry's IME), so it can be the active one.
+     * Reading it would route our own box layers back through the routing, and its
+     * rects describe the overlay's drawing rather than the screenshot's content —
+     * the boxes have to line up with what was captured, which is the window under
+     * it. So our own package is skipped, and so is a window with no package to name
+     * (nothing identifiable to answer with). When nothing is left, the capture
+     * recognises everything, which is the pre-#106 path.
+     *
+     * Pure, so the choice is pinned by a test rather than by a device; the caller
+     * reads the window's root for the index this returns.
+     */
+    fun windowToRead(candidates: List<WindowCandidate>, ownPackage: String): Int? {
+        val usable = candidates.withIndex().filter {
+            val pkg = it.value.packageName
+            !pkg.isNullOrEmpty() && pkg != ownPackage
+        }
+        return usable.firstOrNull { it.value.isActive }?.index ?: usable.firstOrNull()?.index
+    }
+
+    /**
      * The visible, Japanese-bearing text nodes of [root]'s subtree, in tree order,
      * with their rects clipped to [window]. Empty for a null root.
      *

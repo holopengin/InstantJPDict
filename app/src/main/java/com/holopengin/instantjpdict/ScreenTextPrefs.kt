@@ -59,6 +59,13 @@ object ScreenTextPrefs {
      * in its UI — and the recognition half is what cannot cope. Its cost is that
      * anything the tree does not publish is lost, which is why it is not the
      * default.
+     *
+     * One carve-out, deliberate: a screen where the tree publishes **nothing at
+     * all** (a game, an emulator, a canvas, a photo) still falls back to OCR,
+     * because the empty-node case is the path #106 leaves byte-for-byte untouched
+     * — there is no node text for this mode to prefer, and showing the OCR answer
+     * beats showing an empty overlay. The mode is a comparison switch, not a way
+     * to make the app report nothing.
      */
     const val NODES = "nodes"
 
