@@ -105,6 +105,31 @@ class ScreenTextRouteTest {
     }
 
     @Test
+    fun aRecoveredNodeOverlappingARecognisedBoxIsDropped() {
+        // The overlap class the device kept showing: a node the detector found nothing
+        // inside (so it is recovered) whose rect still overlaps a box that will be
+        // OCR'd. Both would paint the same pixels; the box wins because it is the
+        // detector's evidence of what is drawn there and recognition reads it exactly.
+        val boxed = box(100, 0, 400, 60)
+        val plan = route(
+            boxes = listOf(boxed),
+            nodes = listOf(node("あああ", 300, 0, 600, 60)),
+        )
+        assertEquals(listOf(0), plan.recognise)
+        assertEquals(emptyMap<Int, Int>(), plan.nodeAt)
+    }
+
+    @Test
+    fun aRecoveredNodeOverlappingNothingStillAnswers() {
+        val boxed = box(0, 0, 300, 60)
+        val plan = route(
+            boxes = listOf(boxed),
+            nodes = listOf(node("いいい", 400, 0, 700, 60)),
+        )
+        assertEquals(mapOf(1 to 0), plan.nodeAt)
+    }
+
+    @Test
     fun anElidedNodeWithNoBoxInsideStillAnswers() {
         // No detected box inside it, so refusing would leave the region with no source
         // — nothing for recognition to read. The node answers, the view draws the

@@ -107,7 +107,21 @@ object ScreenTextRoute {
         // under another's rect — the two never agree once anything is filtered.
         val answering = kept.map { nodes[it] }
         val plan = ScreenTextPlan.plan(detectedRects, answering, window)
-        val recovered = plan.recovered.filter { inkOk(answering[it]) }
+        val recognise = if (answering.isEmpty() || recogniseBoxes) plan.recognise else emptyList()
+        // #106: a RECOVERED node — one the detector found nothing inside — must not
+        // overlap a box that another source is going to draw. Its line is laid out
+        // over its whole rect (it has no rows to follow), so anywhere it overlaps a
+        // paid or recognised box, two sets of glyphs land on the same pixels: the last
+        // overlap class, and the one the device kept showing. The box wins there — it
+        // is the detector's own evidence that something is drawn, and recognition reads
+        // it exactly — so the node is dropped for that region rather than drawn over
+        // OCR. A node with nothing overlapping it is unaffected.
+        val claimedBoxes = plan.nodePaid.keys + recognise
+        val recovered = plan.recovered.filter { index ->
+            val nodeRect = answering[index].rect
+            inkOk(answering[index]) &&
+                claimedBoxes.none { ScreenTextPlan.overlapShare(nodeRect, boxes[it].rect) > 0f }
+        }
 
         val augmented = ArrayList<LineBox>(boxes.size + recovered.size)
         augmented.addAll(boxes)
@@ -127,7 +141,7 @@ object ScreenTextRoute {
             boxes = augmented,
             // Empty node list ⇒ everything recognises, whatever the mode asked for:
             // see the KDoc above. Otherwise the mode decides.
-            recognise = if (answering.isEmpty() || recogniseBoxes) plan.recognise else emptyList(),
+            recognise = recognise,
             nodeAt = nodeAt,
             detected = boxes.size,
             nodePaid = plan.nodePaid.size,
