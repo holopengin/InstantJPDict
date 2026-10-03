@@ -1,0 +1,473 @@
+package com.holopengin.instantjpdict
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * #106 package 1: the pure routing and character geometry the Android wiring
+ * will consume — which boxes the accessibility tree pays for, which nodes
+ * detection missed and are recovered anyway, which boxes still recognise, and
+ * the per-character boxes a node's own string is drawn with.
+ *
+ * These are the rules #106 could not decide on the device: centre-on-edge is a
+ * pixel-exact boundary, smallest-node-wins is a tie-break, and the row/character
+ * allocation is arithmetic that would otherwise be a comment. Everything here is
+ * pure (`JpDictRect` is integers and nothing else), so the whole module is pinned
+ * in full rather than sampled; the parts that need a `Bitmap` — the screenshot,
+ * the ink sample behind a recovered node — are the Android package's.
+ */
+class ScreenTextPlanTest {
+
+    // ── fixtures ────────────────────────────────────────────────────────────
+
+    /** The active window's visible rect, in the bitmap's own coordinates. */
+    private val window = JpDictRect(0, 0, 1080, 1920)
+
+    private fun box(l: Int, t: Int, r: Int, b: Int) = JpDictRect(l, t, r, b)
+
+    private fun node(text: String, l: Int, t: Int, r: Int, b: Int) = ScreenTextNode(text, box(l, t, r, b))
+
+    /** [charBoxesAt] re-indexed by character: what each text character got, so a
+     *  test can pin "every character accounted for exactly once" by name. */
+    private fun placed(text: String, boxes: List<JpDictRect?>): List<Char?> =
+        boxes.mapIndexed { i, b -> if (b == null) null else text[i] }
+
+    // ── routing: which node pays for a box ─────────────────────────────────
+
+    @Test
+    fun aBoxWhoseCentreIsInsideTheNodeIsPaidFor() {
+        // The whole rule in one line: detection arbitrates, the node answers.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(110, 110, 190, 130)),
+            nodes = listOf(node("吾輩", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0), routing.nodePaid)
+        assertEquals(emptyList<Int>(), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    @Test
+    fun centreOnTheNodeLeftEdgeIsCovered() {
+        // `left <= x < right`: a centre exactly on the near edge is inside, the
+        // same half-open convention `android.graphics.Rect.contains` uses. The
+        // box here is half outside the node and still node-paid.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(50, 110, 150, 130)),
+            nodes = listOf(node("猫", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0), routing.nodePaid)
+    }
+
+    @Test
+    fun centreOnTheNodeRightEdgeIsNotCovered() {
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(150, 110, 250, 130)),
+            nodes = listOf(node("猫", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(listOf(0), routing.recognise)
+        assertEquals(listOf(0), routing.recovered)
+    }
+
+    @Test
+    fun centreOnTheNodeTopEdgeIsCoveredAndOnTheBottomEdgeIsNot() {
+        // The vertical pair of the same boundary, so neither edge is decided by
+        // accident: top is inclusive, bottom is exclusive.
+        val onTop = ScreenTextPlan.plan(
+            boxes = listOf(box(110, 60, 190, 140)),
+            nodes = listOf(node("猫", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0), onTop.nodePaid)
+        val onBottom = ScreenTextPlan.plan(
+            boxes = listOf(box(110, 120, 190, 200)),
+            nodes = listOf(node("猫", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(listOf(0), onBottom.recognise)
+    }
+
+    @Test
+    fun aBoxStraddlingTheNodeEdgeGoesToRecognition() {
+        // #106's sub-rule: match on the centre, so a box that only overlaps the
+        // node's edge is OCR'd rather than answered for.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(20, 110, 120, 130)),
+            nodes = listOf(node("猫", 100, 100, 200, 140)),
+            window = window,
+        )
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(listOf(0), routing.recognise)
+    }
+
+    @Test
+    fun theSmallestNodeWinsWhenTwoNodesCoverTheSameCentre() {
+        // A paragraph node and the smaller span inside it both contain the
+        // centre; the more specific rect answers, so the inner text (not the
+        // whole paragraph's) is what the box draws.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(120, 10, 180, 30)),
+            nodes = listOf(node("outer", 0, 0, 300, 40), node("inner", 100, 0, 200, 40)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 1), routing.nodePaid)
+    }
+
+    @Test
+    fun anOuterNodeStillPaysForABoxTheInnerOneMisses() {
+        // Smallest-wins is a tie-break, not an exclusive filter: the outer node
+        // is paid for the box its centre is in, and is recovered neither.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 10, 80, 30), box(120, 10, 180, 30)),
+            nodes = listOf(node("outer", 0, 0, 300, 40), node("inner", 100, 0, 200, 40)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0, 1 to 1), routing.nodePaid)
+        assertEquals(emptyList<Int>(), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    @Test
+    fun equalAreaNodesTieToTheCallersFirstNode() {
+        // Determinism, not a rule: two nodes of the same area are equally
+        // specific, so the caller's tree order decides — never a hash order.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(110, 10, 190, 30)),
+            nodes = listOf(node("first", 100, 0, 200, 40), node("second", 100, 0, 200, 40)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0), routing.nodePaid)
+    }
+
+    @Test
+    fun oneNodeCanPayForSeveralBoxesOfAParagraph() {
+        // The paragraph case the ticket is about: a detector splits one node
+        // into per-line boxes, and every one of them is the same node's text.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 0, 300, 30), box(10, 30, 200, 60), box(10, 60, 250, 90)),
+            nodes = listOf(node("三行", 0, 0, 320, 90)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0, 1 to 0, 2 to 0), routing.nodePaid)
+        assertEquals(emptyList<Int>(), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    // ── routing: recovered vs recognised ───────────────────────────────────
+
+    @Test
+    fun aNodeWithNoBoxOverItIsRecoveredWhileItsNeighbourIsRecognised() {
+        // #106 rule 4 against rule 5, on one screen: box 0 is node-paid, box 1
+        // is OCR (no node covers it), and node 2 — which no box vouches for — is
+        // recovered rather than lost.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 10, 90, 30), box(150, 10, 170, 30), box(210, 10, 290, 30)),
+            nodes = listOf(
+                node("paid", 0, 0, 100, 40),
+                node("over", 200, 0, 300, 40),
+                node("missed", 400, 0, 500, 40),
+            ),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0, 2 to 1), routing.nodePaid)
+        assertEquals(listOf(1), routing.recognise)
+        assertEquals(listOf(2), routing.recovered)
+    }
+
+    @Test
+    fun anEmptyNodeListPlansEveryBoxForRecognition() {
+        // #106 rule 5, structurally: a game, an emulator, a canvas or a photo has
+        // no text nodes, so every box takes the recognition path and the pipeline
+        // is what it is today. Nothing about this result may depend on having
+        // nodes.
+        val boxes = listOf(box(10, 0, 100, 30), box(10, 30, 100, 60), box(2000, 100, 2100, 130))
+        val routing = ScreenTextPlan.plan(boxes, emptyList(), window)
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(emptyList<Int>(), routing.recovered)
+        assertEquals(boxes.indices.toList(), routing.recognise)
+    }
+
+    @Test
+    fun aBoxOutsideTheWindowIsNeverDroppedFromRecognition() {
+        // The window gates the *tree*, not the detector: a box the window does
+        // not show still recognises, exactly as it did before #106. Dropping it
+        // here would be the one behaviour change an all-OCR screen could see.
+        val routing = ScreenTextPlan.plan(listOf(box(2000, 2000, 2100, 2030)), emptyList(), window)
+        assertEquals(listOf(0), routing.recognise)
+    }
+
+    @Test
+    fun aNodeOutsideTheWindowIsNeitherPaidForNorRecovered() {
+        // #106 rule 2/4's visible-window guard: a node the screenshot cannot
+        // show cannot answer for a box, and cannot be recovered either.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(2000, 2000, 2100, 2030)),
+            nodes = listOf(node("offscreen", 2000, 2000, 2100, 2040)),
+            window = window,
+        )
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(listOf(0), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    @Test
+    fun aNodeStraddlingTheWindowEdgeStaysIn() {
+        // Intersection, not containment: a paragraph scrolled half off the top
+        // of the screen is still visible, and still answers for what is drawn.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 10, 90, 30)),
+            nodes = listOf(node("clipped", 0, -400, 300, 40)),
+            window = window,
+        )
+        assertEquals(mapOf(0 to 0), routing.nodePaid)
+    }
+
+    @Test
+    fun aDegenerateNodeRectIsIgnored() {
+        // Zero-area nodes (a stale virtual node, a collapsed view) can neither
+        // contain a centre nor hold a character box, so they are not reported as
+        // recovered — the caller would have nothing to draw for them.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 10, 90, 30)),
+            nodes = listOf(node("collapsed", 50, 10, 50, 30), node("flat", 10, 20, 90, 20)),
+            window = window,
+        )
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(listOf(0), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    @Test
+    fun aNodeWithNoTextCannotPayForABox() {
+        // Belt and braces on the caller's filter: a node with no string has
+        // nothing to answer with, so it must not silence the box.
+        val routing = ScreenTextPlan.plan(
+            boxes = listOf(box(10, 10, 90, 30)),
+            nodes = listOf(node("", 0, 0, 100, 40)),
+            window = window,
+        )
+        assertEquals(emptyMap<Int, Int>(), routing.nodePaid)
+        assertEquals(listOf(0), routing.recognise)
+        assertEquals(emptyList<Int>(), routing.recovered)
+    }
+
+    // ── character geometry: visual rows ────────────────────────────────────
+
+    @Test
+    fun visualRowsAreTheBoxesInsideTheNodeSortedTopToBottom() {
+        // A paragraph node is commonly split into per-line boxes by the
+        // detector; those are the rows, in reading order, whatever order they
+        // arrive in. The box off to the right is not in the node.
+        val rows = ScreenTextPlan.visualRows(
+            nodeRect = box(0, 0, 300, 90),
+            lineBoxes = listOf(box(0, 60, 300, 90), box(400, 50, 500, 80), box(0, 0, 300, 30), box(0, 30, 300, 60)),
+        )
+        assertEquals(listOf(box(0, 0, 300, 30), box(0, 30, 300, 60), box(0, 60, 300, 90)), rows)
+    }
+
+    @Test
+    fun aNodeWithNoBoxesInsideItIsLaidOutAsOneRow() {
+        // No detected box inside the node (a recovered node, or one the detector
+        // split nothing out of) means the node's own rect is the row — which is
+        // why `visualRows` reports none and `charBoxes` falls back rather than
+        // `visualRows` inventing a rect the caller never passed.
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.visualRows(box(0, 0, 300, 40), emptyList()))
+        assertEquals(
+            listOf(box(0, 0, 150, 40), box(150, 0, 300, 40)),
+            ScreenTextPlan.charBoxes("あい", box(0, 0, 300, 40), emptyList()),
+        )
+    }
+
+    // ── character geometry: the allocation ─────────────────────────────────
+
+    @Test
+    fun aParagraphSplitAcrossThreeDetectedRowsAccountsForEveryCharacterOnce() {
+        // Nine fullwidth characters over three 300 px rows: the em that makes the
+        // string fill the rows is 900/9 = 100 px, so each row takes three
+        // characters (the third fits exactly, 300 <= 300), and no character is
+        // dropped, duplicated or reordered.
+        val text = "あいうえおかきくけ"
+        val rows = listOf(box(0, 0, 300, 30), box(0, 30, 300, 60), box(0, 60, 300, 90))
+        val byCharIndex = ScreenTextPlan.charBoxesAt(text, box(0, 0, 300, 90), rows)
+        assertEquals(text.map { it }, placed(text, byCharIndex))
+        assertEquals(
+            listOf(
+                box(0, 0, 100, 30), box(100, 0, 200, 30), box(200, 0, 300, 30),
+                box(0, 30, 100, 60), box(100, 30, 200, 60), box(200, 30, 300, 60),
+                box(0, 60, 100, 90), box(100, 60, 200, 90), box(200, 60, 300, 90),
+            ),
+            ScreenTextPlan.charBoxes(text, box(0, 0, 300, 90), rows),
+        )
+    }
+
+    @Test
+    fun aNewlineForcesARowBreakTheProportionalSplitWouldNotMake() {
+        // "あ\n\n\nい" is two characters, so a purely proportional split would
+        // give row 0 and row 1. The explicit breaks put the second character on
+        // the third row and leave the middle one empty — the text's own line
+        // structure wins over the arithmetic.
+        val text = "あ\n\n\nい"
+        val rows = listOf(box(0, 0, 300, 30), box(0, 30, 300, 60), box(0, 60, 300, 90))
+        assertEquals(listOf(box(0, 0, 300, 30), box(0, 60, 300, 90)), ScreenTextPlan.charBoxes(text, box(0, 0, 300, 90), rows))
+        assertEquals(listOf('あ', null, null, null, 'い'), placed(text, ScreenTextPlan.charBoxesAt(text, box(0, 0, 300, 90), rows)))
+    }
+
+    @Test
+    fun aMixedFullwidthHalfwidthRowHalvesTheAsciiAdvance() {
+        // Two kanji and one ASCII letter in a 300 px row: 1.0 + 1.0 + 0.5 em, so
+        // the latin glyph gets 60 px where the kanji get 120.
+        val text = "日本A"
+        assertEquals(
+            listOf(box(0, 0, 120, 40), box(120, 0, 240, 40), box(240, 0, 300, 40)),
+            ScreenTextPlan.charBoxes(text, box(0, 0, 300, 40)),
+        )
+    }
+
+    @Test
+    fun whitespaceOccupiesExtentButGetsNoBox() {
+        // An ideographic space is a fullwidth glyph of zero ink: it holds its
+        // 1.0 em (the kanji around it stay 100 px) and is not tappable, which is
+        // what a null in [charBoxesAt] says.
+        val text = "日　本"
+        val at = ScreenTextPlan.charBoxesAt(text, box(0, 0, 300, 40))
+        assertEquals(listOf(box(0, 0, 100, 40), null, box(200, 0, 300, 40)), at)
+        assertEquals(listOf(box(0, 0, 100, 40), box(200, 0, 300, 40)), ScreenTextPlan.charBoxes(text, box(0, 0, 300, 40)))
+    }
+
+    @Test
+    fun theCallersWidthPredicateReplacesTheDefaultOne() {
+        // The default is local range checks so this module runs in the host
+        // tests; the Android caller passes the app's own `isHalfWidth`. Both
+        // halves of the parameter are pinned here, so a change to the default
+        // cannot silently stop the argument being honoured.
+        val text = "日 本"
+        assertEquals(
+            listOf(box(0, 0, 120, 40), box(180, 0, 300, 40)),
+            ScreenTextPlan.charBoxes(text, box(0, 0, 300, 40)),
+        )
+        assertEquals(
+            listOf(box(0, 0, 100, 40), box(200, 0, 300, 40)),
+            ScreenTextPlan.charBoxes(text, box(0, 0, 300, 40), isFullWidth = { true }),
+        )
+    }
+
+    @Test
+    fun moreCharactersThanRowsKeepTheLastRowInsideTheRect() {
+        // The string is longer than the geometry can place at the nominal scale.
+        // The last row absorbs the remainder and normalises it to its own width,
+        // so the boxes get narrower instead of leaving the node's rect.
+        val text = "あいうえお"
+        val boxes = ScreenTextPlan.charBoxes(text, box(0, 0, 100, 30))
+        assertEquals(
+            listOf(box(0, 0, 20, 30), box(20, 0, 40, 30), box(40, 0, 60, 30), box(60, 0, 80, 30), box(80, 0, 100, 30)),
+            boxes,
+        )
+    }
+
+    @Test
+    fun moreRowsThanCharactersLeavesTheTrailingRowsEmpty() {
+        val text = "あい"
+        val rows = listOf(box(0, 0, 300, 30), box(0, 30, 300, 60), box(0, 60, 300, 90), box(0, 90, 300, 120))
+        assertEquals(
+            listOf(box(0, 0, 300, 30), box(0, 30, 300, 60)),
+            ScreenTextPlan.charBoxes(text, box(0, 0, 300, 120), rows),
+        )
+    }
+
+    @Test
+    fun everyBoxStaysInsideTheNodeRectEvenWhenARowStraddlesItsEdge() {
+        // The row here is a detected box that overhangs the node's rect on BOTH
+        // sides while its centre is inside, so it is clipped to (0,10,100,30)
+        // before any character is placed — #106's "clip to the node's visible
+        // rect". Without the clip the first character would start at -40 px.
+        val text = "あい"
+        val rows = ScreenTextPlan.charBoxes(text, box(0, 0, 100, 40), listOf(box(-40, 10, 140, 30)))
+        assertEquals(listOf(box(0, 10, 50, 30), box(50, 10, 100, 30)), rows)
+        for (b in rows) {
+            assertTrue("left", b.left >= 0)
+            assertTrue("top", b.top >= 0)
+            assertTrue("right", b.right <= 100)
+            assertTrue("bottom", b.bottom <= 40)
+        }
+    }
+
+    @Test
+    fun boxesAreOrderedTopToBottomAcrossRowsAndLeftToRightWithinThem() {
+        val text = "あいうえおかきくけ"
+        val rows = ScreenTextPlan.charBoxes(text, box(0, 0, 300, 90))
+        assertEquals(9, rows.size)
+        for (i in 1 until rows.size) {
+            assertTrue("ordering at $i: ${rows[i - 1]} then ${rows[i]}", rows[i - 1].left <= rows[i].left)
+        }
+    }
+
+    // ── character geometry: degenerate input ───────────────────────────────
+
+    @Test
+    fun anEmptyStringProducesNothing() {
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.charBoxes("", box(0, 0, 300, 40)))
+        assertEquals(emptyList<JpDictRect?>(), ScreenTextPlan.charBoxesAt("", box(0, 0, 300, 40)))
+    }
+
+    @Test
+    fun aDegenerateNodeRectProducesNothing() {
+        // No room, no boxes, no throw: a zero-width or zero-height node rect
+        // cannot hold a character, and the caller's next line must still run.
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.charBoxes("あ", box(10, 10, 10, 40)))
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.charBoxes("あ", box(10, 10, 100, 10)))
+        assertEquals(listOf<JpDictRect?>(null), ScreenTextPlan.charBoxesAt("あ", box(10, 10, 10, 40)))
+    }
+
+    @Test
+    fun aStringOfOnlyLineBreaksProducesNothing() {
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.charBoxes("\n\n\n", box(0, 0, 300, 90)))
+    }
+
+    @Test
+    fun whitespaceOnlyTextOccupiesTheRowWithoutProducingBoxes() {
+        // Extent without ink: the row is filled (so the string does fill the
+        // node) but there is nothing to draw or tap.
+        val at = ScreenTextPlan.charBoxesAt("   ", box(0, 0, 300, 40))
+        assertEquals(listOf(null, null, null), at)
+        assertEquals(emptyList<JpDictRect>(), ScreenTextPlan.charBoxes("   ", box(0, 0, 300, 40)))
+    }
+
+    @Test
+    fun aSingleCharacterTakesTheWholeRow() {
+        assertEquals(listOf(box(0, 0, 300, 40)), ScreenTextPlan.charBoxes("猫", box(0, 0, 300, 40)))
+    }
+
+    @Test
+    fun charBoxesAtIsTheCharBoxesListWithGapsKept() {
+        // The two views of one layout: the boxes in reading order, and the same
+        // boxes keyed by character index so a caller can splice them into
+        // `LineResult.charBoxes` without guessing where the whitespace went.
+        val text = "日 本"
+        val byCharIndex = ScreenTextPlan.charBoxesAt(text, box(0, 0, 300, 40))
+        assertEquals(ScreenTextPlan.charBoxes(text, box(0, 0, 300, 40)), byCharIndex.filterNotNull())
+        assertNull(byCharIndex[1])
+    }
+
+    // ── the default fullwidth predicate ────────────────────────────────────
+
+    @Test
+    fun theDefaultWidthsAreTheAppsOwnClasses() {
+        // ASCII and the halfwidth-kana block are halfwidth; kana, kanji and
+        // Japanese punctuation (including the ideographic space) are fullwidth.
+        // The two extents are the numbers the whole layout divides by, so they
+        // are pinned here rather than only being implied by a box list.
+        assertEquals(1.0f, ScreenTextPlan.FULLWIDTH_EXTENT, 0f)
+        assertEquals(0.5f, ScreenTextPlan.HALFWIDTH_EXTENT, 0f)
+        for (fullwidth in listOf('あ', '漢', '。', '　', 'ヴ')) {
+            assertTrue("$fullwidth should be fullwidth", ScreenTextPlan.isFullWidth(fullwidth))
+        }
+        for (halfwidth in listOf('A', '7', 'ｶ', ' ', '\n')) {
+            assertTrue("$halfwidth should be halfwidth", !ScreenTextPlan.isFullWidth(halfwidth))
+        }
+    }
+}
