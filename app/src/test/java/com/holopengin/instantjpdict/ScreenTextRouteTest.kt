@@ -195,6 +195,24 @@ class ScreenTextRouteTest {
     }
 
     @Test
+    fun aNodePayingForSeveralBoxesIsDrawnOnce() {
+        // The maintainer's "two copies of exactly the same line, perfectly
+        // overlapping", and the bug behind it: the guard that installs one line per
+        // node compared a filtered node index against a map of caller indices, so it
+        // never fired. A node that paid for two boxes was installed at both, and each
+        // line drew the whole text over the node's rect.
+        val first = box(0, 0, 600, 60)
+        val second = box(0, 60, 600, 120)
+        val plan = route(
+            boxes = listOf(first, second),
+            nodes = listOf(node("新しいメッセージが届きました", 0, 0, 600, 120)),
+        )
+        assertEquals(mapOf(0 to 0), plan.nodeAt)
+        assertEquals(2, plan.nodePaid)
+        assertEquals(emptyList<Int>(), plan.recognise)
+    }
+
+    @Test
     fun anElidedNodeWithNoBoxInsideStillAnswers() {
         // No detected box inside it, so refusing would leave the region with no source
         // — nothing for recognition to read. The node answers, the view draws the

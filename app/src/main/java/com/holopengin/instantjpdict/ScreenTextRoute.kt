@@ -138,11 +138,20 @@ object ScreenTextRoute {
         for (index in recovered) augmented.add(LineBox.of(answering[index].rect))
 
         val nodeAt = LinkedHashMap<Int, Int>()
-        // Box order, and keyed on the NODE rather than the box: a paragraph pays
-        // for several boxes and must be installed at one of them, not at each.
-        // `putIfAbsent` would not do it — it tests the key, and the keys differ.
+        // Box order, and keyed on the NODE rather than the box: a paragraph pays for
+        // several boxes and must be installed at one of them, not at each.
+        //
+        // #106: the guard used to be `if (nodeIndex !in nodeAt.values)`, and that
+        // compared a FILTERED node index against a map of *caller* indices — two
+        // different spaces, so it never fired. A node that paid for two boxes was
+        // installed at both, and each line drew the whole text over the node's rect:
+        // the maintainer's "two copies of exactly the same line, perfectly
+        // overlapping", visible in the drawn-line log as one node index under two
+        // page numbers. The bookkeeping is now in the filtered space it is asking
+        // about.
+        val installed = HashSet<Int>()
         for ((boxIndex, nodeIndex) in plan.nodePaid) {
-            if (nodeIndex !in nodeAt.values) nodeAt[boxIndex] = kept[nodeIndex]
+            if (installed.add(nodeIndex)) nodeAt[boxIndex] = kept[nodeIndex]
         }
         val firstRecovered = boxes.size
         for (k in recovered.indices) nodeAt[firstRecovered + k] = kept[recovered[k]]
