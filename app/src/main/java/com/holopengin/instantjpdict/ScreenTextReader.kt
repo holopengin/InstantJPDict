@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import com.holopengin.instantjpdict.util.InferLog
 
 /**
  * #106: the active accessibility window's **visible, Japanese-bearing leaf text**,
@@ -296,15 +297,55 @@ object ScreenTextReader {
         // "many lines on top of each other", with `nodes=5 … node_paid=7` in the
         // split line.
         val candidates = keep.map { ScreenTextNode(texts[it], rects[it]) }
-        val survivors = dropContained(candidates).map { keep[it] }
+        val keptIndex = dropContained(candidates)
+        val survivors = keptIndex.map { keep[it] }
+
+        // #106: the detail a "two copies of the same line" report needs. The split
+        // line says how many nodes answered; it cannot say WHICH rects and strings
+        // collided, and three fixes in a row were guesses at exactly that. One line
+        // for what answered, one for what was dropped and why, both capped and with
+        // texts truncated so they stay readable at forty nodes.
+        // `survivors` holds indices into the parallel lists; the log wants the nodes.
+        val survivorNodes = survivors.map { ScreenTextNode(texts[it], rects[it]) }
+        InferLog.add("screen text nodes kept=${survivorNodes.size}: ${describeNodes(survivorNodes)}")
+        val droppedByRepeat = (0 until texts.size).filter { it !in keep }
+            .map { ScreenTextNode(texts[it], rects[it]) }
+        val droppedByContainment = candidates.filterIndexed { index, _ -> index !in keptIndex }
+        if (droppedByRepeat.isNotEmpty() || droppedByContainment.isNotEmpty()) {
+            InferLog.add(
+                "screen text nodes dropped=repeat:${droppedByRepeat.size} contained:${droppedByContainment.size}: " +
+                    describeNodes(droppedByRepeat + droppedByContainment),
+            )
+        }
+
         var japanese = 0
-        val out = survivors.map {
-            if (carriesJapanese(texts[it])) japanese++
-            ScreenTextNode(texts[it], rects[it])
+        for (node in survivorNodes) {
+            if (carriesJapanese(node.text)) japanese++
         }
         lastJapanese = japanese
-        return out
+        return survivorNodes
     }
+
+    /**
+     * #106: log-only — every node as `[left,top,right,bottom]"text"`, texts truncated
+     * to [LOGGED_TEXT_CHARS] and the list to [MAX_LOGGED_NODES], so a forty-node
+     * window does not turn the InferLog into an essay.
+     */
+    private fun describeNodes(nodes: List<ScreenTextNode>): String {
+        val shown = nodes.take(MAX_LOGGED_NODES).joinToString(" ") { node ->
+            val r = node.rect
+            "[${r.left},${r.top},${r.right},${r.bottom}]" +
+                "\"${node.text.take(LOGGED_TEXT_CHARS).replace("\n", " ")}\""
+        }
+        val more = nodes.size - minOf(nodes.size, MAX_LOGGED_NODES)
+        return if (more > 0) "$shown +$more more" else shown
+    }
+
+    /** #106: how many nodes one log line describes. */
+    private const val MAX_LOGGED_NODES = 64
+
+    /** #106: how much of a node's text one log line shows. */
+    private const val LOGGED_TEXT_CHARS = 24
 
     /**
      * #106: which nodes survive when one node's rect contains another's — the pure
