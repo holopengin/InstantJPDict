@@ -104,6 +104,20 @@ class OcrOverlayView(
         fun wantsBackButton(): Boolean
 
         /**
+         * The top clearance (px) the dictionary owes at the screen's top edge, or
+         * `null` to use the framework status-bar dimen ([statusBarHeightPx]).
+         *
+         * The two hosts' windows do not agree on where their top edge is. The
+         * accessibility overlay's window is placed within the screen
+         * (`FLAG_LAYOUT_IN_SCREEN`), where the dimen has always cleared the bar.
+         * The camera/share activity's window lays out under the cutout and its
+         * own controls take the window's insets — so the dictionary takes the
+         * same number there, or it renders under the punch-hole the controls
+         * clear (see [ShareImageActivity.dictionaryTopClearancePx]).
+         */
+        fun dictionaryTopClearancePx(): Int? = null
+
+        /**
          * #106: the screen's text read from the accessibility tree, in bitmap
          *  coordinates; empty when this host has no tree (the share activity) or
          *  the user asked for OCR always.
@@ -1745,7 +1759,7 @@ class OcrOverlayView(
                 // screen's top edge.
                 val inset = controller.dictionaryTopInset(
                     existingRoot.gravity.toJpDictGravity(),
-                    statusBarHeightPx(),
+                    dictionaryClearancePx(),
                 )
                 updateDictionaryPanel(dictionaryContainer, matches, cacheKey, inset)
             }
@@ -1774,7 +1788,7 @@ class OcrOverlayView(
         // The gravity this panel will be built at — one expression, used for
         // its placement and for the status-bar inset it needs at that edge.
         val activeGravity = if (isLandscape) controller.lastLandscapeGravity else controller.lastPortraitGravity
-        val dictTopInset = controller.dictionaryTopInset(activeGravity, statusBarHeightPx())
+        val dictTopInset = controller.dictionaryTopInset(activeGravity, dictionaryClearancePx())
         val (panelWidthF, panelHeightF) = controller.getPanelDimensions(rootWidth, rootHeight)
         val panelWidth = if (isLandscape) panelWidthF.toInt() else FrameLayout.LayoutParams.MATCH_PARENT
         val panelHeight = if (isLandscape) FrameLayout.LayoutParams.MATCH_PARENT else panelHeightF.toInt()
@@ -3406,6 +3420,14 @@ class OcrOverlayView(
         }
         return (OverlayBackdrop.STATUS_BAR_HEIGHT_FALLBACK_DP * resources.displayMetrics.density).roundToInt()
     }
+
+    /**
+     * The top clearance the dictionary's inset is built from: the host's
+     * window-derived number when it has one ([Host.dictionaryTopClearancePx]),
+     * the framework status-bar dimen otherwise.
+     */
+    private fun dictionaryClearancePx(): Int =
+        host.dictionaryTopClearancePx() ?: statusBarHeightPx()
 
     /**
      * Display copy of the screenshot for the overlay ImageView (#64).

@@ -203,6 +203,16 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
     private var containerView: FrameLayout? = null
 
     /**
+     * The window's top system-bar/cutout inset, px, as the last inset dispatch
+     * reported it. The dictionary's clearance takes this rather than the
+     * framework status-bar dimen: this window lays out under the cutout, and on
+     * a device whose cutout is taller than the dimen reports, the dimen alone
+     * leaves the dictionary under the punch-hole the controls clear. Zero until
+     * the first dispatch, when the view falls back to the dimen.
+     */
+    private var windowTopInsetPx = 0
+
+    /**
      * The layout wait [refitForNewContainer] has registered, if one is in flight.
      *
      * Kept as state so it can be released from every way the wait can end — the layout
@@ -262,6 +272,9 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
      */
     override fun wantsBackButton(): Boolean = false
 
+    /** The dictionary clears the window's own top inset — see [windowTopInsetPx]. */
+    override fun dictionaryTopClearancePx(): Int? = windowTopInsetPx.takeIf { it > 0 }
+
     // ---- lifecycle ----
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -318,6 +331,18 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
         val container = FrameLayout(this)
         containerView = container
         setContentView(container, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
+        // The dictionary's top clearance comes from the window, not the
+        // framework dimen: this window lays out under the cutout, and the dimen
+        // can be smaller than the inset the cutout actually needs (see
+        // [OcrOverlayView.Host.dictionaryTopClearancePx]). One listener on the
+        // container, which every child's inset dispatch passes through.
+        ViewCompat.setOnApplyWindowInsetsListener(container) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            windowTopInsetPx = maxOf(bars.top, cutout.top)
+            insets
+        }
 
         val uri = sharedImageUri(intent)
         if (uri == null) {
