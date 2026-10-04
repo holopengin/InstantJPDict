@@ -406,6 +406,12 @@ class MainActivity : AppCompatActivity() {
         tonalButton(accessBody, "Dictionary catalog", R.drawable.ic_book) {
             DictionaryCatalogDialog.show(this)
         }
+        // #89: the OCR-free door, beside the accessibility one. A user whose
+        // recogniser misread, or who has the text to hand, should not have to
+        // point the overlay at a screen to look a word up.
+        tonalButton(accessBody, "Look up text", R.drawable.ic_search) {
+            openManualLookup()
+        }
         filledButton(accessBody, "Enable accessibility service", R.drawable.ic_accessibility) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -542,16 +548,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         ensureBundledPitchDictionary()
 
-        // #82: the app shortcut (res/xml/shortcuts.xml). Cold launches — the app
-        // was not running — arrive here with the shortcut's action, and this is
-        // where it becomes the viewfinder. The dictionary screen this activity
-        // just built is an artefact of the routing, not somewhere the user asked
-        // to be, so the router removes itself: with nothing of ours beneath the
-        // camera, Back returns to whatever was on screen before (home, another
-        // app, or the task below) instead of dropping the user into the
-        // dictionary. Warm re-entry (onNewIntent) keeps this activity, because
-        // there the dictionary IS the screen the user came from.
-        if (openCameraFrom(intent)) finish()
+        // #82/#89: the app shortcuts (res/xml/shortcuts.xml). Cold launches — the
+        // app was not running — arrive here with the shortcut's action, and this is
+        // where it becomes the viewfinder or the manual lookup. The dictionary
+        // screen this activity just built is an artefact of the routing, not
+        // somewhere the user asked to be, so the router removes itself: with
+        // nothing of ours beneath the destination, Back returns to whatever was on
+        // screen before (home, another app, or the task below) instead of dropping
+        // the user into the dictionary. Warm re-entry (onNewIntent) keeps this
+        // activity, because there the dictionary IS the screen the user came from.
+        if (openCameraFrom(intent) || openLookupFrom(intent)) finish()
     }
 
     /** Resolve one colour from the current theme (day/night and Material You aware). */
@@ -589,7 +595,7 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         // No finish() here: this instance was already the top of the task, so
         // it is the previous activity Back should return to.
-        openCameraFrom(intent)
+        openCameraFrom(intent) || openLookupFrom(intent)
     }
 
     /**
@@ -620,6 +626,34 @@ class MainActivity : AppCompatActivity() {
         Log.d("MainActivity", "camera shortcut: opening the viewfinder")
         openCamera()
         return true
+    }
+
+    /**
+     * #89: the router between the lookup shortcut's action and the manual lookup
+     * screen. Same shape and the same one-shot action-clearing as
+     * [openCameraFrom] — the client record re-delivers this intent when the
+     * platform re-creates the activity, so without the clear a rotation would open
+     * a second lookup over the one the user is looking at. The action is compared
+     * for equality with [ManualLookupShortcut.ACTION_OPEN_LOOKUP]; an ordinary
+     * MAIN tap is untouched.
+     */
+    private fun openLookupFrom(intent: Intent): Boolean {
+        if (!ManualLookupShortcut.opensLookup(intent.action)) return false
+        intent.action = null
+        Log.d("MainActivity", "lookup shortcut: opening the manual lookup screen")
+        openManualLookup()
+        return true
+    }
+
+    /** The one way into the manual lookup screen: the home-screen control and the
+     *  shortcut both land here. CLEAR_TOP|SINGLE_TOP for the same reason [openCamera]
+     *  uses it — a second launch collapses onto the lookup already open rather than
+     *  stacking another. */
+    private fun openManualLookup() {
+        startActivity(
+            Intent(this, ManualLookupActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
     }
 
     /** The one way into the viewfinder: the pinned control and the shortcut both land here.

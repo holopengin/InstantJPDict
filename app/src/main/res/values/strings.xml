@@ -8,4 +8,15 @@
          the action. -->
     <string name="shortcut_camera_short_label">InstantJPCam</string>
     <string name="shortcut_camera_long_label">Open camera</string>
+
+    <!-- #89: the manual-lookup screen. `manual_lookup_label` is what BOTH the
+         launcher's long-press menu and the text-selection toolbar show (the
+         activity's own android:label), so it is a clear verb phrase rather than
+         the product name: in the selection menu it is the entry the user picks
+         beside Cut/Copy/Paste. The two shortcut labels mirror the camera pair. -->
+    <string name="manual_lookup_label">Look up in InstantJPDict</string>
+    <string name="manual_lookup_title">Manual lookup</string>
+    <string name="manual_lookup_hint">Type or paste Japanese</string>
+    <string name="shortcut_lookup_short_label">Look up</string>
+    <string name="shortcut_lookup_long_label">Look up text</string>
 </resources>

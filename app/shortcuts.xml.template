@@ -72,4 +72,33 @@
             android:targetClass="com.holopengin.instantjpdict.MainActivity" />
     </shortcut>
 
+    <!-- #89 — manual lookup. Same design as the camera shortcut above: a static
+         declaration, a namespaced action, and .MainActivity as the target (the
+         already-exported launcher entry), with the reasoning in
+         ManualLookupShortcut.kt.
+
+         The target here is the choice this shortcut makes explicitly:
+         ManualLookupActivity IS exported (it must be, for ACTION_SEND and
+         ACTION_PROCESS_TEXT), so #82's "do not widen the export surface" argument
+         does not apply. The task-root/Back argument does: a shortcut launched
+         straight into the lookup would make it the task's root, and Back would
+         leave an empty task. Through MainActivity the home screen is the root,
+         below the lookup, which is where Back lands.
+
+         Its own mark (`ic_shortcut_lookup`), repo-authored like the camera's, so
+         the two shortcuts are told apart in a launcher's long-press menu. A
+         static shortcut carries a plain drawable only; the short label is a
+         string resource, as the platform requires. -->
+    <shortcut
+        android:shortcutId="lookup"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_lookup"
+        android:shortcutShortLabel="@string/shortcut_lookup_short_label"
+        android:shortcutLongLabel="@string/shortcut_lookup_long_label">
+        <intent
+            android:action="com.holopengin.instantjpdict.action.OPEN_LOOKUP"
+            android:targetPackage="${applicationId}"
+            android:targetClass="com.holopengin.instantjpdict.MainActivity" />
+    </shortcut>
+
 </shortcuts>

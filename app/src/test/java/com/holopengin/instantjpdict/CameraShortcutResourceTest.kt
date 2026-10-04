@@ -72,11 +72,18 @@ class CameraShortcutResourceTest {
             .firstOrNull { it.attr("name") == name }
             ?: error("no <activity android:name=\"$name\"> in the manifest")
 
-    /** The one `<shortcut>` in the shortcuts template. */
+    /**
+     * The `<shortcut android:shortcutId="camera">` in the shortcuts template.
+     *
+     * Selected by id, not position: #89 added the lookup shortcut beside it, and a
+     * positional "the one shortcut" would have failed on a change that is not
+     * about the camera at all. The template now declares both.
+     */
     private fun shortcut(document: Document): Element {
-        val shortcuts = document.getElementsByTagName("shortcut")
-        assertEquals("expected exactly one static shortcut", 1, shortcuts.length)
-        return shortcuts.item(0) as Element
+        val shortcuts = (0 until document.getElementsByTagName("shortcut").length)
+            .map { document.getElementsByTagName("shortcut").item(it) as Element }
+        return shortcuts.firstOrNull { it.attr("shortcutId") == "camera" }
+            ?: error("no camera shortcut in the template; have ${shortcuts.map { it.attr("shortcutId") }}")
     }
 
     /** The shortcut's `<intent>` element. */
@@ -148,13 +155,15 @@ class CameraShortcutResourceTest {
     }
 
     @Test
-    fun nothingNewIsExportedForTheShortcut() {
-        // The acceptance criterion, as a standing guard: the shortcut must not
-        // widen the exported surface. The set below is what the manifest exported
-        // BEFORE #82 — the launcher entry the shortcut rides on, and the share
-        // sheet's ACTION_SEND entry. A future export therefore fails this test on
-        // purpose: the change has to be conscious, and this expectation (and the
-        // note beside it) updated with it.
+    fun nothingNewIsExportedForTheCameraShortcut() {
+        // The acceptance criterion, as a standing guard: the CAMERA shortcut must
+        // not widen the exported surface. The set below is what the manifest
+        // exported BEFORE #82 — the launcher entry the shortcut rides on, and the
+        // share sheet's ACTION_SEND entry. #89 added `.ManualLookupActivity` on
+        // purpose (it IS an entry surface: ACTION_SEND + text/plain and
+        // ACTION_PROCESS_TEXT + text/plain), so it is named here as a CONSCIOUS
+        // addition, and the camera shortcut itself still rides the launcher entry.
+        // Any OTHER new export fails this test on purpose.
         val manifest = parse("src/main/AndroidManifest.xml")
         val exported = listOf("activity", "service", "receiver", "provider")
             .flatMap { tag ->
@@ -165,9 +174,10 @@ class CameraShortcutResourceTest {
             .map { it.attr("name") }
             .toSet()
         assertEquals(
-            "a component became exported; #82 must add none — the shortcut targets " +
-                "the launcher entry that was already exported",
-            setOf(".MainActivity", ".ShareImageActivity"),
+            "a component became exported; the camera shortcut must add none — it " +
+                "targets the launcher entry that was already exported. (#89's " +
+                ".ManualLookupActivity is the one sanctioned addition.)",
+            setOf(".MainActivity", ".ShareImageActivity", ".ManualLookupActivity"),
             exported
         )
         assertEquals(

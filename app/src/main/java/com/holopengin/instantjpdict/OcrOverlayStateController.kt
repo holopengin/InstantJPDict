@@ -355,6 +355,29 @@ class OcrOverlayStateController {
      */
     companion object {
         const val MAX_NAV_BOXES = 20000
+
+        /** The tap path's window length: [lookup] slices `globalIdx..globalIdx+20`. */
+        const val LOOKUP_WINDOW = 20
+
+        /**
+         * #89: the manual path's input scope — the tap path's behaviour, mirrored.
+         *
+         * A tap does not search the whole line: it searches the window that STARTS
+         * at the tapped character (`activeAllChars.subList(globalIdx, globalIdx + 20)`),
+         * and the dedup pass keeps the LONGEST dictionary match that begins there.
+         * A manual box means "search what I typed", so the window starts at the
+         * first non-whitespace character and the same longest-match rule applies;
+         * leading whitespace in a pasted share is trimmed for exactly that reason.
+         * The 20-char cap is the tap's, kept here so the two paths disagree on
+         * nothing but the origin.
+         *
+         * Pure (no Android, no provider), so the input-scope rule is pinned without
+         * a controller harness.
+         */
+        fun inputScope(text: String): String {
+            val trimmed = text.trimStart()
+            return if (trimmed.length <= LOOKUP_WINDOW) trimmed else trimmed.substring(0, LOOKUP_WINDOW)
+        }
     }
 
     fun rebuildNavGraph() {
@@ -593,9 +616,11 @@ class OcrOverlayStateController {
     }
 
     suspend fun lookup(lineIdx: Int, charIdx: Int): Result? {
-        val deinf = deinflector ?: return null
-        val provider = dictionaryProvider ?: return null
-        val g = gson ?: return null
+        // #89: the cheap readiness guard stays FIRST, exactly where it was before
+        // the chain was extracted, so an unprepared host returns null without
+        // touching the tap state below. ([lookupFollowingText] re-checks for the
+        // manual path, which has no tap state to protect.)
+        if (deinflector == null || dictionaryProvider == null || gson == null) return null
 
         val line = activeLineResults.getOrNull(lineIdx) ?: return null
         // A placeholder has no definition. The tap path routes it to the alternatives panel
@@ -609,8 +634,45 @@ class OcrOverlayStateController {
 
         val tappedBox = line.charBoxes.getOrNull(charIdx) ?: JpDictRect(0, 0, 0, 0)
 
-        val endIdx = kotlin.math.min(globalIdx + 20, activeAllChars.size)
+        val endIdx = kotlin.math.min(globalIdx + LOOKUP_WINDOW, activeAllChars.size)
         val followingText = activeAllChars.subList(globalIdx, endIdx).joinToString("")
+
+        val formatted = lookupFollowingText(followingText) ?: return null
+        return Result(formatted.matches, formatted.maxLen, tappedBox, followingText)
+    }
+
+    /**
+     * #89: the text entry point into the lookup chain — the manual screen's search
+     * box and the tap path's [lookup] differ only in where `followingText` comes
+     * from. The tap slices up to 20 characters of the page from the tapped index
+     * ([lookup]); here the caller's whole string is the window. Everything after
+     * that — [prepareSearchCandidates], `findByTexts`, the #65 redirect BFS,
+     * [processResults], [formatDictionaryResults] and the per-kanji second pass —
+     * is one implementation, so a chain change lands on both paths at once.
+     *
+     * The identical body is deliberately PHONE-FREE (no OCR geometry, no tap
+     * state), which is what makes it host-unit-testable; [lookup] wraps it with
+     * the tap bookkeeping and the tapped box.
+     *
+     * An empty or blank [text], or a host that has not been prepared
+     * ([OverlayEnvironment.prepare]), yields an empty list — "nothing to show"
+     * either way, which is what the manual screen renders as an empty box.
+     */
+    suspend fun lookupText(text: String): List<FormattedEntry> =
+        lookupFollowingText(inputScope(text))?.matches ?: emptyList()
+
+    /**
+     * The shared chain, from a `followingText` window to formatted entries.
+     *
+     * Null when the controller is not prepared or the window is empty. The
+     * [Result] is not built here — the caller supplies the tapped box (the tap
+     * path) or discards it (the manual path).
+     */
+    private suspend fun lookupFollowingText(followingText: String): ChainResult? {
+        if (followingText.isEmpty()) return null
+        val deinf = deinflector ?: return null
+        val provider = dictionaryProvider ?: return null
+        val g = gson ?: return null
 
         val (allTermsToSearch, candidatesByLength) = prepareSearchCandidates(followingText, deinf)
         val dbResults = provider.findByTexts(allTermsToSearch.toList())
@@ -702,10 +764,21 @@ class OcrOverlayStateController {
             formatted.addAll(appendKanji)
         }
         
-        return Result(formatted, maxLen, tappedBox, followingText)
+        return ChainResult(formatted, maxLen)
     }
 
     data class Result(val matches: List<FormattedEntry>, val maxLen: Int, val tappedBox: JpDictRect, val cacheKey: String)
+
+    /**
+     * #89: what the shared chain returns before a host attaches geometry — the
+     * formatted entries and the matched length. The tap path folds it into
+     * [Result] with the tapped box and its window; the manual path uses
+     * [matches] alone.
+     */
+    private data class ChainResult(
+        val matches: List<FormattedEntry>,
+        val maxLen: Int,
+    )
 
     fun getNeighborUiState(): List<NeighborLine> {
         return activeLineResults.mapIndexed { lIdx, line ->

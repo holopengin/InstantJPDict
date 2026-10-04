@@ -153,6 +153,48 @@
             </intent-filter>
         </activity>
 
+        <!-- #89 (Feat — manual lookup screen): the OCR-free lookup — a search
+             box and the same dictionary cards the overlay shows. Exported because
+             it IS an entry surface, not because the shortcut needs it: the static
+             lookup shortcut goes through .MainActivity instead (see
+             ManualLookupShortcut for why), so the export surface this adds is the
+             two INTENT filters below, which is exactly the feature.
+
+             ACTION_SEND + text/plain: share a selection from any app. The same
+             ACTION_SEND shape ShareImageActivity handles for images, for text.
+
+             ACTION_PROCESS_TEXT + text/plain: the text-selection toolbar's
+             entry. android:label is what that toolbar shows, hence the clear
+             verb phrase (R.string.manual_lookup_label) rather than the app name.
+
+             NOT excluded from recents, deliberately: the home-screen button and
+             the lookup shortcut are ordinary task entries, and a normal task row
+             is right for them. A share/selection launch usually finishes at once
+             (selection lookups are read-only and return nothing), so in the
+             share case the row is transient anyway; one activity cannot exclude
+             only some of its launches, and the recurring home-screen path wins
+             that trade. -->
+        <activity
+            android:name=".ManualLookupActivity"
+            android:exported="true"
+            android:label="@string/manual_lookup_label"
+            android:theme="@style/Theme.InstantJPDict">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- #78 — our own viewfinder, launched from a main-activity
              button. fullSensor, NOT portrait: the whole window has to turn with
              the phone, so the preview, the reticle and the capture turn

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Manual-lookup shortcut mark (#89). Repo-authored, like the camera shortcut's
+     ic_shortcut_camera: a magnifier over an open dictionary page, so it reads as
+     "look a word up" beside the ordinary app entry.
+     First-party, so it adds NO row to app/licenses/components.tsv — that index
+     is the bundled THIRD-PARTY notice index. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <!-- Round harbour-azure field, matching the camera mark's silhouette. -->
+    <path
+        android:fillColor="#FF00FFFF"
+        android:pathData="M0 60A60 60 0 1 0 120 60 60 60 0 1 0 0 60Z" />
+    <!-- Open dictionary page, in the app's dark ink. -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M22 34h38a4 4 0 0 1 4 4v48a4 4 0 0 1 -4 4H22a4 4 0 0 1 -4 -4V38a4 4 0 0 1 4 -4Z" />
+    <!-- 辞典 mark lines on the page (abstract strokes, not text). -->
+    <path
+        android:fillColor="#FF00FFFF"
+        android:pathData="M30 46h22v4H30ZM30 56h22v4H30ZM30 66h14v4H30Z" />
+    <!-- Magnifier ring + handle, drawn over the page corner. -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="9"
+        android:pathData="M80 56m-18 0a18 18 0 1 0 36 0a18 18 0 1 0 -36 0" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="11"
+        android:strokeLineCap="round"
+        android:pathData="M93 69l13 13" />
+</vector>
