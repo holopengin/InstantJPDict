@@ -2026,7 +2026,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_small_to_big() != 53189.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window() != 10540.toShort()) {
+    if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window() != 23047.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_kana_size_window_bytes() != 31935.toShort()) {
@@ -10372,6 +10372,16 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
          * and runs off the ends as zero padding; see `jpdict_core::kana_size::window`
          * for the layout. The Kotlin facade mirrors the 40-byte length as
          * `KanaSizeEncoder.WINDOW_BYTES` because UniFFI cannot export consts.
+         *
+         * The index is **clamped into `0..=chars().count()`** rather than
+         * trusted. `jpdict_core::kana_size::window` indexes `text[index]` and panics
+         * for `index` past the end; the old code here additionally `.expect`-panicked
+         * on a negative. Both are reachable from a host that hands this exported
+         * function a text-derived index, and the shim's contract is that a bad index
+         * degrades. An in-range index is untouched, so every real caller (the encoded
+         * vectors) is byte-for-byte unchanged; a past-the-end index clamps to the end,
+         * the same "clamp to the ends" rule `gap_candidates::index_from_kotlin` and
+         * the Kotlin facade already document.
          */ fun `kanaSizeWindow`(`text`: kotlin.String, `index`: kotlin.Long): List<kotlin.Int> {
             return FfiConverterSequenceInt.lift(
     uniffiRustCall() { _status ->

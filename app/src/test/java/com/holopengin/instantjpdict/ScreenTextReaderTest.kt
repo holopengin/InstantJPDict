@@ -454,4 +454,42 @@ class ScreenTextReaderTest {
             ScreenTextReader.dropContained(listOf(node("一", JpDictRect(0, 0, 10, 10)))),
         )
     }
+
+    // ── The aggregate text budget ───────────────────────────────────────────
+
+    /**
+     * The counterexample this pins: [ScreenTextReader.MAX_NODES] and
+     * [ScreenTextReader.MAX_TEXT] bound each node and the node count, but not
+     * their product — 512 × 1000 is half a million characters, and every one is
+     * paid for downstream per character on the main thread (UniFFI
+     * `isHalfWidth` crossings, `charBoxesAt`, `activeAllChars`). The budget is
+     * what makes the total a real bound.
+     */
+    @Test
+    fun theTotalTextBudgetIsFarBelowThePerNodeProduct() {
+        val attackBound = ScreenTextReader.MAX_NODES * ScreenTextReader.MAX_TEXT
+        assertTrue(
+            "MAX_NODES x MAX_TEXT = $attackBound is unbounded work",
+            ScreenTextReader.MAX_TOTAL_TEXT < attackBound / 8,
+        )
+        // And the budget is a whole-page amount, not a per-node one: it is well
+        // above any single node's cap so a page of ordinary nodes is unaffected.
+        assertTrue(ScreenTextReader.MAX_TOTAL_TEXT > ScreenTextReader.MAX_TEXT * 4)
+    }
+
+    @Test
+    fun theBudgetAdmitsUpToItsLimitAndRefusesAtIt() {
+        assertTrue(ScreenTextReader.withinTextBudget(0))
+        assertTrue(ScreenTextReader.withinTextBudget(ScreenTextReader.MAX_TOTAL_TEXT - 1))
+        assertFalse(ScreenTextReader.withinTextBudget(ScreenTextReader.MAX_TOTAL_TEXT))
+        assertFalse(ScreenTextReader.withinTextBudget(ScreenTextReader.MAX_TOTAL_TEXT + 1))
+    }
+
+    @Test
+    fun theBudgetCoversTheDensestRealSheetMeasuredOnThisProject() {
+        // docs/char-placement-conformance.md measured 3075 characters on the
+        // densest conformance sheet; the budget must sit above it so a real page
+        // never loses a node to it.
+        assertTrue(ScreenTextReader.MAX_TOTAL_TEXT > 3075)
+    }
 }

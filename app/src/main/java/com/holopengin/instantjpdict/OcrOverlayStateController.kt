@@ -331,17 +331,52 @@ class OcrOverlayStateController {
         rebuildNavGraph()
     }
 
+    /**
+     * The most character boxes [rebuildNavGraph] will build a graph over.
+     *
+     * `jpdict_core::nav_graph::NavGraph::build` is O(n²) in the box count — one
+     * pairwise distance pass per node — and the box count here is the page's
+     * **character** count, aggregated from every installed line. Measured on the
+     * host: 1000 boxes ≈ 64 ms, 2000 ≈ 300 ms, 5000 ≈ 2.3 s, 20000 ≈ 80 s. The
+     * cap is 3500 (~1 s by that quadratic), chosen to cover the densest sheet
+     * measured on this project (3075 characters) while staying far from the
+     * unbounded case; an O(n log n) construction is tracked in #107.
+     *
+     * Above it [navGraph] is left **null**, which is the same graceful state a
+     * page with fewer than five boxes gets: `navigate` falls back to same-line
+     * left/right (see its null branch), and every other feature — tap-to-lookup,
+     * the cursor, the neighbour chips — reads `activeLineResults` directly and is
+     * unaffected. The alternative, truncating the box list, would build a graph
+     * that silently navigates only a prefix of the page.
+     *
+     * The attacker case is why the bound exists: the accessibility tree can
+     * publish up to `MAX_NODES` (512) nodes of `MAX_TEXT` (1000) characters each,
+     * i.e. ~512k boxes, and a quadratic over that never returns. 3500 is far
+     * below that bound; a page past the cap takes the same-line fallback above
+     * instead of paying the quadratic.
+     */
+    companion object {
+        const val MAX_NAV_BOXES = 3500
+    }
+
     fun rebuildNavGraph() {
         navGraphBuilds++
         val boxes = mutableListOf<BoundingBox>()
         for (line in activeLineResults) {
             line?.let {
+                // Stop aggregating at the cap. Continuing would spend memory
+                // building a list the graph will not be asked to consume, and the
+                // count is the only thing the guard below needs.
+                if (boxes.size + it.charBoxes.size > MAX_NAV_BOXES) {
+                    boxes.clear()
+                    break
+                }
                 for (box in it.charBoxes) {
                     boxes.add(BoundingBox(box.left, box.top, box.width(), box.height()))
                 }
             }
         }
-        navGraph = if (boxes.size >= 5) buildNavGraph(boxes) else null
+        navGraph = if (boxes.size in 5..MAX_NAV_BOXES) buildNavGraph(boxes) else null
     }
 
     fun getGlobalIdx(lineIdx: Int, charIdxInLine: Int): Int {

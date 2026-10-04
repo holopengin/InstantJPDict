@@ -1,6 +1,7 @@
 package com.holopengin.instantjpdict
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -242,5 +243,52 @@ class GlobalDataRebuildTest {
         assertEquals(updates, c.globalDataUpdates)
         assertEquals(graph, c.navGraph)
         assertEquals(wholePage, c.activeAllChars.joinToString(""))
+    }
+
+    // ── The nav-graph box cap (text-driven DoS guard) ───────────────────────
+
+    /** A one-line page of [chars] character boxes, all on one row. */
+    private fun longLinePage(chars: Int): OcrOverlayStateController {
+        val c = OcrOverlayStateController()
+        c.activeLineResults = MutableList(1) { null as LineResult? }
+        c.activeLineResults[0] = LineResult(
+            text = "あ".repeat(chars),
+            charBoxes = (0 until chars).map { i -> JpDictRect(100 + i, 100, 101 + i, 124) },
+            alternatives = List(chars) { mutableListOf('あ' to 1f) },
+        )
+        c.updateGlobalData()
+        return c
+    }
+
+    @Test
+    fun a_page_over_the_nav_box_cap_builds_no_graph_and_still_navigates_same_line() {
+        // OcrOverlayStateController.MAX_NAV_BOXES bounds NavGraph::build's
+        // O(n²) cost. A page past the cap — the shape the accessibility tree can
+        // publish (MAX_NODES × MAX_TEXT characters) — must leave navGraph null,
+        // which is the same state a <5-box page gets: navigation degrades to the
+        // legacy same-line left/right, and nothing else changes.
+        val c = longLinePage(OcrOverlayStateController.MAX_NAV_BOXES + 1)
+
+        assertNull("past the cap the quadratic must not run", c.navGraph)
+        // The page's derived globals are still complete — only the graph is skipped.
+        assertEquals(OcrOverlayStateController.MAX_NAV_BOXES + 1, c.activeAllChars.size)
+
+        // …and the same-line fallback still moves the cursor.
+        c.ensureCursorPosition()
+        assertEquals(0, c.currentTappedIdx)
+        assertTrue(c.navigate(JpDictKeyEvent.KEYCODE_DPAD_RIGHT, 1080.0, 2400.0))
+        assertEquals(1, c.currentTappedIdx)
+        // Up/down need a graph; with none they decline rather than guess.
+        assertFalse(c.navigate(JpDictKeyEvent.KEYCODE_DPAD_DOWN, 1080.0, 2400.0))
+    }
+
+    @Test
+    fun a_page_at_the_nav_box_cap_still_builds_its_graph() {
+        // The cap is inclusive: exactly MAX_NAV_BOXES is still built, so the
+        // guard only refuses the sizes it was written to refuse.
+        val c = longLinePage(OcrOverlayStateController.MAX_NAV_BOXES)
+
+        assertNotNull(c.navGraph)
+        assertEquals(OcrOverlayStateController.MAX_NAV_BOXES, c.navGraph!!.n)
     }
 }

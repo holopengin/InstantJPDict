@@ -131,9 +131,20 @@ pub fn kana_size_epsilon() -> f32 {
 /// and runs off the ends as zero padding; see `jpdict_core::kana_size::window`
 /// for the layout. The Kotlin facade mirrors the 40-byte length as
 /// `KanaSizeEncoder.WINDOW_BYTES` because UniFFI cannot export consts.
+///
+/// The index is **clamped into `0..=chars().count()`** rather than
+/// trusted. `jpdict_core::kana_size::window` indexes `text[index]` and panics
+/// for `index` past the end; the old code here additionally `.expect`-panicked
+/// on a negative. Both are reachable from a host that hands this exported
+/// function a text-derived index, and the shim's contract is that a bad index
+/// degrades. An in-range index is untouched, so every real caller (the encoded
+/// vectors) is byte-for-byte unchanged; a past-the-end index clamps to the end,
+/// the same "clamp to the ends" rule `gap_candidates::index_from_kotlin` and
+/// the Kotlin facade already document.
 #[uniffi::export]
 pub fn kana_size_window(text: String, index: i64) -> Vec<i32> {
-    let index = usize::try_from(index).expect("kana_size_window: index must be non-negative");
+    let len = text.chars().count() as i64;
+    let index = index.clamp(0, len) as usize;
     pc::window(&text, index).to_vec()
 }
 
@@ -597,5 +608,46 @@ mod tests {
     fn exported_consts_match_upstream() {
         assert_eq!(kana_size_window_bytes(), pc::WINDOW_BYTES as i64);
         assert_eq!(kana_size_epsilon(), pc::EPSILON);
+    }
+
+    /// `kana_size_window` clamps its index instead of panicking on a
+    /// text-derived one. Before the guard a negative index `.expect`-panicked
+    /// in the shim and an index past the end panicked inside
+    /// `jpdict_core::kana_size::window`; both reached Rust through this
+    /// exported function. The regression is the call returning at all, plus
+    /// the clamp's own boundary behaviour.
+    #[test]
+    fn out_of_range_window_indices_clamp_instead_of_panicking() {
+        let text = "かっき".to_string();
+        let len = text.chars().count() as i64; // 3
+        assert_eq!(kana_size_window_bytes(), WINDOW_LEN as i64);
+        for index in [-1i64, -1000, len, len + 1, 1000, i64::MAX, i64::MIN] {
+            let window = kana_size_window(text.clone(), index);
+            assert_eq!(window.len(), WINDOW_LEN, "index {index}");
+        }
+        // An in-range index is untouched: it equals upstream directly.
+        for index in 0..len {
+            assert_eq!(
+                kana_size_window(text.clone(), index),
+                pc::window(&text, index as usize).to_vec(),
+                "index {index}",
+            );
+        }
+        // A past-the-end index clamps to the end, which is the window for the
+        // position after the last character — never a panic.
+        assert_eq!(
+            kana_size_window(text.clone(), len + 5),
+            pc::window(&text, len as usize).to_vec(),
+        );
+        // Negative clamps to the start.
+        assert_eq!(
+            kana_size_window(text.clone(), -5),
+            pc::window(&text, 0).to_vec(),
+        );
+        // The empty string is the degenerate case every position is "past the
+        // end" of.
+        for index in [-1i64, 0, 1, i64::MAX] {
+            assert_eq!(kana_size_window(String::new(), index).len(), WINDOW_LEN);
+        }
     }
 }

@@ -49,6 +49,11 @@ mod pitch;
 mod rotated_geometry;
 mod ruby_style;
 
+/// Adversarial-input tests for every text-taking export. Test-only; not part
+/// of the UniFFI surface.
+#[cfg(test)]
+mod adversarial;
+
 /// Bounding box for a detected character.
 #[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
 pub struct BoundingBox {

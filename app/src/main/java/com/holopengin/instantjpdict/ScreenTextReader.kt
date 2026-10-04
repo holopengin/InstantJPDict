@@ -154,6 +154,30 @@ object ScreenTextReader {
     const val MAX_TEXT = 1000
 
     /**
+     * The most characters the walk keeps across **all** candidate nodes.
+     *
+     * [MAX_NODES] and [MAX_TEXT] bound each node and the node count, but not
+     * their product: 512 nodes of 1000 characters is half a million characters,
+     * and every one of them is paid for downstream, per character, on the main
+     * thread — `charBoxesAt` lays the string out, `LineOverlayView.halfWidthOf`
+     * and `visiblePrefix` each make one UniFFI `isHalfWidth` crossing (~23 us
+     * each, measured), and `updateGlobalData` appends one `activeAllChars`
+     * entry. That is seconds of main-thread work from a screen an app controls,
+     * i.e. an ANR, and the nav graph's O(n²) build (guarded separately at
+     * `OcrOverlayStateController.MAX_NAV_BOXES`) would never finish.
+     *
+     * 8000 characters is ~2.6× the densest real page measured on this project
+     * (a 3075-character conformance sheet) and covers any phone or tablet
+     * screen, while bounding the per-character cost above to well under half a
+     * second even in the worst case. A tree that publishes more keeps answering
+     * — the walk stops early and returns what it has, exactly as it does at
+     * [MAX_NODES], and the rest of the screen goes to recognition. It is a
+     * bound, not a heuristic: no realistic page reaches it, so nothing about
+     * the answer changes for one.
+     */
+    const val MAX_TOTAL_TEXT = 8000
+
+    /**
      * One entry of the service's window list, as [windowsToTry] needs it.
      *
      * [area] is the window's own bounds area, read from the window
@@ -256,7 +280,10 @@ object ScreenTextReader {
         val pending = ArrayDeque<Pending>()
         pending.addLast(Pending(root, -1))
         var visited = 0
-        while (pending.isNotEmpty() && texts.size < MAX_NODES && visited < MAX_VISITED) {
+        var keptChars = 0
+        while (pending.isNotEmpty() && texts.size < MAX_NODES && visited < MAX_VISITED &&
+            withinTextBudget(keptChars)
+        ) {
             val frame = pending.removeLast()
             // What a child of this node inherits: this node's own index when it
             // became a candidate, its parent's otherwise (non-candidates are
@@ -270,6 +297,7 @@ object ScreenTextReader {
                     texts.add(candidate.text)
                     rects.add(candidate.rect)
                     parents.add(frame.parentCandidate)
+                    keptChars += candidate.text.length
                 }
                 val childCount = frame.node.childCount
                 for (i in 0 until childCount) {
@@ -343,6 +371,13 @@ object ScreenTextReader {
 
     /** #106: how many nodes one log line describes. */
     private const val MAX_LOGGED_NODES = 64
+
+    /**
+     * Whether the walk has kept as much text as it may — the pure half of
+     * [MAX_TOTAL_TEXT], so the budget is a thing a host test can pin rather than
+     * a condition buried in `read`.
+     */
+    internal fun withinTextBudget(keptChars: Int): Boolean = keptChars < MAX_TOTAL_TEXT
 
     /** #106: how much of a node's text one log line shows. */
     private const val LOGGED_TEXT_CHARS = 24
