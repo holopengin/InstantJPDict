@@ -912,7 +912,17 @@ class OcrOverlayView(
         // #106: break the text the way a native text view would have — the platform's
         // StaticLayout, so words are not split and CJK breaks follow the platform's
         // rules — rather than letting the layout wrap by character count.
-        val lines = nativeLineRanges(shown, node.rect.width(), baseSize * ScreenTextPlan.INK_TO_EM_SCALE)
+        //
+        // The WIDTH matters as much as the breaker: the node's rect is the VIEW's
+        // bounds (padding included), so breaking at it fit more words per line than the
+        // app did — the maintainer's "line breaks still don't match what android itself
+        // renders", visible in one capture as `#5 node40[196,420,1008,482]` drawn at
+        // `[198,432,890,472]`: 812px of rect against 692px of ink. The longest detected
+        // row IS the app's line width, so break there; the rect is only the fallback for
+        // a node with no rows at all.
+        val breakWidth = (ScreenTextPlan.textRows(node.rect, boxes).maxOfOrNull { it.width() }
+            ?: node.rect.width()).let { (it * 1.03f).roundToInt() }
+        val lines = nativeLineRanges(shown, breakWidth, baseSize * ScreenTextPlan.INK_TO_EM_SCALE)
         // #106: the box's height is the ink's height, which is smaller than the font
         // that drew it (Japanese ink is ~0.88em of a 1.2-1.4em line), so measuring
         // alone left every node-backed line short. The box's WIDTH is the drawn
@@ -959,7 +969,10 @@ class OcrOverlayView(
             }
             val layout = android.text.StaticLayout.Builder
                 .obtain(text, 0, text.length, paint, width)
-                .setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE)
+                // #106: a TextView's default, and therefore almost certainly the
+                // app's — HIGH_QUALITY balances a paragraph's lines instead of filling
+                // greedily, so SIMPLE broke in different places on the same text.
+                .setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY)
                 .setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE)
                 .setIncludePad(false)
                 .build()
