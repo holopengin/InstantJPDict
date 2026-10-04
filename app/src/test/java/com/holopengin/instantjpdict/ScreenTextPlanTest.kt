@@ -586,21 +586,22 @@ class ScreenTextPlanTest {
     }
 
     @Test
-    fun aMeasuredLineShorterThanItsRowScalesUp() {
-        // …and the same text in a 160px row is scaled 2x, filling it, instead of
-        // ending half way across.
+    fun aMeasuredLineShorterThanItsRowScalesUpToTheHeightBound() {
+        // The same text in a 160px row fits to 2x by width, but the cap is what keeps
+        // a scaled-up line inside its row: it stops at 1.3, so the glyphs are taller
+        // than the base but never taller than the line they belong to.
         val row = box(0, 0, 160, 60)
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
-        assertEquals(80, at[0]!!.right)
-        assertEquals(160, at[1]!!.right)
-        assertEquals(2f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(52, at[0]!!.right)
+        assertEquals(104, at[1]!!.right)
+        assertEquals(1.3f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
     }
 
     @Test
     fun theScaleIsClampedSoAShortLabelIsNotBlownUpToFillAWideBox() {
         // A two-character label in a thousand-pixel box is not a font 12x too small.
         val row = box(0, 0, 1000, 60)
-        assertEquals(2.5f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(1.3f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
         assertEquals(0.5f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row)) { 40f })
     }
 

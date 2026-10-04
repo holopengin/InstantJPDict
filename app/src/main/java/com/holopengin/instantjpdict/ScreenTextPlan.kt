@@ -491,9 +491,29 @@ object ScreenTextPlan {
         return (width / natural).coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
     }
 
-    /** #106: the narrowest and widest a measured fit may scale a line's text. */
+    /** #106: the narrowest a measured fit may scale a line's text. */
     const val MIN_MEASURED_SCALE = 0.5f
-    const val MAX_MEASURED_SCALE = 2.5f
+
+    /**
+     * #106: the widest a measured fit may scale a line's text — and this bound is a
+     * *height* bound, not a taste one.
+     *
+     * The fit matches the string's measured width to the box, which is right for a
+     * line of Japanese (square glyphs, so width and height agree: the device showed
+     * ~1.27x) — and badly wrong for a short, halfwidth-heavy label. The search chips
+     * in the maintainer's log are the case: `"a"` in a 94px box, `"N1"` in a 125px
+     * one, `"本"` in a 113px one, each a couple of half-em advances wide. Fitting
+     * those to the box scaled them to the old 2.5x cap, which made the glyphs taller
+     * than the row they belong to, so they were painted over their neighbours — the
+     * report that read as "two copies of exactly the same line in basically the same
+     * location, drawn overlapping".
+     *
+     * The size that drew a line cannot exceed its row's height, and a detected box is
+     * the ink: at our base size (0.9 x the row height) the recovered size is about
+     * 1.3x for Japanese ink (~0.88em) and less for Latin. So 1.3 is the ceiling where
+     * a width fit is still a size estimate; above it, it is a distortion.
+     */
+    const val MAX_MEASURED_SCALE = 1.3f
 
     /**
      * The node's own rect as the only row, or no rows at all when it has no area —
