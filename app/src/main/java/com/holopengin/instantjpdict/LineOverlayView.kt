@@ -145,6 +145,20 @@ class LineOverlayView(
          *  on is a thing a host test can pin: it is a View field, this is not. */
         internal fun halfWidthOf(text: String): BooleanArray =
             BooleanArray(text.length) { OcrEngine.isHalfWidth(text[it]) }
+
+        /**
+         * #106: the size factor [onDraw] paints character [i] at — the tree line's
+         * per-character scale ([LineResult.charScales]), and `1` for every line
+         * without one.
+         *
+         * The scales are normalised so the largest is 1 (the box hugs the tallest
+         * run and the body shrinks within it), so this only ever reduces a glyph's
+         * draw scale and a uniform line is untouched. A missing or short array reads
+         * 1, which draws exactly as before, so a length mismatch cannot change a
+         * recognised line.
+         */
+        internal fun charScaleOf(line: LineResult, i: Int): Float =
+            line.charScales?.let { if (i < it.size) it[i] else 1f } ?: 1f
     }
 
     init {
@@ -299,7 +313,11 @@ class LineOverlayView(
             // Halfwidth trim (#49): shared line-height textSize overshoots
             // ASCII ~10% next to kanji — scale about the box center (centering
             // untouched) on top of any box-fit shrink.
-            val drawScale = scale * (if (isHalf) ASCII_GLYPH_SCALE else 1f)
+            //
+            // #106: times the character's own size factor for a tree line the app
+            // drew at several sizes — the headword's glyphs grow to the box the line
+            // was fitted to, the body's shrink within it. 1 for every other line.
+            val drawScale = scale * (if (isHalf) ASCII_GLYPH_SCALE else 1f) * charScaleOf(line, i)
             if (tilt != 0f) {
                 canvas.save()
                 canvas.rotate(tilt, viewCenterX, viewCenterY)

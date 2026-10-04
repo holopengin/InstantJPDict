@@ -3,6 +3,7 @@ package com.holopengin.instantjpdict
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,5 +99,49 @@ class LineGlyphClassificationTest {
     fun paint_size_falls_back_to_the_caller_size_when_a_line_has_no_boxes() {
         val line = LineResult(text = "", charBoxes = emptyList(), alternatives = emptyList())
         assertEquals(50f * 0.90f, LineOverlayView.paintSizeFor(line, fixedSize = 50), 0.001f)
+    }
+
+    // ── per-character size (#106: a line the app drew at several sizes) ─────
+
+    @Test
+    fun char_scale_is_one_for_every_line_without_per_character_sizes() {
+        // A recognised line, and a node line that turned out to be one size: both
+        // have `charScales == null` and must draw exactly as before.
+        val line = LineResult(
+            text = "あい",
+            charBoxes = listOf(JpDictRect(0, 0, 40, 60), JpDictRect(40, 0, 80, 60)),
+            alternatives = emptyList(),
+        )
+        assertNull(line.charScales)
+        for (i in line.text.indices) assertEquals(1f, LineOverlayView.charScaleOf(line, i), 0.001f)
+    }
+
+    @Test
+    fun char_scale_returns_each_characters_own_factor() {
+        // The headword's body shrunk under it: `外為` at 1, the reading/rare smaller.
+        val line = LineResult(
+            text = "外為rare",
+            charBoxes = List(6) { JpDictRect(it * 10, 0, it * 10 + 10, 60) },
+            alternatives = emptyList(),
+            charScales = floatArrayOf(1f, 1f, 0.66f, 0.66f, 0.66f, 0.66f),
+        )
+        assertEquals(1f, LineOverlayView.charScaleOf(line, 0), 0.001f)
+        assertEquals(1f, LineOverlayView.charScaleOf(line, 1), 0.001f)
+        assertEquals(0.66f, LineOverlayView.charScaleOf(line, 2), 0.001f)
+        assertEquals(0.66f, LineOverlayView.charScaleOf(line, 5), 0.001f)
+    }
+
+    @Test
+    fun char_scale_reads_one_past_the_end_of_a_short_array() {
+        // A length mismatch cannot change what is drawn: a character with no entry is
+        // painted at the line's size rather than at a wrong one.
+        val line = LineResult(
+            text = "あいう",
+            charBoxes = List(3) { JpDictRect(it * 10, 0, it * 10 + 10, 60) },
+            alternatives = emptyList(),
+            charScales = floatArrayOf(0.5f, 1f),
+        )
+        assertEquals(0.5f, LineOverlayView.charScaleOf(line, 0), 0.001f)
+        assertEquals(1f, LineOverlayView.charScaleOf(line, 2), 0.001f)
     }
 }

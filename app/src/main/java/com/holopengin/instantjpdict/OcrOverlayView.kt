@@ -15,6 +15,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import androidx.core.graphics.get
 import android.os.PersistableBundle
 import android.text.TextPaint
 import android.util.Log
@@ -744,7 +745,7 @@ class OcrOverlayView(
                             val rows = plan.rowsByNode[nodeIndex].orEmpty()
                                 .map { pageBoxes[it].rect }
                                 .ifEmpty { listOf(screenNodes[nodeIndex].rect) }
-                            pageIndex to nodeLineResult(screenNodes[nodeIndex], rows)
+                            pageIndex to nodeLineResult(screenNodes[nodeIndex], rows, srcBitmap)
                         }
                     } ?: emptyList()
                     routing?.let {
@@ -904,7 +905,11 @@ class OcrOverlayView(
      * every character gets the advance the face actually gives it at the size it is
      * drawn, instead of a proportional share of the row's width.
      */
-    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult {
+    private fun nodeLineResult(
+        node: ScreenTextNode,
+        boxes: List<JpDictRect>,
+        bitmap: Bitmap? = null,
+    ): LineResult {
         // #106: a node whose text cannot fit its rect (an elided notification, a
         // scrolled page) answers with only the part that fits — see
         // [ScreenTextPlan.visiblePrefix]. For an ellipsis the visible characters ARE
@@ -921,6 +926,10 @@ class OcrOverlayView(
         val baseSize = rows.maxOf { it.height() } * 0.90f
         val measurer = advanceMeasurer(baseSize)
         val inkMeasurer = inkHeightMeasurer(baseSize)
+        // #106: the app may draw ONE line at several sizes (Aedict's headword/reading/
+        // "rare"). Recover those sizes from the screenshot's own ink, so the headword
+        // is not dragged down to the body size by the whole-line fit.
+        val charScales = perCharScales(bitmap, shown, rows, measurer, baseSize)
         // #106: break the text the way a native text view would have — the platform's
         // StaticLayout, so words are not split and CJK breaks follow the platform's
         // rules — rather than letting the layout wrap by character count.
@@ -950,6 +959,7 @@ class OcrOverlayView(
                 advanceOf = measurer,
                 lineRanges = lines,
                 inkHeightOf = inkMeasurer,
+                charScales = charScales,
             ),
             glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer, lines, inkMeasurer),
             alternatives = emptyList(),
@@ -961,8 +971,90 @@ class OcrOverlayView(
             // #106: drawn in the tree's own colour, so a glance tells a tree-sourced
             // line from a recognised one.
             fromScreenText = true,
+            charScales = charScales,
         )
     }
+
+    /**
+     * #106: the per-character size factors for one node-backed line, from the ink
+     * the app actually drew — or `null` when the line is one size, which is every
+     * uniform line and therefore byte-for-byte the line the overlay drew before this.
+     *
+     * The row is the node's own (its paid box, or the rect for a recovered node), and
+     * only a **single-row** line is measured: a paragraph's several rows each have
+     * their own sizes, and mapping a merged profile back to them is not needed for
+     * the case this exists for, so a multi-row node keeps the whole-line fit. The
+     * scales come back normalised so the largest is 1 — the box already hugs the
+     * tallest run, so the body shrinks within it rather than the headword growing
+     * past it.
+     */
+    private fun perCharScales(
+        bitmap: Bitmap?,
+        text: String,
+        rows: List<JpDictRect>,
+        advanceOf: (Char) -> Float,
+        baseSize: Float,
+    ): FloatArray? {
+        if (bitmap == null || bitmap.isRecycled || text.isEmpty() || rows.size != 1) return null
+        val row = rows[0]
+        if (row.width() <= 0 || row.height() <= 0) return null
+        val profile = sampleInkProfile(bitmap, row) ?: return null
+        val raw = ScreenTextInkProfile.scales(profile, text, advanceOf, row.height())
+        var largest = 1f
+        for (s in raw) if (s > largest) largest = s
+        if (largest <= 1f) return null
+        for (i in raw.indices) raw[i] /= largest
+        return raw
+    }
+
+    /**
+     * #106: the ink-height profile of [row] from [bitmap] — one column per pixel of
+     * the row's width, its value the vertical extent of ink in that column within the
+     * row's height.
+     *
+     * A pixel is "ink" when it differs from the screenshot's own median luminance by
+     * more than [INK_THRESHOLD]; the median is taken over the row, so a light-on-dark
+     * and a dark-on-light row are both read. `null` when the bitmap cannot be read
+     * (a recycled or hardware-backed capture), which the caller treats as "one size".
+     */
+    private fun sampleInkProfile(bitmap: Bitmap, row: JpDictRect): IntArray? {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return null
+        val left = row.left.coerceIn(0, w - 1)
+        val top = row.top.coerceIn(0, h - 1)
+        val right = row.right.coerceIn(left + 1, w)
+        val bottom = row.bottom.coerceIn(top + 1, h)
+        return try {
+            // Median luminance of the row, as the background level to differ from.
+            val luma = IntArray((right - left) * (bottom - top))
+            var at = 0
+            for (y in top until bottom) {
+                for (x in left until right) {
+                    val c = bitmap[x, y]
+                    luma[at++] = (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000
+                }
+            }
+            val sorted = luma.clone()
+            sorted.sort()
+            val background = sorted[sorted.size / 2]
+            val isInk = { x: Int, y: Int ->
+                val value = luma[(y - top) * (right - left) + (x - left)]
+                kotlin.math.abs(value - background) >= INK_THRESHOLD
+            }
+            ScreenTextInkProfile.inkProfile(bottom - top, right - left, isInk)
+        } catch (t: Throwable) {
+            Log.w("OcrOverlayView", "ink profile unreadable; drawing the line at one size", t)
+            null
+        }
+    }
+
+    /**
+     * #106: how far a pixel's luminance must differ from the row's background to
+     * count as ink — ~16% of full scale, far above screenshot noise (the capture is
+     * lossless) and far below any antialiased glyph's contrast.
+     */
+    private val INK_THRESHOLD = 40
 
     /**
      * #106: the lines the platform itself would break [text] into at [width] and
@@ -1118,10 +1210,22 @@ class OcrOverlayView(
                 val extent = linesByPage[page]?.let { line ->
                     val first = line.charBoxes.firstOrNull()?.left
                     val last = line.charBoxes.lastOrNull()?.right
-                    if (first != null && last != null && box != null) {
-                        " drawn=[$first,$last] gap=${box.right - last}"
+                    // #106: the range of per-character size factors the app's ink
+                    // implied — `scale=1.00..1.00` is a single-size line (unchanged),
+                    // `scale=0.66..1.00` is a line the app drew at several sizes and
+                    // the body of which has been shrunk under the headword.
+                    val scales = line.charScales
+                    val scaleText = if (scales != null && scales.isNotEmpty()) {
+                        val min = scales.min()
+                        val max = scales.max()
+                        " scale=" + String.format(java.util.Locale.ROOT, "%.2f..%.2f", min, max)
                     } else {
                         ""
+                    }
+                    if (first != null && last != null && box != null) {
+                        " drawn=[$first,$last] gap=${box.right - last}$scaleText"
+                    } else {
+                        scaleText
                     }
                 } ?: ""
                 "#$page@[${box?.left},${box?.top},${box?.right},${box?.bottom}]" +

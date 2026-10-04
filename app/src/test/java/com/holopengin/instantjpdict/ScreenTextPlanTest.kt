@@ -717,6 +717,35 @@ class ScreenTextPlanTest {
     }
 
     @Test
+    fun perCharacterScalesGiveTheGrownRunWiderBoxes() {
+        // #106: a line the app drew at two sizes — the first two characters at the
+        // body size, the next two shrunk. The shrunk characters must also take LESS
+        // width, so the headword's glyphs are not overlapping their neighbours.
+        val node = box(0, 0, 200, 60)
+        val at = ScreenTextPlan.charBoxesAt(
+            "ああああ", node, listOf(node),
+            advanceOf = { 40f }, inkHeightOf = { 30f },
+            charScales = floatArrayOf(1f, 1f, 0.5f, 0.5f),
+        )
+        val width0 = at[0]!!.width()
+        val width2 = at[2]!!.width()
+        assertTrue("body=$width0 shrunk=$width2", width2 < width0)
+    }
+
+    @Test
+    fun unitCharScalesAreExactlyTheUnscaledLayout() {
+        // A uniform line reports all-1 scales (or none); the layout must be identical
+        // either way, which is what makes "no larger run" byte-for-byte the old line.
+        val node = box(0, 0, 200, 60)
+        val plain = ScreenTextPlan.charBoxesAt("ああああ", node, listOf(node), advanceOf = { 40f }, inkHeightOf = { 30f })
+        val unit = ScreenTextPlan.charBoxesAt(
+            "ああああ", node, listOf(node), advanceOf = { 40f }, inkHeightOf = { 30f },
+            charScales = floatArrayOf(1f, 1f, 1f, 1f),
+        )
+        assertEquals(plain, unit)
+    }
+
+    @Test
     fun nothingMeasurableLeavesTheScaleAlone() {
         assertEquals(1f, ScreenTextPlan.measuredScale("", listOf(box(0, 0, 10, 10)), advanceOf = { 40f }))
         assertEquals(1f, ScreenTextPlan.measuredScale("あ", emptyList(), advanceOf = { 40f }))

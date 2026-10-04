@@ -365,11 +365,12 @@ object ScreenTextPlan {
         advanceOf: ((Char) -> Float)? = null,
         lineRanges: List<IntRange>? = null,
         inkHeightOf: ((String) -> Float)? = null,
+        charScales: FloatArray? = null,
     ): List<JpDictRect?> {
         if (text.isEmpty()) return emptyList()
         val rows = textRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
         if (rows.isEmpty()) return List(text.length) { null }
-        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf, lineRanges, inkHeightOf)
+        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf, lineRanges, inkHeightOf, charScales)
 
         // Step 2's arithmetic, extracted so the walk below reads as "which row is
         // this character in" and nothing else.
@@ -454,6 +455,7 @@ object ScreenTextPlan {
         advanceOf: (Char) -> Float,
         lineRanges: List<IntRange>? = null,
         inkHeightOf: ((String) -> Float)? = null,
+        charScales: FloatArray? = null,
     ): List<JpDictRect?> {
         // #106: the app's OWN line breaking, when the caller could measure it and its
         // lines match the rows one for one. Android's StaticLayout is what a native
@@ -461,7 +463,7 @@ object ScreenTextPlan {
         // platform's CJK rules otherwise — and our own character-count wrap split
         // words in the middle instead. See [nativeBoxes].
         if (lineRanges != null && lineRanges.size == rows.size) {
-            return nativeBoxes(text, rows, advanceOf, lineRanges, inkHeightOf)
+            return nativeBoxes(text, rows, advanceOf, lineRanges, inkHeightOf, charScales)
         }
         val scale = measuredScale(text, rows, advanceOf, inkHeightOf = inkHeightOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
@@ -475,7 +477,7 @@ object ScreenTextPlan {
                 x = rows[row].left.toFloat()
                 continue
             }
-            val advance = advanceOf(ch) * scale
+            val advance = advanceOf(ch) * scale * charScaleAt(charScales, i)
             // Wrap by the same rule the extent model uses: never split a character,
             // and an empty row always takes the next one (even one wider than the row).
             if (row < lastRow && x > rows[row].left && x + advance > rows[row].right) {
@@ -501,6 +503,10 @@ object ScreenTextPlan {
         }
         return out.toList()
     }
+
+    /** [charScales]'s value for character [i], 1 when there is no per-character sizing. */
+    private fun charScaleAt(charScales: FloatArray?, i: Int): Float =
+        if (charScales != null && i < charScales.size) charScales[i] else 1f
 
     /**
      * #106: the size a node-backed line is drawn at, as a multiple of the base size
@@ -623,6 +629,7 @@ object ScreenTextPlan {
         advanceOf: (Char) -> Float,
         lines: List<IntRange>,
         inkHeightOf: ((String) -> Float)? = null,
+        charScales: FloatArray? = null,
     ): List<JpDictRect?> {
         val fit = measuredScale(text, rows, advanceOf, lines, inkHeightOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
@@ -631,7 +638,7 @@ object ScreenTextPlan {
             for (j in lines[i]) {
                 if (j !in text.indices) continue
                 val ch = text[j]
-                val advance = advanceOf(ch) * fit
+                val advance = advanceOf(ch) * fit * charScaleAt(charScales, j)
                 if (hasInk(ch)) {
                     out[j] = JpDictRect(x.roundToInt(), rows[i].top, (x + advance).roundToInt(), rows[i].bottom)
                 }

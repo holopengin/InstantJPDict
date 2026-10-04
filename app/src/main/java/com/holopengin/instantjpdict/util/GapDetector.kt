@@ -145,4 +145,9 @@ internal fun GapLine.toLineResult(base: LineResult): LineResult = base.copy(
     alternatives = alternatives.map { alts -> alts.map { Char(it.ch) to it.score }.toMutableList() },
     charCols = charCols.toFloatArray(),
     overrides = overrides.associateTo(LinkedHashMap()) { it.index to (Char(it.ch) to it.score) },
+    // #106: the gap pipeline may rewrite `text` and `charBoxes`, so the per-character
+    // size factors — positionally aligned with the text — cannot be carried across.
+    // A tree-sourced line is the only kind with them and it is horizontal, which
+    // [BlankGaps.apply] never rewrites, so this is an invariant made explicit.
+    charScales = null,
 )

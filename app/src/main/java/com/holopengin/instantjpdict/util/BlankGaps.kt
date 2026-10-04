@@ -183,6 +183,12 @@ internal fun LineResult.withGapInsertions(plan: GapPlan): LineResult {
         // A fresh array, like the boundary conversion produced: `LineResult`
         // is a data class and a FloatArray compares by identity.
         charCols = cols.copyOf(),
+        // #106: the per-character size factors are positionally aligned with the
+        // text, so an inserted character would misalign every factor after it. No
+        // line that reaches here can have them — [apply] only inserts into a
+        // VERTICAL line and a tree-sourced line is never vertical — so this only
+        // makes the invariant explicit rather than assuming it.
+        charScales = null,
         // Ascending by key, like the boundary's `BTreeMap` → record list → map.
         overrides = shifted.sortedBy { it.first }
             .associateTo(LinkedHashMap()) { (index, value) -> index to value },

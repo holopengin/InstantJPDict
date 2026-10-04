@@ -69,6 +69,23 @@ data class LineResult(
      * built positionally in places.
      */
     val glyphScale: Float = 1f,
+    /**
+     * #106: the per-character size factors of a tree-sourced line, `null` for every
+     * line that is drawn at one size (which is every recognised line, and every
+     * node-backed line with no larger run).
+     *
+     * The app may draw one line at several sizes — Aedict's `外為: がいため rare` at
+     * ~50px, ~33px and ~14px — and [ScreenTextInkProfile] recovers those sizes from
+     * the screenshot's ink. The values here are **normalised so the largest is 1**:
+     * the line's own frame ([glyphScale], the char boxes' height) is unchanged and
+     * the *body* characters shrink, which is the app's geometry — the detected box
+     * hugs the tallest run, and everything else is smaller within it.
+     *
+     * A line with all-1 scales and a `null` array are the same thing to every reader;
+     * `null` is the default so the recognised path allocates nothing. Last parameter
+     * on purpose, like [fromScreenText] and [glyphScale].
+     */
+    val charScales: FloatArray? = null,
 ) {
     /** #53: clockwise glyph rotation in source pixels; 0 = exactly as today. */
     val tiltDeg: Float get() = quad?.tiltDeg ?: 0f
