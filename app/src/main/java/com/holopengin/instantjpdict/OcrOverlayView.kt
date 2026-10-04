@@ -720,7 +720,7 @@ class OcrOverlayView(
                             // test (an elided node's string cannot).
                             isFullWidth = { !OcrEngine.isHalfWidth(it) },
                         )
-                        logScreenTextSplit(mode, screenNodes.size, plan)
+                        logScreenTextSplit(mode, screenNodes.size, plan, screenNodes, pageBoxesForLog = lineBoxes)
                         plan
                     }
                     // The augmented list: every detected box, unchanged and in place,
@@ -975,7 +975,14 @@ class OcrOverlayView(
      * No surrounding text (this log gets copied out and shared), and it goes to
      * [InferLog] as well as logcat so the copied bundle carries it.
      */
-    private fun logScreenTextSplit(mode: String, nodes: Int, plan: ScreenTextRoute.Routing) {
+    private fun logScreenTextSplit(
+        mode: String,
+        nodes: Int,
+        plan: ScreenTextRoute.Routing,
+        screenNodes: List<ScreenTextNode> = emptyList(),
+        recordNodes: List<ScreenTextNode> = emptyList(),
+        pageBoxesForLog: List<LineBox> = emptyList(),
+    ) {
         val pkg = ScreenTextReader.lastPackage ?: "unknown"
         // #106: the walk's own numbers, and the package the capture said was in
         // front. They are here because this line is the one that reaches the
@@ -989,6 +996,26 @@ class OcrOverlayView(
             "long=${ScreenTextReader.lastDroppedLong}"
         Log.i("OcrOverlayView", line)
         InferLog.add(line)
+
+        // #106: and the lines that will actually be DRAWN, which is what a "two copies
+        // of the same line, perfectly overlapping" report is about. The reader's own
+        // log lists the nodes it kept — four result rows legitimately carry the same
+        // dictionary label — so a collision created by the routing or the layout is
+        // invisible there. One entry per node-backed line: the page box it installs
+        // at, the node, its rect and its text.
+        if (plan.nodeAt.isNotEmpty() && screenNodes.isNotEmpty()) {
+            val drawn = plan.nodeAt.entries.take(64).joinToString(" ") { (page, nodeIndex) ->
+                val node = screenNodes.getOrNull(nodeIndex)
+                val box = pageBoxesForLog.getOrNull(page)?.rect
+                val r = node?.rect
+                "#$page@[${box?.left},${box?.top},${box?.right},${box?.bottom}]" +
+                    "node$nodeIndex[${r?.left},${r?.top},${r?.right},${r?.bottom}]" +
+                    "\"${node?.text?.take(20) ?: "?"}\""
+            }
+            val drawnLine = "screen text lines=${plan.nodeAt.size}: $drawn"
+            Log.i("OcrOverlayView", drawnLine)
+            InferLog.add(drawnLine)
+        }
     }
 
     /**
