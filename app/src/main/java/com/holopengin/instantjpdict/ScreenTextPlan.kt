@@ -444,10 +444,17 @@ object ScreenTextPlan {
                 x = rows[row].left.toFloat()
             }
             if (hasInk(ch)) {
+                // #106: NOT clamped to the row's right edge. That clamp turned every
+                // character past the row into a zero-width box at the row's edge — the
+                // maintainer's "characters that would have overflowed onto the next
+                // line bunch up and overlap the end of the line instead". A tail that
+                // does not fit runs past the row, where the view clips it: no two
+                // characters ever share pixels, and the alternative (truncating) is
+                // the route's job, from the fit it already computed.
                 out[i] = JpDictRect(
                     x.roundToInt(),
                     rows[row].top,
-                    (x + advance).roundToInt().coerceIn(rows[row].left, rows[row].right),
+                    (x + advance).roundToInt(),
                     rows[row].bottom,
                 )
             }

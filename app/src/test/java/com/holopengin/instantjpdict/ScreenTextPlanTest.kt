@@ -571,6 +571,27 @@ class ScreenTextPlanTest {
     // ── measured advances (#106 spacing) ────────────────────────────────────
 
     @Test
+    fun aLineTooLongForItsRowDoesNotBunchAtTheEnd() {
+        // The maintainer's follow-up: "characters that would have overflowed onto the
+        // next line bunch up and overlap the end of the line instead" — the right-edge
+        // clamp made every character past the row a zero-width box at the row's edge.
+        // Ten 40px advances in a 100px row cannot all fit even at the 0.5 floor
+        // (10 x 20 = 200), so the tail runs past the row and the view clips it. The
+        // property that matters: no two characters share pixels.
+        val row = box(0, 0, 100, 60)
+        val at = ScreenTextPlan.charBoxesAt("あ".repeat(10), row, listOf(row), advanceOf = { 40f })
+        val boxes = at.filterNotNull()
+        assertEquals(10, boxes.size)
+        for (i in 1 until boxes.size) {
+            assertTrue(
+                "box $i starts at ${boxes[i].left}, the one before ends at ${boxes[i - 1].right}",
+                boxes[i].left >= boxes[i - 1].right,
+            )
+        }
+        assertTrue("the tail should run past the row", boxes.last().right > row.right)
+    }
+
+    @Test
     fun aMeasuredLineIsScaledToTheRowWidth() {
         // The maintainer: "font size should scale up to fit the real width of the
         // line; right now the font is too small, so the string is too short". A box
