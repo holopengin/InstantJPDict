@@ -213,6 +213,20 @@ class ScreenTextRouteTest {
     }
 
     @Test
+    fun aNodesRowsAreOnlyTheBoxesItOwns() {
+        // Each node's rows are the boxes IT paid for — not the page's whole box list,
+        // which was what the layout used to be handed.
+        val first = box(0, 0, 300, 60)
+        val second = box(0, 60, 300, 120)
+        val plan = route(
+            boxes = listOf(first, second),
+            nodes = listOf(node("上", 0, 0, 300, 60), node("下", 0, 60, 300, 120)),
+        )
+        assertEquals(mapOf(0 to 0, 1 to 1), plan.nodeAt)
+        assertEquals(mapOf(0 to listOf(0), 1 to listOf(1)), plan.rowsByNode)
+    }
+
+    @Test
     fun anElidedNodeWithNoBoxInsideStillAnswers() {
         // No detected box inside it, so refusing would leave the region with no source
         // — nothing for recognition to read. The node answers, the view draws the

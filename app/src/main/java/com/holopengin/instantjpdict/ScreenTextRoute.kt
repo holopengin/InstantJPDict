@@ -44,6 +44,14 @@ object ScreenTextRoute {
         /** How many nodes no box covered and the ink sample kept. */
         val recovered: Int,
         /**
+         * #106: for each node that answers, the page boxes that are ITS OWN rows — the
+         * boxes it paid for (or the one appended for a recovered node). The layout used
+         * to be handed the whole page's boxes and take every one inside the node's
+         * rect, which swept in boxes belonging to other nodes and boxes that are not
+         * text at all; a node's text is laid out over its own rows and nothing else.
+         */
+        val rowsByNode: Map<Int, List<Int>>,
+        /**
          * #106: how many nodes were refused because their text cannot fit the rect
          * they are drawn in — an elided notification, a scrolled page. Log-only.
          */
@@ -150,11 +158,17 @@ object ScreenTextRoute {
         // page numbers. The bookkeeping is now in the filtered space it is asking
         // about.
         val installed = HashSet<Int>()
+        val rowsByNode = LinkedHashMap<Int, MutableList<Int>>()
         for ((boxIndex, nodeIndex) in plan.nodePaid) {
             if (installed.add(nodeIndex)) nodeAt[boxIndex] = kept[nodeIndex]
+            rowsByNode.getOrPut(kept[nodeIndex]) { mutableListOf() }.add(boxIndex)
         }
         val firstRecovered = boxes.size
-        for (k in recovered.indices) nodeAt[firstRecovered + k] = kept[recovered[k]]
+        for (k in recovered.indices) {
+            val page = firstRecovered + k
+            nodeAt[page] = kept[recovered[k]]
+            rowsByNode[kept[recovered[k]]] = mutableListOf(page)
+        }
 
         return Routing(
             boxes = augmented,
@@ -165,6 +179,7 @@ object ScreenTextRoute {
             detected = boxes.size,
             nodePaid = plan.nodePaid.size,
             recovered = recovered.size,
+            rowsByNode = rowsByNode.mapValues { it.value.toList() },
             elided = elided,
         )
     }

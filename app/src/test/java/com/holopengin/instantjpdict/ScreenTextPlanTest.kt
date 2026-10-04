@@ -571,6 +571,18 @@ class ScreenTextPlanTest {
     // ── measured advances (#106 spacing) ────────────────────────────────────
 
     @Test
+    fun aDegenerateBoxInsideTheNodeIsNotARow() {
+        // The icon case the maintainer reported: a 30x30 box inside a 600-wide row is
+        // not a row of the node's text. It used to be taken as row 0 — rows read
+        // top-to-bottom, left-to-right — so the node's first character was poured into
+        // the icon and the rest shifted.
+        val icon = box(0, 0, 30, 30)
+        val textRow = box(200, 0, 600, 60)
+        val node = box(0, 0, 600, 60)
+        assertEquals(listOf(textRow), ScreenTextPlan.visualRows(node, listOf(icon, textRow)))
+    }
+
+    @Test
     fun aLongLineIsShrunkIntoItsRowRatherThanBunchedAtTheEnd() {
         // The maintainer's "characters bunch up and overlap the end of the line":
         // ten 40px advances in a 100px row. The width bound shrinks the size to 0.25,

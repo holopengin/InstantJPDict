@@ -250,7 +250,18 @@ object ScreenTextPlan {
         lineBoxes.mapNotNull { box ->
             if (!centreInside(nodeRect, box)) return@mapNotNull null
             val clipped = clip(box, nodeRect)
-            if (hasArea(clipped)) clipped else null
+            if (!hasArea(clipped)) return@mapNotNull null
+            // #106: a box too small to hold one character is not a row of text. An icon
+            // or a decoration inside a node's bounds was otherwise taken as its FIRST
+            // row — because rows are read top-to-bottom, left-to-right — so the node's
+            // first character was poured into the icon and every following character
+            // was shifted: the maintainer's "a degenerate det box steals the first
+            // character of screenreader text that appears far further to the right".
+            // The bound is deliberately generous: a row must be able to hold one
+            // fullwidth glyph at the ink size the node's own rect implies.
+            val rowHeight = clipped.height().coerceAtLeast(1)
+            if (clipped.width() < MIN_EM_RATIO * rowHeight) return@mapNotNull null
+            clipped
         }.sortedWith(compareBy({ it.top }, { it.left }))
 
     /**

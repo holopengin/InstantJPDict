@@ -822,7 +822,12 @@ class OcrOverlayView(
                         // the page once per node.
                         val detectedRects = lineBoxes.map { it.rect }
                         plan.nodeAt.map { (pageIndex, nodeIndex) ->
-                            pageIndex to nodeLineResult(screenNodes[nodeIndex], detectedRects, pageBoxes[pageIndex].rect)
+                            // #106: the node's OWN rows, never the page's whole box list
+                            // — see [ScreenTextRoute.Routing.rowsByNode].
+                            val rows = plan.rowsByNode[nodeIndex].orEmpty()
+                                .map { pageBoxes[it].rect }
+                                .ifEmpty { listOf(screenNodes[nodeIndex].rect) }
+                            pageIndex to nodeLineResult(screenNodes[nodeIndex], rows, pageBoxes[pageIndex].rect)
                         }
                     } ?: emptyList()
                     for ((pageIndex, line) in nodeLines) {
