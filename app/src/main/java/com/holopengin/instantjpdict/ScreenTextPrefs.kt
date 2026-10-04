@@ -27,8 +27,9 @@ import androidx.core.content.edit
  *
  * The value is a [String] rather than an enum ordinal so a stored value from a
  * future build reads as `auto` here rather than silently selecting whatever
- * ordinal 1 means by then. An unrecognised value is [AUTO], which is the path
- * #106 ships as the default.
+ * ordinal 1 means by then. An unrecognised value is [OCR], which is the path this
+ * app ships as the default: the tree-sourced modes are **experimental** and have to
+ * be chosen deliberately.
  *
  * ## Who reads it
  *
@@ -46,11 +47,15 @@ object ScreenTextPrefs {
     /** #106: the key inside [PREFS_NAME]. */
     const val KEY_MODE = "screen_text_mode"
 
-    /** #106: the default mode, and the value of any unrecognised stored one. */
+    /**
+     * #106: **experimental** — the tree answers where it can, the rest is recognised.
+     *
+     * Not the default: see [OCR] for why.
+     */
     const val AUTO = "auto"
 
     /**
-     * #106: **nodes only** — never recognise. Every visible Japanese-bearing node
+     * #106: **experimental** — nodes only, never recognise. Every visible Japanese-bearing node
      * becomes a line (still behind the ink sample), and a detected box no node
      * covers is simply not shown rather than recognised.
      *
@@ -70,26 +75,27 @@ object ScreenTextPrefs {
     const val NODES = "nodes"
 
     /**
-     * #106: **always OCR** — today's path, unchanged and unfiltered.
+     * #106: **always OCR** — today's path, unchanged and unfiltered, and the DEFAULT.
      *
-     * The setting to reach for when the tree lies: an accessibility label that
-     * is not the drawn text, a virtual node reporting phantom content. Detection
-     * and recognition both run exactly as they did before #106.
+     * The tree-sourced modes are experimental (see [AUTO] and [NODES]); this is the
+     * pipeline the app shipped before them, so it is what a fresh install and an
+     * untouched preference get. Detection and recognition run exactly as they always
+     * did.
      */
     const val OCR = "ocr"
 
-    /** The modes, in the order a settings control should offer them. */
-    val MODES: List<String> = listOf(AUTO, NODES, OCR)
+    /** The modes, in the order a settings control should offer them: default first. */
+    val MODES: List<String> = listOf(OCR, AUTO, NODES)
 
     /** The stored mode, or [AUTO] when unset or unrecognised. Never throws. */
     fun mode(context: Context): String {
         val stored = try {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(KEY_MODE, AUTO)
+                .getString(KEY_MODE, OCR)
         } catch (_: Exception) {
             null
         }
-        return if (stored in MODES) stored!! else AUTO
+        return if (stored in MODES) stored!! else OCR
     }
 
     /**

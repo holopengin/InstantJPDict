@@ -216,16 +216,16 @@ class DebugSettingsActivity : AppCompatActivity() {
             modeRadios.forEach { (m, radio) -> radio.isChecked = m == mode }
         }
         fun modeTitle(mode: String): String = when (mode) {
-            ScreenTextPrefs.NODES -> "App text only"
+            ScreenTextPrefs.NODES -> "App text only (experimental)"
             ScreenTextPrefs.OCR -> "OCR only"
-            else -> "Auto"
+            else -> "Auto (experimental)"
         }
         fun modeSupporting(mode: String): String = when (mode) {
             ScreenTextPrefs.NODES ->
-                "Never recognise; anything the app doesn't cover is not shown. " +
-                    "Screens with no app text still use OCR."
-            ScreenTextPrefs.OCR -> "Always recognise; never use the app's text."
-            else -> "Prefer the app's text; recognise the rest. Recommended."
+                "Experimental. Never recognise; anything the app doesn't cover is " +
+                    "not shown. Screens with no app text still use OCR."
+            ScreenTextPrefs.OCR -> "Always recognise; never use the app's text. Recommended."
+            else -> "Experimental. Prefer the app's text; recognise the rest."
         }
         ScreenTextPrefs.MODES.forEach { mode ->
             val radio = MaterialRadioButton(this).apply {
