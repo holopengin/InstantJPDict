@@ -621,7 +621,7 @@ class ScreenTextPlanTest {
         assertEquals(0, at[0]!!.left)
         assertEquals(40, at[0]!!.right)
         assertEquals(80, at[1]!!.right)
-        assertEquals(1f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(1f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
     }
 
     @Test
@@ -633,7 +633,7 @@ class ScreenTextPlanTest {
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
         assertEquals(50, at[0]!!.right)
         assertEquals(101, at[1]!!.right)
-        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
     }
 
     @Test
@@ -641,8 +641,8 @@ class ScreenTextPlanTest {
         // The two directions the width bound may act in: it never grows a short label
         // past the ink ratio, and it shrinks a string that would not fit at all.
         val row = box(0, 0, 1000, 60)
-        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
-        assertEquals(0.25f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row)) { 40f })
+        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
+        assertEquals(0.25f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row), advanceOf = { 40f }))
     }
 
     @Test
@@ -659,8 +659,8 @@ class ScreenTextPlanTest {
 
     @Test
     fun nothingMeasurableLeavesTheScaleAlone() {
-        assertEquals(1f, ScreenTextPlan.measuredScale("", listOf(box(0, 0, 10, 10))) { 40f })
-        assertEquals(1f, ScreenTextPlan.measuredScale("あ", emptyList()) { 40f })
+        assertEquals(1f, ScreenTextPlan.measuredScale("", listOf(box(0, 0, 10, 10)), advanceOf = { 40f }))
+        assertEquals(1f, ScreenTextPlan.measuredScale("あ", emptyList(), advanceOf = { 40f }))
     }
 
     @Test
