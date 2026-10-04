@@ -16,6 +16,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.PersistableBundle
+import android.text.TextPaint
 import android.util.Log
 import android.view.ContextThemeWrapper
 import android.view.Gravity
@@ -906,7 +907,12 @@ class OcrOverlayView(
         // the prefix, which is why this is a truncation and not a refusal: when the
         // detector found no box inside the node there would be nothing else to read.
         val shown = ScreenTextPlan.visiblePrefix(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) }
-        val measurer = advanceMeasurer(installed.height() * 0.90f)
+        val baseSize = installed.height() * 0.90f
+        val measurer = advanceMeasurer(baseSize)
+        // #106: break the text the way a native text view would have — the platform's
+        // StaticLayout, so words are not split and CJK breaks follow the platform's
+        // rules — rather than letting the layout wrap by character count.
+        val lines = nativeLineRanges(shown, node.rect.width(), baseSize * ScreenTextPlan.INK_TO_EM_SCALE)
         // #106: the box's height is the ink's height, which is smaller than the font
         // that drew it (Japanese ink is ~0.88em of a 1.2-1.4em line), so measuring
         // alone left every node-backed line short. The box's WIDTH is the drawn
@@ -922,8 +928,9 @@ class OcrOverlayView(
                 boxes = boxes,
                 isFullWidth = { !OcrEngine.isHalfWidth(it) },
                 advanceOf = measurer,
+                lineRanges = lines,
             ),
-            glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer),
+            glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer, lines),
             alternatives = emptyList(),
             isVertical = false,
             cropW = node.rect.width(),
@@ -934,6 +941,33 @@ class OcrOverlayView(
             // line from a recognised one.
             fromScreenText = true,
         )
+    }
+
+    /**
+     * #106: the lines the platform itself would break [text] into at [width] and
+     * [textSize] — a `StaticLayout`, which is what a native text view wrapped with:
+     * word boundaries where the script has them, and the platform's CJK break rules
+     * (kinsoku included) everywhere else. Empty when nothing can be measured, in which
+     * case the layout falls back to its own wrap.
+     */
+    private fun nativeLineRanges(text: String, width: Int, textSize: Float): List<IntRange> {
+        if (text.isEmpty() || width <= 0 || textSize <= 0f) return emptyList()
+        return try {
+            val paint = TextPaint(Paint(Paint.ANTI_ALIAS_FLAG)).apply {
+                typeface = OverlayFont.typeface(context)
+                this.textSize = textSize
+            }
+            val layout = android.text.StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, width)
+                .setBreakStrategy(android.text.Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE)
+                .setIncludePad(false)
+                .build()
+            (0 until layout.lineCount).map { layout.getLineStart(it) until layout.getLineEnd(it) }
+        } catch (e: Exception) {
+            Log.w("OcrOverlayView", "native line breaking failed; using the layout's own wrap", e)
+            emptyList()
+        }
     }
 
     /**

@@ -363,11 +363,12 @@ object ScreenTextPlan {
         lineBoxes: List<JpDictRect> = emptyList(),
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
         advanceOf: ((Char) -> Float)? = null,
+        lineRanges: List<IntRange>? = null,
     ): List<JpDictRect?> {
         if (text.isEmpty()) return emptyList()
         val rows = textRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
         if (rows.isEmpty()) return List(text.length) { null }
-        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf)
+        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf, lineRanges)
 
         // Step 2's arithmetic, extracted so the walk below reads as "which row is
         // this character in" and nothing else.
@@ -450,7 +451,16 @@ object ScreenTextPlan {
         text: String,
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
+        lineRanges: List<IntRange>? = null,
     ): List<JpDictRect?> {
+        // #106: the app's OWN line breaking, when the caller could measure it and its
+        // lines match the rows one for one. Android's StaticLayout is what a native
+        // text view wrapped with — word boundaries for scripts that have them, the
+        // platform's CJK rules otherwise — and our own character-count wrap split
+        // words in the middle instead. See [nativeBoxes].
+        if (lineRanges != null && lineRanges.size == rows.size) {
+            return nativeBoxes(text, rows, advanceOf, lineRanges)
+        }
         val scale = measuredScale(text, rows, advanceOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
         val lastRow = rows.size - 1
@@ -516,6 +526,7 @@ object ScreenTextPlan {
         text: String,
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
+        lineRanges: List<IntRange>? = null,
     ): Float {
         if (rows.isEmpty()) return 1f
         val totalWidth = rows.sumOf { it.width() }.toFloat()
@@ -531,6 +542,20 @@ object ScreenTextPlan {
 
         var fit = INK_TO_EM_SCALE
         var measured = false
+        if (lineRanges != null && lineRanges.size == rows.size) {
+            // The native lines are the rows: bound each line by its own row.
+            for (i in rows.indices) {
+                var need = 0f
+                for (j in lineRanges[i]) {
+                    if (j in text.indices && !isLineBreak(text[j])) need += advanceOf(text[j])
+                }
+                if (need > 0f) {
+                    measured = true
+                    fit = minOf(fit, rows[i].width().toFloat() / need)
+                }
+            }
+            return if (measured) fit else 1f
+        }
         val segments = text.split('\n')
         if (segments.size == rows.size) {
             // The app's own breaks separate the rows one for one: each row bounds
@@ -559,6 +584,37 @@ object ScreenTextPlan {
      * row height).
      */
     const val INK_TO_EM_SCALE = 1.26f
+
+    /**
+     * #106: place a node's text along the lines the PLATFORM broke it into.
+     *
+     * Each line goes on its row, left to right, at the fit [measuredScale] computes
+     * from the same lines — so a word the app kept whole stays whole. Without this the
+     * layout wrapped by character count, which splits words in the middle of Latin
+     * text and ignores the platform's CJK break rules entirely.
+     */
+    private fun nativeBoxes(
+        text: String,
+        rows: List<JpDictRect>,
+        advanceOf: (Char) -> Float,
+        lines: List<IntRange>,
+    ): List<JpDictRect?> {
+        val fit = measuredScale(text, rows, advanceOf, lines)
+        val out = arrayOfNulls<JpDictRect>(text.length)
+        for (i in rows.indices) {
+            var x = rows[i].left.toFloat()
+            for (j in lines[i]) {
+                if (j !in text.indices) continue
+                val ch = text[j]
+                val advance = advanceOf(ch) * fit
+                if (hasInk(ch)) {
+                    out[j] = JpDictRect(x.roundToInt(), rows[i].top, (x + advance).roundToInt(), rows[i].bottom)
+                }
+                x += advance
+            }
+        }
+        return out.toList()
+    }
 
     /**
      * The node's own rect as the only row, or no rows at all when it has no area —
