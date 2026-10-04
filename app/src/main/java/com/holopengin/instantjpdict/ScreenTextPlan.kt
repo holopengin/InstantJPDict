@@ -700,7 +700,18 @@ object ScreenTextPlan {
             val extent = if (isFullWidth(ch)) 1f else 0.5f
             val capacity = rows[row].width().toFloat() /
                 (MIN_EM_RATIO * rows[row].height().coerceAtLeast(1))
-            if (used + extent > capacity * FIT_SLACK) return text.substring(0, i)
+            if (used > 0f && used + extent > capacity * FIT_SLACK) {
+                // #106: the row is full, so the text continues on the NEXT one —
+                // exactly as the layout wraps it. Running out of rows is what makes
+                // text not fit, not filling one; without this every node whose text
+                // needed more than its first row was refused (and the maintainer's
+                // `elided=13` counts were mostly this). `used > 0f` keeps the
+                // layout's rule that a character is never split and an empty row
+                // always takes the next one, however wide it is.
+                row++
+                used = 0f
+                if (row >= rows.size) return text.substring(0, i)
+            }
             used += extent
         }
         return text
