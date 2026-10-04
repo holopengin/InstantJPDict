@@ -334,13 +334,12 @@ class OcrOverlayStateController {
     /**
      * The most character boxes [rebuildNavGraph] will build a graph over.
      *
-     * `jpdict_core::nav_graph::NavGraph::build` is O(n²) in the box count — one
-     * pairwise distance pass per node — and the box count here is the page's
-     * **character** count, aggregated from every installed line. Measured on the
-     * host: 1000 boxes ≈ 64 ms, 2000 ≈ 300 ms, 5000 ≈ 2.3 s, 20000 ≈ 80 s. The
-     * cap is 3500 (~1 s by that quadratic), chosen to cover the densest sheet
-     * measured on this project (3075 characters) while staying far from the
-     * unbounded case; an O(n log n) construction is tracked in #107.
+     * `jpdict_core::nav_graph::NavGraph::build` is O(n log n) since #107 — a
+     * k-d tree answers the candidate queries and memory is O(n) — measured on
+     * the host: 3,500 boxes ≈ 104 ms, 10,000 ≈ 147 ms, 50,000 ≈ 930 ms,
+     * 100,000 ≈ 2.35 s. The cap is 20,000 (~0.3 s by that scaling): it covers
+     * every realistic page many times over while still bounding what a hostile
+     * tree can ask for.
      *
      * Above it [navGraph] is left **null**, which is the same graceful state a
      * page with fewer than five boxes gets: `navigate` falls back to same-line
@@ -351,12 +350,11 @@ class OcrOverlayStateController {
      *
      * The attacker case is why the bound exists: the accessibility tree can
      * publish up to `MAX_NODES` (512) nodes of `MAX_TEXT` (1000) characters each,
-     * i.e. ~512k boxes, and a quadratic over that never returns. 3500 is far
-     * below that bound; a page past the cap takes the same-line fallback above
-     * instead of paying the quadratic.
+     * i.e. ~512k boxes; 20,000 is far below that, so a hostile page takes the
+     * same-line fallback above rather than a half-million-node build.
      */
     companion object {
-        const val MAX_NAV_BOXES = 3500
+        const val MAX_NAV_BOXES = 20000
     }
 
     fun rebuildNavGraph() {
