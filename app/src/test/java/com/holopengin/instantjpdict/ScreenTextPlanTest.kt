@@ -572,14 +572,23 @@ class ScreenTextPlanTest {
 
     @Test
     fun aDegenerateBoxInsideTheNodeIsNotARow() {
-        // The icon case the maintainer reported: a 30x30 box inside a 600-wide row is
-        // not a row of the node's text. It used to be taken as row 0 — rows read
-        // top-to-bottom, left-to-right — so the node's first character was poured into
-        // the icon and the rest shifted.
-        val icon = box(0, 0, 30, 30)
+        // The icon case the maintainer reported: a square box inside a wide row is not
+        // a row of text. It used to be taken as row 0 — rows read top-to-bottom,
+        // left-to-right — so the node's first character was poured into the icon and
+        // the rest shifted. visualRows still reports it (the routing needs to see a
+        // vertical column to refuse one); the LAYOUT does not.
+        val icon = box(0, 0, 40, 40)
         val textRow = box(200, 0, 600, 60)
         val node = box(0, 0, 600, 60)
-        assertEquals(listOf(textRow), ScreenTextPlan.visualRows(node, listOf(icon, textRow)))
+        assertEquals(listOf(icon, textRow), ScreenTextPlan.visualRows(node, listOf(icon, textRow)))
+        assertEquals(listOf(textRow), ScreenTextPlan.textRows(node, listOf(icon, textRow)))
+    }
+
+    @Test
+    fun aSingleCharacterRowIsStillARow() {
+        // The search chips in the maintainer's log are one glyph wide by one tall:
+        // 113x71 passes 1.4, which is the point of choosing a bound below two glyphs.
+        assertTrue(ScreenTextPlan.textRows(box(0, 0, 113, 71), listOf(box(0, 0, 113, 71))).isNotEmpty())
     }
 
     @Test

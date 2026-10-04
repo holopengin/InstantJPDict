@@ -250,19 +250,35 @@ object ScreenTextPlan {
         lineBoxes.mapNotNull { box ->
             if (!centreInside(nodeRect, box)) return@mapNotNull null
             val clipped = clip(box, nodeRect)
-            if (!hasArea(clipped)) return@mapNotNull null
-            // #106: a box too small to hold one character is not a row of text. An icon
-            // or a decoration inside a node's bounds was otherwise taken as its FIRST
-            // row — because rows are read top-to-bottom, left-to-right — so the node's
-            // first character was poured into the icon and every following character
-            // was shifted: the maintainer's "a degenerate det box steals the first
-            // character of screenreader text that appears far further to the right".
-            // The bound is deliberately generous: a row must be able to hold one
-            // fullwidth glyph at the ink size the node's own rect implies.
-            val rowHeight = clipped.height().coerceAtLeast(1)
-            if (clipped.width() < MIN_EM_RATIO * rowHeight) return@mapNotNull null
-            clipped
+            if (hasArea(clipped)) clipped else null
         }.sortedWith(compareBy({ it.top }, { it.left }))
+
+    /**
+     * #106: [visualRows], minus the boxes that are not rows of TEXT.
+     *
+     * A row of text is wider than it is tall — even a single glyph sits in a line box
+     * that is roughly square at worst, and a real row holds several. An icon, a
+     * decoration or a control inside a node's bounds is not: the maintainer's
+     * "degenerate det box (i.e. a box over an icon) steals the first character of
+     * screenreader text that appears far further to the right", because rows are read
+     * top-to-bottom and left-to-right and the icon came first.
+     *
+     * This is the LAYOUT's row set. [visualRows] stays as-is for the routing's answer
+     * decision, which needs to see a vertical column to refuse it — filtering here
+     * would hide the column and let a tate node answer.
+     */
+    fun textRows(nodeRect: JpDictRect, lineBoxes: List<JpDictRect>): List<JpDictRect> =
+        visualRows(nodeRect, lineBoxes).filter { it.width() >= MIN_TEXT_ROW_ASPECT * it.height() }
+
+    /**
+     * #106: how much wider than tall a detected box must be to count as a row of text.
+     *
+     * 1.4 is about one and a half glyphs of room at the ink size — below it, a box is
+     * square or tall enough that it is far likelier to be an icon, a bullet or a
+     * control than a line of text, and treating it as a row misplaces every character
+     * that follows.
+     */
+    const val MIN_TEXT_ROW_ASPECT = 1.4f
 
     /**
      * One [JpDictRect] per **visible** character of [text], in reading order —
@@ -349,7 +365,7 @@ object ScreenTextPlan {
         advanceOf: ((Char) -> Float)? = null,
     ): List<JpDictRect?> {
         if (text.isEmpty()) return emptyList()
-        val rows = visualRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
+        val rows = textRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
         if (rows.isEmpty()) return List(text.length) { null }
         if (advanceOf != null) return measuredBoxes(text, rows, advanceOf)
 
@@ -710,8 +726,8 @@ object ScreenTextPlan {
         lineBoxes: List<JpDictRect>,
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
     ): String {
-        // The node's own rect as a single row when the detector saw nothing inside it.
-        val rows = visualRows(nodeRect, lineBoxes).ifEmpty { listOf(nodeRect) }
+        // The node's own rect as a single row when the detector saw nothing in it.
+        val rows = textRows(nodeRect, lineBoxes).ifEmpty { listOf(nodeRect) }
         var row = 0
         var used = 0f
         for (i in text.indices) {

@@ -913,7 +913,7 @@ class OcrOverlayView(
         // line's width, so the measured advances are scaled to match it — spacing
         // stays the font's own, only the size is recovered. See
         // [ScreenTextPlan.measuredScale].
-        val rows = ScreenTextPlan.visualRows(node.rect, boxes).ifEmpty { listOf(node.rect) }
+        val rows = ScreenTextPlan.textRows(node.rect, boxes).ifEmpty { listOf(node.rect) }
         return LineResult(
             text = shown,
             charBoxes = ScreenTextRoute.charBoxes(
