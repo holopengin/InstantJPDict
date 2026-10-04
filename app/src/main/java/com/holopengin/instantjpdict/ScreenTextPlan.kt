@@ -464,23 +464,26 @@ object ScreenTextPlan {
     }
 
     /**
-     * #106: how much the measured advances are scaled so the text fills the rows it
-     * is drawn in — the maintainer's "font size should scale up to fit the real
-     * width of the line; right now the font is too small, so the string is too
-     * short".
+     * #106: how much the measured advances are scaled — **the app's own size, taken
+     * from the rows' heights**, with the widths only as a bound that may shrink it.
      *
-     * The height of a detected box is the *ink's* height, which is smaller than the
-     * font: a line of Japanese sits in roughly 0.88 em of ink while the size that
-     * drew it is 1.2-1.4 em, so measuring at `0.90 × boxHeight` came out under the
-     * real size and every node-backed line was short. The box's **width**, by
-     * contrast, is the width of the drawn line, so matching the string's measured
-     * width to it recovers the size that drew it — without touching the proportional
-     * spacing, which stays the font's own.
+     * This replaces three attempts that inferred the size from the text instead:
+     * one global width fit (a narrow row spilled its tail onto the next), a per-row
+     * width fit that could grow (a short line pushed its glyphs past its row), and the
+     * caps and floors those needed. Each traded one artifact for another because the
+     * width of a string is a poor proxy for the size that drew it.
      *
-     * Clamped, because a node whose text is much shorter than its box (a label in a
-     * wide row) must not be blown up to fill it: 0.5x to 2.5x is the range where a
-     * fit is a size estimate rather than a distortion. Line breaks contribute
-     * nothing on either side, and nothing measurable means 1 (unchanged).
+     * The row is better evidence: a detected row is the app's **ink**, and Japanese
+     * ink is about 0.88 em, so the size that drew it is ≈ rowHeight / 0.88 ≈ 1.26x the
+     * base the view already uses (0.9 x rowHeight). That factor is the whole
+     * correction, it does not depend on the text at all, and it is the only way the
+     * scale may *grow*.
+     *
+     * The widths then bound it downwards and only downwards: if the measured advances
+     * at that size would not fit the rows — some proportional faces differ, a row is
+     * ink-tighter than ours — the scale shrinks until they do. A narrow row can
+     * therefore never overflow and a short label can never be blown up to fill its box.
+     * The tests assert the property that follows: no two character boxes overlap.
      */
     fun measuredScale(
         text: String,
@@ -488,67 +491,47 @@ object ScreenTextPlan {
         advanceOf: (Char) -> Float,
     ): Float {
         if (rows.isEmpty()) return 1f
-        val width = rows.sumOf { it.width() }.toFloat()
-        if (width <= 0f) return 1f
+        val totalWidth = rows.sumOf { it.width() }.toFloat()
+        if (totalWidth <= 0f) return 1f
 
-        // #106: when the app's own line breaks separate the rows one for one, fit each
-        // row to ITS OWN width and take the tightest. One size is drawn for the whole
-        // line — that is what the app did too — but a single fit against the *combined*
-        // width lets a narrow row overflow: a merged "label + next line" node has a
-        // 343px row of Latin over a 751px row of Japanese, the global fit ran the Latin
-        // past its row, the layout wrapped the tail, and the newline then put the next
-        // row's first character in the same place. The maintainer's "Jim Breen's JMDict
-        // has the final character drawn over the next line's starting semicolon".
+        fun natural(of: String): Float {
+            var n = 0f
+            for (ch in of) {
+                if (!isLineBreak(ch)) n += advanceOf(ch)
+            }
+            return n
+        }
+
+        var fit = INK_TO_EM_SCALE
+        var measured = false
         val segments = text.split('\n')
         if (segments.size == rows.size) {
-            var tightest = MAX_MEASURED_SCALE
-            var measured = false
+            // The app's own breaks separate the rows one for one: each row bounds
+            // itself, and the tightest wins. One size is drawn for the whole line, as
+            // the app drew it, but no single row may overflow.
             for (i in rows.indices) {
-                var natural = 0f
-                for (ch in segments[i]) {
-                    if (!isLineBreak(ch)) natural += advanceOf(ch)
-                }
-                if (natural > 0f) {
+                val need = natural(segments[i])
+                if (need > 0f) {
                     measured = true
-                    tightest = minOf(tightest, rows[i].width().toFloat() / natural)
+                    fit = minOf(fit, rows[i].width().toFloat() / need)
                 }
             }
-            // Nothing measurable (blank segments): leave the size alone rather than
-            // handing back the cap.
-            if (measured) return tightest.coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
+        } else {
+            val need = natural(text)
+            if (need > 0f) {
+                measured = true
+                fit = minOf(fit, totalWidth / need)
+            }
         }
-
-        var natural = 0f
-        for (ch in text) {
-            if (!isLineBreak(ch)) natural += advanceOf(ch)
-        }
-        if (natural <= 0f) return 1f
-        return (width / natural).coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
+        return if (measured) fit else 1f
     }
 
-    /** #106: the narrowest a measured fit may scale a line's text. */
-    const val MIN_MEASURED_SCALE = 0.5f
-
     /**
-     * #106: the widest a measured fit may scale a line's text — and this bound is a
-     * *height* bound, not a taste one.
-     *
-     * The fit matches the string's measured width to the box, which is right for a
-     * line of Japanese (square glyphs, so width and height agree: the device showed
-     * ~1.27x) — and badly wrong for a short, halfwidth-heavy label. The search chips
-     * in the maintainer's log are the case: `"a"` in a 94px box, `"N1"` in a 125px
-     * one, `"本"` in a 113px one, each a couple of half-em advances wide. Fitting
-     * those to the box scaled them to the old 2.5x cap, which made the glyphs taller
-     * than the row they belong to, so they were painted over their neighbours — the
-     * report that read as "two copies of exactly the same line in basically the same
-     * location, drawn overlapping".
-     *
-     * The size that drew a line cannot exceed its row's height, and a detected box is
-     * the ink: at our base size (0.9 x the row height) the recovered size is about
-     * 1.3x for Japanese ink (~0.88em) and less for Latin. So 1.3 is the ceiling where
-     * a width fit is still a size estimate; above it, it is a distortion.
+     * #106: the size that drew a detected row, as a multiple of the base size — the
+     * ink-to-em ratio inverted (Japanese ink is ~0.88 em, and the base is 0.9 x the
+     * row height).
      */
-    const val MAX_MEASURED_SCALE = 1.3f
+    const val INK_TO_EM_SCALE = 1.26f
 
     /**
      * The node's own rect as the only row, or no rows at all when it has no area —

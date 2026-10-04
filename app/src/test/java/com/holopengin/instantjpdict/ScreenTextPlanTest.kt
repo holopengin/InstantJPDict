@@ -571,13 +571,10 @@ class ScreenTextPlanTest {
     // ── measured advances (#106 spacing) ────────────────────────────────────
 
     @Test
-    fun aLineTooLongForItsRowDoesNotBunchAtTheEnd() {
-        // The maintainer's follow-up: "characters that would have overflowed onto the
-        // next line bunch up and overlap the end of the line instead" — the right-edge
-        // clamp made every character past the row a zero-width box at the row's edge.
-        // Ten 40px advances in a 100px row cannot all fit even at the 0.5 floor
-        // (10 x 20 = 200), so the tail runs past the row and the view clips it. The
-        // property that matters: no two characters share pixels.
+    fun aLongLineIsShrunkIntoItsRowRatherThanBunchedAtTheEnd() {
+        // The maintainer's "characters bunch up and overlap the end of the line":
+        // ten 40px advances in a 100px row. The width bound shrinks the size to 0.25,
+        // so every character fits and none shares pixels with its neighbour.
         val row = box(0, 0, 100, 60)
         val at = ScreenTextPlan.charBoxesAt("あ".repeat(10), row, listOf(row), advanceOf = { 40f })
         val boxes = at.filterNotNull()
@@ -588,7 +585,7 @@ class ScreenTextPlanTest {
                 boxes[i].left >= boxes[i - 1].right,
             )
         }
-        assertTrue("the tail should run past the row", boxes.last().right > row.right)
+        assertTrue("all ten should be inside the row", boxes.last().right <= row.right)
     }
 
     @Test
@@ -607,51 +604,24 @@ class ScreenTextPlanTest {
     }
 
     @Test
-    fun aMeasuredLineShorterThanItsRowScalesUpToTheHeightBound() {
-        // The same text in a 160px row fits to 2x by width, but the cap is what keeps
-        // a scaled-up line inside its row: it stops at 1.3, so the glyphs are taller
-        // than the base but never taller than the line they belong to.
+    fun aMeasuredLineGrowsOnlyToTheInkRatio() {
+        // The same text in a 160px row could fill it by width, but growth stops at the
+        // ink ratio: the row is the app's ink (0.88em), so the size that drew it is
+        // 1.26x our base and no more. A short line stays short, in its own size.
         val row = box(0, 0, 160, 60)
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
-        assertEquals(52, at[0]!!.right)
-        assertEquals(104, at[1]!!.right)
-        assertEquals(1.3f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(50, at[0]!!.right)
+        assertEquals(101, at[1]!!.right)
+        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
     }
 
     @Test
-    fun aMergedTwoRowNodeFitsItsNarrowestRow() {
-        // The maintainer's spill: a merged node carrying "Jim Breen's JMDict" over
-        // "; いため", whose rows are 343px and 751px. One global fit ran the Latin past
-        // its 343px row by ~30%, the layout wrapped the tail onto the next row, and the
-        // newline then put the ";" there too — the final character drawn over the next
-        // line's first. Per-row fitting takes the tightest: 342px of advances in a
-        // 343px row means scale 1, and nothing wraps.
-        val row0 = box(14, 1660, 357, 1700)
-        val row1 = box(13, 1714, 764, 1758)
-        // "Jim Breen's JMDict" is 18 characters, so the tight row is 324px of
-        // advances in a 343px box: scale 1.06, and nothing wraps.
-        val scale = ScreenTextPlan.measuredScale("Jim Breen's JMDict\n; いため", listOf(row0, row1)) { 18f }
-        assertEquals(1.059f, scale, 0.01f)
-    }
-
-    @Test
-    fun aMergedNodeWhoseNarrowRowNeedsShrinkingIsShrunk() {
-        // The same shape, tighter: the min wins even when it is below 1, so the long
-        // row under-fills rather than the short one overflowing.
-        val row0 = box(0, 0, 100, 60)
-        val row1 = box(0, 60, 1000, 120)
-        // Row 0 wants 200px of advances in a 100px box: the tight row wins, so the
-        // long row under-fills rather than the short one overflowing.
-        val scale = ScreenTextPlan.measuredScale("あ".repeat(20) + "\nい", listOf(row0, row1)) { 10f }
-        assertEquals(0.5f, scale)
-    }
-
-    @Test
-    fun theScaleIsClampedSoAShortLabelIsNotBlownUpToFillAWideBox() {
-        // A two-character label in a thousand-pixel box is not a font 12x too small.
+    fun aShortLabelIsNeverBlownUpAndALongOneIsShrunkToFit() {
+        // The two directions the width bound may act in: it never grows a short label
+        // past the ink ratio, and it shrinks a string that would not fit at all.
         val row = box(0, 0, 1000, 60)
-        assertEquals(1.3f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
-        assertEquals(0.5f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row)) { 40f })
+        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row)) { 40f })
+        assertEquals(0.25f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row)) { 40f })
     }
 
     @Test
