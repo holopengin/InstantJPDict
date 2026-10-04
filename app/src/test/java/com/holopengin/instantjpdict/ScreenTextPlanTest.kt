@@ -598,6 +598,34 @@ class ScreenTextPlanTest {
     }
 
     @Test
+    fun aMergedTwoRowNodeFitsItsNarrowestRow() {
+        // The maintainer's spill: a merged node carrying "Jim Breen's JMDict" over
+        // "; いため", whose rows are 343px and 751px. One global fit ran the Latin past
+        // its 343px row by ~30%, the layout wrapped the tail onto the next row, and the
+        // newline then put the ";" there too — the final character drawn over the next
+        // line's first. Per-row fitting takes the tightest: 342px of advances in a
+        // 343px row means scale 1, and nothing wraps.
+        val row0 = box(14, 1660, 357, 1700)
+        val row1 = box(13, 1714, 764, 1758)
+        // "Jim Breen's JMDict" is 18 characters, so the tight row is 324px of
+        // advances in a 343px box: scale 1.06, and nothing wraps.
+        val scale = ScreenTextPlan.measuredScale("Jim Breen's JMDict\n; いため", listOf(row0, row1)) { 18f }
+        assertEquals(1.059f, scale, 0.01f)
+    }
+
+    @Test
+    fun aMergedNodeWhoseNarrowRowNeedsShrinkingIsShrunk() {
+        // The same shape, tighter: the min wins even when it is below 1, so the long
+        // row under-fills rather than the short one overflowing.
+        val row0 = box(0, 0, 100, 60)
+        val row1 = box(0, 60, 1000, 120)
+        // Row 0 wants 200px of advances in a 100px box: the tight row wins, so the
+        // long row under-fills rather than the short one overflowing.
+        val scale = ScreenTextPlan.measuredScale("あ".repeat(20) + "\nい", listOf(row0, row1)) { 10f }
+        assertEquals(0.5f, scale)
+    }
+
+    @Test
     fun theScaleIsClampedSoAShortLabelIsNotBlownUpToFillAWideBox() {
         // A two-character label in a thousand-pixel box is not a font 12x too small.
         val row = box(0, 0, 1000, 60)

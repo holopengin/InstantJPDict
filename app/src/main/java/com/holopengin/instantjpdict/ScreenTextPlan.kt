@@ -481,13 +481,41 @@ object ScreenTextPlan {
         advanceOf: (Char) -> Float,
     ): Float {
         if (rows.isEmpty()) return 1f
+        val width = rows.sumOf { it.width() }.toFloat()
+        if (width <= 0f) return 1f
+
+        // #106: when the app's own line breaks separate the rows one for one, fit each
+        // row to ITS OWN width and take the tightest. One size is drawn for the whole
+        // line — that is what the app did too — but a single fit against the *combined*
+        // width lets a narrow row overflow: a merged "label + next line" node has a
+        // 343px row of Latin over a 751px row of Japanese, the global fit ran the Latin
+        // past its row, the layout wrapped the tail, and the newline then put the next
+        // row's first character in the same place. The maintainer's "Jim Breen's JMDict
+        // has the final character drawn over the next line's starting semicolon".
+        val segments = text.split('\n')
+        if (segments.size == rows.size) {
+            var tightest = MAX_MEASURED_SCALE
+            var measured = false
+            for (i in rows.indices) {
+                var natural = 0f
+                for (ch in segments[i]) {
+                    if (!isLineBreak(ch)) natural += advanceOf(ch)
+                }
+                if (natural > 0f) {
+                    measured = true
+                    tightest = minOf(tightest, rows[i].width().toFloat() / natural)
+                }
+            }
+            // Nothing measurable (blank segments): leave the size alone rather than
+            // handing back the cap.
+            if (measured) return tightest.coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
+        }
+
         var natural = 0f
         for (ch in text) {
             if (!isLineBreak(ch)) natural += advanceOf(ch)
         }
         if (natural <= 0f) return 1f
-        val width = rows.sumOf { it.width() }.toFloat()
-        if (width <= 0f) return 1f
         return (width / natural).coerceIn(MIN_MEASURED_SCALE, MAX_MEASURED_SCALE)
     }
 
