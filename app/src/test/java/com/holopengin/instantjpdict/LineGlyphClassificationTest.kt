@@ -62,4 +62,41 @@ class LineGlyphClassificationTest {
         assertFalse(LineOverlayView.halfWidthOf("カ")[0])
         assertTrue(LineOverlayView.halfWidthOf("ｶ")[0])
     }
+
+    // ── the paint size (#106: it comes from the line's own boxes) ───────────
+
+    @Test
+    fun paint_size_is_ninety_percent_of_the_tallest_box_times_the_glyph_scale() {
+        // #106: the character boxes are the size the line was measured at, so the
+        // paint is sized from them — not from whatever `fixedSize` the caller passed.
+        // A recognised line's boxes are all one height, so this is the old
+        // `fixedSize * 0.90` there.
+        val line = LineResult(
+            text = "あい",
+            charBoxes = listOf(JpDictRect(0, 0, 40, 60), JpDictRect(40, 0, 80, 60)),
+            alternatives = emptyList(),
+            glyphScale = 1.5f,
+        )
+        assertEquals(60f * 0.90f * 1.5f, LineOverlayView.paintSizeFor(line, fixedSize = 999), 0.001f)
+    }
+
+    @Test
+    fun paint_size_uses_one_height_for_a_paragraph_whose_rows_differ() {
+        // The mismatch this fixes: a node's paragraph has rows of different heights,
+        // and the layout measured the line from its own rows while the view painted at
+        // the installed box's height. The tallest box is the one basis both agree on.
+        val line = LineResult(
+            text = "あい",
+            charBoxes = listOf(JpDictRect(0, 0, 40, 30), JpDictRect(0, 30, 40, 80)),
+            alternatives = emptyList(),
+            glyphScale = 1f,
+        )
+        assertEquals(50f * 0.90f, LineOverlayView.paintSizeFor(line, fixedSize = 30), 0.001f)
+    }
+
+    @Test
+    fun paint_size_falls_back_to_the_caller_size_when_a_line_has_no_boxes() {
+        val line = LineResult(text = "", charBoxes = emptyList(), alternatives = emptyList())
+        assertEquals(50f * 0.90f, LineOverlayView.paintSizeFor(line, fixedSize = 50), 0.001f)
+    }
 }

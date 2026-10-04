@@ -29,7 +29,7 @@ class LineOverlayView(
         // the bundled faces ship Regular only, and a BOLD request against a
         // single-font family selects the same outlines.
         typeface = OverlayFont.typeface(context)
-        textSize = fixedSize * 0.90f * line.glyphScale
+        textSize = paintSizeFor(line, fixedSize)
         isAntiAlias = true
     }
     private val bounds = Rect()
@@ -118,6 +118,26 @@ class LineOverlayView(
         fun marginFor(fixedSize: Int): Int =
             (fixedSize * INK_MARGIN_RATIO).roundToInt().coerceAtLeast(1)
 
+        /**
+         * #106: the size this view paints a line's glyphs at — `0.90 x` the line's
+         * tallest character box, times its [LineResult.glyphScale].
+         *
+         * The character boxes ARE the size the line was measured at
+         * ([ScreenTextPlan.measuredScale] fits them to the rows in both axes), so
+         * sizing the paint from them is what keeps the drawn glyph inside the box it
+         * was measured against. Sizing from the caller's `fixedSize` instead let the
+         * two disagree whenever `fixedSize` was not the tallest box — a node's
+         * paragraph has several rows of different heights, and a line was measured
+         * from its own rows while the view painted at another row's height. The two
+         * are the same number for a recognised line (its char boxes are all one
+         * height), so this changes nothing there.
+         */
+        internal fun paintSizeFor(line: LineResult, fixedSize: Int): Float {
+            val boxHeight = line.charBoxes.maxOfOrNull { it.height() } ?: 0
+            val basis = if (boxHeight > 0) boxHeight else fixedSize
+            return basis * 0.90f * line.glyphScale
+        }
+
         /** The per-character halfwidth cache [halfWidth] is built from — one
          *  [OcrEngine.isHalfWidth] crossing per character, positionally aligned
          *  to [text] and nothing else. Kept as a named function (rather than
@@ -145,7 +165,7 @@ class LineOverlayView(
         lineLeft = newLineLeft
         lineTop = newLineTop
         margin = marginFor(fixedSize)
-        paint.textSize = fixedSize * 0.90f * line.glyphScale
+        paint.textSize = paintSizeFor(line, fixedSize)
         if (line.isVertical) {
             paint.textLocale = java.util.Locale.JAPANESE
             paint.fontFeatureSettings = "'vert' 1"

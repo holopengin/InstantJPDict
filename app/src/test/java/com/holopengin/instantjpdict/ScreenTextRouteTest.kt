@@ -559,4 +559,66 @@ class ScreenTextRouteTest {
         assertEquals(0, boxes[0].width())
         assertEquals(0, boxes[1].width())
     }
+
+    @Test
+    fun theInkHeightReachesTheCharBoxesThroughTheRoute() {
+        // #106: the caller measuring the face passes both axes all the way down, so a
+        // line whose advances fall short of its row is drawn at the size its ink allows
+        // instead of being cut off at a constant. Two 30px advances in a 292px row,
+        // with a measured ink height of 0.809 of the row: the width fit would be 4.8,
+        // the height fit is 1.236, and 1.236 is what is drawn.
+        val row = JpDictRect(6, 543, 298, 583) // 292 x 40
+        val nativeInk = row.height() * 0.809f
+        val boxes = ScreenTextRoute.charBoxes(
+            text = "All words",
+            nodeRect = row,
+            boxes = listOf(row),
+            advanceOf = { 100f / 9f },
+            inkHeightOf = { nativeInk },
+        )
+        // The advance is the fit times the caller's advance, so the box width reveals
+        // the scale (within a pixel of rounding).
+        assertEquals(
+            (100f / 9f) * (row.height() / nativeInk),
+            (boxes[1].left - boxes[0].left).toFloat(),
+            0.6f,
+        )
+    }
+
+    @Test
+    fun noTwoCharBoxesOverlapWhenTheInkHeightBoundsTheLine() {
+        // The property every earlier sizing artifact violated, asserted end to end
+        // through this module with the HEIGHT as the binding axis: narrow advances in a
+        // wide row, so the width fit would be ~3x while the ink height caps it at 1.111.
+        // Characters are laid out left-to-right with no overlap, and each stays within
+        // its row vertically.
+        val node = JpDictRect(0, 0, 400, 120)
+        val rows = listOf(JpDictRect(0, 0, 400, 60), JpDictRect(0, 60, 400, 120))
+        val text = "吾輩は猫である名前はまだ無い"
+        val nativeInk = 60f * 0.9f
+        // The native path maps one line per row; give the platform's break the same
+        // shape so the fit is per-line rather than over the total.
+        val half = text.length / 2
+        val lines = listOf(0 until half, half until text.length)
+        val fit = rows[0].height() / nativeInk
+        // The width would allow much more, so the height is what bounds it.
+        assertTrue("width should not bind", rows[0].width() / (half * 20f) > fit)
+        val boxes = ScreenTextRoute.charBoxes(
+            text = text,
+            nodeRect = node,
+            boxes = rows,
+            advanceOf = { 20f },
+            lineRanges = lines,
+            inkHeightOf = { nativeInk },
+        )
+        assertEquals(text.length, boxes.size)
+        assertEquals(20f * fit, (boxes[1].left - boxes[0].left).toFloat(), 0.6f)
+        for (i in 1 until boxes.size) {
+            if (boxes[i].top != boxes[i - 1].top) continue
+            assertTrue(
+                "box $i starts at ${boxes[i].left}, the one before ends at ${boxes[i - 1].right}",
+                boxes[i].left >= boxes[i - 1].right,
+            )
+        }
+    }
 }

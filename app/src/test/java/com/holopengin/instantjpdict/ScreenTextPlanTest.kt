@@ -597,7 +597,7 @@ class ScreenTextPlanTest {
         // ten 40px advances in a 100px row. The width bound shrinks the size to 0.25,
         // so every character fits and none shares pixels with its neighbour.
         val row = box(0, 0, 100, 60)
-        val at = ScreenTextPlan.charBoxesAt("あ".repeat(10), row, listOf(row), advanceOf = { 40f })
+        val at = ScreenTextPlan.charBoxesAt("あ".repeat(10), row, listOf(row), advanceOf = { 40f }, inkHeightOf = { 30f })
         val boxes = at.filterNotNull()
         assertEquals(10, boxes.size)
         for (i in 1 until boxes.size) {
@@ -611,11 +611,8 @@ class ScreenTextPlanTest {
 
     @Test
     fun aMeasuredLineIsScaledToTheRowWidth() {
-        // The maintainer: "font size should scale up to fit the real width of the
-        // line; right now the font is too small, so the string is too short". A box
-        // whose height is the ink's height under-estimates the font, and the box's
-        // width is the drawn line's width — so the measured advances are scaled to
-        // it. Two 40px advances in an 80px row are already right (scale 1)…
+        // Two 40px advances in an 80px row: the measured advances already span the
+        // row, so the fit is 1 and the boxes land exactly on it.
         val row = box(0, 0, 80, 60)
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
         assertEquals(0, at[0]!!.left)
@@ -625,34 +622,96 @@ class ScreenTextPlanTest {
     }
 
     @Test
-    fun aMeasuredLineGrowsOnlyToTheInkRatio() {
-        // The same text in a 160px row could fill it by width, but growth stops at the
-        // ink ratio: the row is the app's ink (0.88em), so the size that drew it is
-        // 1.26x our base and no more. A short line stays short, in its own size.
+    fun aMeasuredLineGrowsToSpanItsRowWhenNothingBoundsIt() {
+        // #106: the size now comes from the fit, and the fit has no constant ceiling.
+        // A short line in a wide row is drawn at the size that reaches its ink — the
+        // old `INK_TO_EM_SCALE` cap of 1.26 was exactly what left it short. With no
+        // ink-height measurement (the caller could not measure the face) the width is
+        // the only bound, so two 40px advances fill 160px at scale 2.
         val row = box(0, 0, 160, 60)
         val at = ScreenTextPlan.charBoxesAt("あい", row, listOf(row), advanceOf = { 40f })
-        assertEquals(50, at[0]!!.right)
-        assertEquals(101, at[1]!!.right)
-        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
+        assertEquals(80, at[0]!!.right)
+        assertEquals(160, at[1]!!.right)
+        assertEquals(2f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
     }
 
     @Test
-    fun aShortLabelIsNeverBlownUpAndALongOneIsShrunkToFit() {
-        // The two directions the width bound may act in: it never grows a short label
-        // past the ink ratio, and it shrinks a string that would not fit at all.
+    fun theInkHeightBoundsTheLineItCannotReachByWidth() {
+        // #106's second axis, and the maintainer's evidence shape
+        // `#13@[6,543,298,583]node27[100,516,974,605]"All words"`: a single row 40px
+        // tall, and a line of Latin whose advances are far narrower than the row (our
+        // face's Latin is narrower than the app's). The width fit would be 2.92, but
+        // the ink boxes the height, so the fit is `rowHeight / inkHeight` — taller than
+        // the old constant could make it, and never past the row.
+        val row = box(6, 543, 298, 583) // 292 x 40
+        val nativeInk = row.height() * 0.809f
+        val at = ScreenTextPlan.charBoxesAt(
+            "All words",
+            row,
+            listOf(row),
+            advanceOf = { 100f / 9f },
+            inkHeightOf = { nativeInk },
+        )
+        val boxes = at.filterNotNull()
+        assertEquals(
+            row.height() / nativeInk,
+            ScreenTextPlan.measuredScale(
+                "All words", listOf(row), advanceOf = { 100f / 9f }, inkHeightOf = { nativeInk },
+            ),
+            0.001f,
+        )
+        // Every glyph is inside the row vertically, and the line's advance spans most
+        // of its ink box.
+        for (b in boxes) {
+            assertTrue("top", b.top >= row.top)
+            assertTrue("bottom", b.bottom <= row.bottom)
+        }
+    }
+
+    @Test
+    fun theWidthStillBoundsALineTooWideForItsRow() {
+        // The other direction: advances that would overflow the row are shrunk, even
+        // when the height axis would allow growing.
+        val row = box(0, 0, 100, 60)
+        assertEquals(
+            0.025f,
+            ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row), advanceOf = { 40f }),
+        )
+    }
+
+    @Test
+    fun theInkHeightFitIsTheAppsSizeRecoveredBeforeBreaking() {
+        // The breaker's size estimate: our face's ink for the text against the
+        // tallest row. A line drawn at 1.26x base is a Japanese row; one drawn at
+        // 1.66x is a shallower-ink script in the same row.
+        val row = box(0, 0, 160, 60)
+        assertEquals(1f, ScreenTextPlan.inkHeightFit("", listOf(row)) { 50f })
+        assertEquals(1f, ScreenTextPlan.inkHeightFit("あ", emptyList()) { 50f })
+        assertEquals(60f / 36f, ScreenTextPlan.inkHeightFit("All words", listOf(row)) { 36f }, 0.001f)
+    }
+
+    @Test
+    fun aShortLabelIsNeverBlownUpPastItsInkHeight() {
+        // The maintainer's first report — a short label stretched to fill a wide box.
+        // With the ink height measurable, the height axis caps the growth: a two-glyph
+        // chip in a 1000px row is drawn to its row's height and no further.
         val row = box(0, 0, 1000, 60)
-        assertEquals(1.26f, ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }))
-        assertEquals(0.25f, ScreenTextPlan.measuredScale("あ".repeat(100), listOf(row), advanceOf = { 40f }))
+        val scale = ScreenTextPlan.measuredScale("あい", listOf(row), advanceOf = { 40f }, inkHeightOf = { 50f })
+        assertEquals(60f / 50f, scale, 0.001f)
     }
 
     @Test
     fun measuredAdvancesWrapWhenTheRowsRunOut() {
         // Four 40px advances in two 100px rows: the fit is 1.25x, so two characters
-        // per row and the third wraps.
+        // per row and the third wraps. The ink height is left free so the width is
+        // what bounds the fit.
         val node = box(0, 0, 100, 120)
         val row1 = box(0, 0, 100, 60)
         val row2 = box(0, 60, 100, 120)
-        val at = ScreenTextPlan.charBoxesAt("ああああ", node, listOf(row1, row2), advanceOf = { 40f })
+        val at = ScreenTextPlan.charBoxesAt(
+            "ああああ", node, listOf(row1, row2),
+            advanceOf = { 40f }, inkHeightOf = { 30f },
+        )
         assertEquals(0, at[2]!!.left)
         assertEquals(60, at[2]!!.top)
     }
@@ -661,6 +720,9 @@ class ScreenTextPlanTest {
     fun nothingMeasurableLeavesTheScaleAlone() {
         assertEquals(1f, ScreenTextPlan.measuredScale("", listOf(box(0, 0, 10, 10)), advanceOf = { 40f }))
         assertEquals(1f, ScreenTextPlan.measuredScale("あ", emptyList(), advanceOf = { 40f }))
+        // Nothing to measure in either axis: advances of zero and no ink height.
+        assertEquals(1f, ScreenTextPlan.measuredScale("あ", listOf(box(0, 0, 10, 10)), advanceOf = { 0f }))
+        assertEquals(1f, ScreenTextPlan.measuredScale("あ", listOf(box(0, 0, 10, 10)), advanceOf = { 0f }, inkHeightOf = { 0f }))
     }
 
     @Test

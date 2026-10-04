@@ -364,11 +364,12 @@ object ScreenTextPlan {
         isFullWidth: (Char) -> Boolean = ::isFullWidth,
         advanceOf: ((Char) -> Float)? = null,
         lineRanges: List<IntRange>? = null,
+        inkHeightOf: ((String) -> Float)? = null,
     ): List<JpDictRect?> {
         if (text.isEmpty()) return emptyList()
         val rows = textRows(nodeRect, lineBoxes).ifEmpty { singleRow(nodeRect) }
         if (rows.isEmpty()) return List(text.length) { null }
-        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf, lineRanges)
+        if (advanceOf != null) return measuredBoxes(text, rows, advanceOf, lineRanges, inkHeightOf)
 
         // Step 2's arithmetic, extracted so the walk below reads as "which row is
         // this character in" and nothing else.
@@ -452,6 +453,7 @@ object ScreenTextPlan {
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
         lineRanges: List<IntRange>? = null,
+        inkHeightOf: ((String) -> Float)? = null,
     ): List<JpDictRect?> {
         // #106: the app's OWN line breaking, when the caller could measure it and its
         // lines match the rows one for one. Android's StaticLayout is what a native
@@ -459,9 +461,9 @@ object ScreenTextPlan {
         // platform's CJK rules otherwise — and our own character-count wrap split
         // words in the middle instead. See [nativeBoxes].
         if (lineRanges != null && lineRanges.size == rows.size) {
-            return nativeBoxes(text, rows, advanceOf, lineRanges)
+            return nativeBoxes(text, rows, advanceOf, lineRanges, inkHeightOf)
         }
-        val scale = measuredScale(text, rows, advanceOf)
+        val scale = measuredScale(text, rows, advanceOf, inkHeightOf = inkHeightOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
         val lastRow = rows.size - 1
         var row = 0
@@ -501,89 +503,111 @@ object ScreenTextPlan {
     }
 
     /**
-     * #106: how much the measured advances are scaled — **the app's own size, taken
-     * from the rows' heights**, with the widths only as a bound that may shrink it.
+     * #106: the size a node-backed line is drawn at, as a multiple of the base size
+     * the caller measured its advances at.
      *
-     * This replaces three attempts that inferred the size from the text instead:
-     * one global width fit (a narrow row spilled its tail onto the next), a per-row
-     * width fit that could grow (a short line pushed its glyphs past its row), and the
-     * caps and floors those needed. Each traded one artifact for another because the
-     * width of a string is a poor proxy for the size that drew it.
+     * The line is one glyph size across all of its rows, so **every** row has to
+     * accept it and the size is the tightest fit of all of them, across both axes:
      *
-     * The row is better evidence: a detected row is the app's **ink**, and Japanese
-     * ink is about 0.88 em, so the size that drew it is ≈ rowHeight / 0.88 ≈ 1.26x the
-     * base the view already uses (0.9 x rowHeight). That factor is the whole
-     * correction, it does not depend on the text at all, and it is the only way the
-     * scale may *grow*.
+     *  - **Width.** Each line the platform broke must fit its own row's width;
+     *    without line ranges, the whole string against the rows' total width. This
+     *    is the horizontal rule — the drawn line spans its ink box.
+     *  - **Height**, when the caller can measure the face's ink ([inkHeightOf]).
+     *    Each line's ink height must fit its own row's height, so a line cannot be
+     *    drawn taller than the ink it covers. Since the caller measures our face,
+     *    this replaces the old `INK_TO_EM_SCALE` constant: that number assumed every
+     *    row's height was Japanese ink (~0.88em) of the base, so a Latin line — our
+     *    face is metric-matched to the platform's *Japanese* sans, and its Latin
+     *    advances can be narrower than an arbitrary app font's — needed a *larger*
+     *    scale to reach the row's width than the constant allowed, and the line
+     *    ended short of its ink.
      *
-     * The widths then bound it downwards and only downwards: if the measured advances
-     * at that size would not fit the rows — some proportional faces differ, a row is
-     * ink-tighter than ours — the scale shrinks until they do. A narrow row can
-     * therefore never overflow and a short label can never be blown up to fill its box.
-     * The tests assert the property that follows: no two character boxes overlap.
+     * The minimum across every row and both axes is returned, so no row overflows in
+     * either direction, and one degenerate row cannot drag the whole line to nothing
+     * — an unmeasurable axis simply does not vote. Measurement decides the size now,
+     * with no constant to start from and no taste cap to hit. When the two axes
+     * disagree because our face is not the app's, the smaller (height) wins and the
+     * line spans the binding axis rather than spilling past the page.
      */
     fun measuredScale(
         text: String,
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
         lineRanges: List<IntRange>? = null,
+        inkHeightOf: ((String) -> Float)? = null,
     ): Float {
         if (rows.isEmpty()) return 1f
-        val totalWidth = rows.sumOf { it.width() }.toFloat()
-        if (totalWidth <= 0f) return 1f
+        var best = Float.MAX_VALUE
+        var measured = false
 
-        fun natural(of: String): Float {
-            var n = 0f
-            for (ch in of) {
-                if (!isLineBreak(ch)) n += advanceOf(ch)
+        fun consider(need: Float, widthPx: Int, lineText: String?, heightPx: Int) {
+            if (need > 0f && widthPx > 0) {
+                measured = true
+                best = minOf(best, widthPx.toFloat() / need)
             }
-            return n
+            if (inkHeightOf != null && lineText != null && heightPx > 0) {
+                val ink = inkHeightOf(lineText)
+                if (ink > 0f) {
+                    measured = true
+                    best = minOf(best, heightPx.toFloat() / ink)
+                }
+            }
         }
 
-        var fit = INK_TO_EM_SCALE
-        var measured = false
         if (lineRanges != null && lineRanges.size == rows.size) {
-            // The native lines are the rows: bound each line by its own row.
+            // The native lines are the rows: each line bounds itself in both axes.
             for (i in rows.indices) {
                 var need = 0f
                 for (j in lineRanges[i]) {
                     if (j in text.indices && !isLineBreak(text[j])) need += advanceOf(text[j])
                 }
-                if (need > 0f) {
-                    measured = true
-                    fit = minOf(fit, rows[i].width().toFloat() / need)
-                }
-            }
-            return if (measured) fit else 1f
-        }
-        val segments = text.split('\n')
-        if (segments.size == rows.size) {
-            // The app's own breaks separate the rows one for one: each row bounds
-            // itself, and the tightest wins. One size is drawn for the whole line, as
-            // the app drew it, but no single row may overflow.
-            for (i in rows.indices) {
-                val need = natural(segments[i])
-                if (need > 0f) {
-                    measured = true
-                    fit = minOf(fit, rows[i].width().toFloat() / need)
-                }
+                consider(need, rows[i].width(), textIn(text, lineRanges[i]), rows[i].height())
             }
         } else {
-            val need = natural(text)
-            if (need > 0f) {
-                measured = true
-                fit = minOf(fit, totalWidth / need)
+            val segments = text.split('\n')
+            if (segments.size == rows.size) {
+                // The app's own breaks separate the rows one for one: each row bounds
+                // itself, and the tightest wins.
+                for (i in rows.indices) {
+                    consider(natural(segments[i], advanceOf), rows[i].width(), segments[i], rows[i].height())
+                }
+            } else {
+                val need = natural(text, advanceOf)
+                consider(need, rows.sumOf { it.width() }, text, rows.maxOf { it.height() })
             }
         }
-        return if (measured) fit else 1f
+        return if (measured) best else 1f
     }
 
     /**
-     * #106: the size that drew a detected row, as a multiple of the base size — the
-     * ink-to-em ratio inverted (Japanese ink is ~0.88 em, and the base is 0.9 x the
-     * row height).
+     * #106: the size a node's **whole** text implies from the heights of its rows —
+     * [measuredScale]'s vertical axis on its own.
+     *
+     * The caller needs it before the platform's line ranges exist, because the
+     * breaker's text size has to be chosen before the text is broken. It is the
+     * same arithmetic [measuredScale] applies per line: the tallest row is the app's
+     * tallest ink, so the size that makes our ink reach it is `rowHeight / inkHeight`.
+     * 1 when there is nothing to measure, which leaves the caller's size untouched.
      */
-    const val INK_TO_EM_SCALE = 1.26f
+    fun inkHeightFit(text: String, rows: List<JpDictRect>, inkHeightOf: (String) -> Float): Float {
+        if (rows.isEmpty() || text.isEmpty()) return 1f
+        val ink = inkHeightOf(text)
+        if (ink <= 0f) return 1f
+        val target = rows.maxOf { it.height() }
+        if (target <= 0) return 1f
+        return target.toFloat() / ink
+    }
+
+    /** The characters [range] addresses, for the per-line ink measurement. */
+    private fun textIn(text: String, range: IntRange): String =
+        buildString(range.count()) { for (j in range) if (j <= text.lastIndex) append(text[j]) }
+
+    /** The natural advance of [of]: every character but its line breaks. */
+    private fun natural(of: String, advanceOf: (Char) -> Float): Float {
+        var n = 0f
+        for (ch in of) if (!isLineBreak(ch)) n += advanceOf(ch)
+        return n
+    }
 
     /**
      * #106: place a node's text along the lines the PLATFORM broke it into.
@@ -598,8 +622,9 @@ object ScreenTextPlan {
         rows: List<JpDictRect>,
         advanceOf: (Char) -> Float,
         lines: List<IntRange>,
+        inkHeightOf: ((String) -> Float)? = null,
     ): List<JpDictRect?> {
-        val fit = measuredScale(text, rows, advanceOf, lines)
+        val fit = measuredScale(text, rows, advanceOf, lines, inkHeightOf)
         val out = arrayOfNulls<JpDictRect>(text.length)
         for (i in rows.indices) {
             var x = rows[i].left.toFloat()

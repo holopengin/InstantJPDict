@@ -721,7 +721,6 @@ class OcrOverlayView(
                             // test (an elided node's string cannot).
                             isFullWidth = { !OcrEngine.isHalfWidth(it) },
                         )
-                        logScreenTextSplit(mode, screenNodes.size, plan, screenNodes, pageBoxesForLog = lineBoxes)
                         plan
                     }
                     // The augmented list: every detected box, unchanged and in place,
@@ -730,6 +729,27 @@ class OcrOverlayView(
                     // and a rotated detect box keeps its quad.
                     val pageBoxes = routing?.boxes ?: lineBoxes
                     controller.activeLineBoxes = pageBoxes
+
+                    // #106: the tree's own lines, built here — they need no
+                    // recognition — so the drawn-lines log can carry the extent the
+                    // layout actually produced against the rows it was given. That is
+                    // how a line that still ends short is read off a capture instead
+                    // of guessed at, and it is the number this whole area was fixed
+                    // against. One `LineResult` per NODE: the routing collapses a
+                    // paragraph's several boxes onto the node's first.
+                    val nodeLines = routing?.let { plan ->
+                        plan.nodeAt.map { (pageIndex, nodeIndex) ->
+                            // #106: the node's OWN rows, never the page's whole box list
+                            // — see [ScreenTextRoute.Routing.rowsByNode].
+                            val rows = plan.rowsByNode[nodeIndex].orEmpty()
+                                .map { pageBoxes[it].rect }
+                                .ifEmpty { listOf(screenNodes[nodeIndex].rect) }
+                            pageIndex to nodeLineResult(screenNodes[nodeIndex], rows)
+                        }
+                    } ?: emptyList()
+                    routing?.let {
+                        logScreenTextSplit(mode, screenNodes.size, it, screenNodes, pageBoxes, nodeLines)
+                    }
 
                     postStatus(gen, "Recognizing...")
 
@@ -812,25 +832,9 @@ class OcrOverlayView(
                     // #106: the tree's own lines, installed through the same
                     // `addLineToResults` a recognised line uses, so a node-backed line
                     // is indistinguishable downstream — same border, same glyph views,
-                    // same per-character hit rects, same dictionary and popup. One
-                    // `LineResult` per NODE (the routing collapses a paragraph's
-                    // several boxes onto the node's first), laid over the detected
-                    // boxes inside it.
-                    val nodeLines = routing?.let { plan ->
-                        // Hoisted: every node lays its text out over the same
-                        // page-wide box list (the plan filters it down to the rows
-                        // inside that node), so mapping it per node would re-box
-                        // the page once per node.
-                        val detectedRects = lineBoxes.map { it.rect }
-                        plan.nodeAt.map { (pageIndex, nodeIndex) ->
-                            // #106: the node's OWN rows, never the page's whole box list
-                            // — see [ScreenTextRoute.Routing.rowsByNode].
-                            val rows = plan.rowsByNode[nodeIndex].orEmpty()
-                                .map { pageBoxes[it].rect }
-                                .ifEmpty { listOf(screenNodes[nodeIndex].rect) }
-                            pageIndex to nodeLineResult(screenNodes[nodeIndex], rows, pageBoxes[pageIndex].rect)
-                        }
-                    } ?: emptyList()
+                    // same per-character hit rects, same dictionary and popup. Built
+                    // above, before recognition, so the drawn-lines log could report
+                    // the extent each one came out at.
                     for ((pageIndex, line) in nodeLines) {
                         if (closed) break
                         addLineToResults(this@OcrOverlayView, clicksLayer, pageIndex, line)
@@ -900,15 +904,23 @@ class OcrOverlayView(
      * every character gets the advance the face actually gives it at the size it is
      * drawn, instead of a proportional share of the row's width.
      */
-    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>, installed: JpDictRect): LineResult {
+    private fun nodeLineResult(node: ScreenTextNode, boxes: List<JpDictRect>): LineResult {
         // #106: a node whose text cannot fit its rect (an elided notification, a
         // scrolled page) answers with only the part that fits — see
         // [ScreenTextPlan.visiblePrefix]. For an ellipsis the visible characters ARE
         // the prefix, which is why this is a truncation and not a refusal: when the
         // detector found no box inside the node there would be nothing else to read.
         val shown = ScreenTextPlan.visiblePrefix(node.text, node.rect, boxes) { !OcrEngine.isHalfWidth(it) }
-        val baseSize = installed.height() * 0.90f
+        // #106: the rows the line is laid out over, and the basis for its size.
+        // [LineOverlayView] draws a node line at `maxCharBoxHeight * 0.90 *
+        // glyphScale`, and those boxes are the rows, so the measurement here has to
+        // use the same basis or the layout and the paint disagree — the old code
+        // measured at the FIRST paid box's height, so a paragraph whose rows differed
+        // laid its boxes out at one size and painted its glyphs at another.
+        val rows = ScreenTextPlan.textRows(node.rect, boxes).ifEmpty { listOf(node.rect) }
+        val baseSize = rows.maxOf { it.height() } * 0.90f
         val measurer = advanceMeasurer(baseSize)
+        val inkMeasurer = inkHeightMeasurer(baseSize)
         // #106: break the text the way a native text view would have — the platform's
         // StaticLayout, so words are not split and CJK breaks follow the platform's
         // rules — rather than letting the layout wrap by character count.
@@ -920,16 +932,14 @@ class OcrOverlayView(
         // `[198,432,890,472]`: 812px of rect against 692px of ink. The longest detected
         // row IS the app's line width, so break there; the rect is only the fallback for
         // a node with no rows at all.
-        val breakWidth = (ScreenTextPlan.textRows(node.rect, boxes).maxOfOrNull { it.width() }
-            ?: node.rect.width()).let { (it * 1.03f).roundToInt() }
-        val lines = nativeLineRanges(shown, breakWidth, baseSize * ScreenTextPlan.INK_TO_EM_SCALE)
-        // #106: the box's height is the ink's height, which is smaller than the font
-        // that drew it (Japanese ink is ~0.88em of a 1.2-1.4em line), so measuring
-        // alone left every node-backed line short. The box's WIDTH is the drawn
-        // line's width, so the measured advances are scaled to match it — spacing
-        // stays the font's own, only the size is recovered. See
-        // [ScreenTextPlan.measuredScale].
-        val rows = ScreenTextPlan.textRows(node.rect, boxes).ifEmpty { listOf(node.rect) }
+        //
+        // The SIZE is the app's, recovered from the ink before the text is broken
+        // ([ScreenTextPlan.inkHeightFit]); the measured advances at that size are what
+        // the breaker lays the words out with, so the breaks and the drawn line agree
+        // instead of being computed at two different sizes.
+        val breakWidth = (rows.maxOf { it.width() } * 1.03f).roundToInt()
+        val breakSize = baseSize * ScreenTextPlan.inkHeightFit(shown, rows, inkMeasurer)
+        val lines = nativeLineRanges(shown, breakWidth, breakSize)
         return LineResult(
             text = shown,
             charBoxes = ScreenTextRoute.charBoxes(
@@ -939,8 +949,9 @@ class OcrOverlayView(
                 isFullWidth = { !OcrEngine.isHalfWidth(it) },
                 advanceOf = measurer,
                 lineRanges = lines,
+                inkHeightOf = inkMeasurer,
             ),
-            glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer, lines),
+            glyphScale = ScreenTextPlan.measuredScale(shown, rows, measurer, lines, inkMeasurer),
             alternatives = emptyList(),
             isVertical = false,
             cropW = node.rect.width(),
@@ -972,7 +983,9 @@ class OcrOverlayView(
                 // #106: a TextView's default, and therefore almost certainly the
                 // app's — HIGH_QUALITY balances a paragraph's lines instead of filling
                 // greedily, so SIMPLE broke in different places on the same text.
-                .setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY)
+                // The `LineBreaker` name (not `Layout`) is the one `setBreakStrategy`
+                // documents; both constants are 1.
+                .setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
                 .setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE)
                 .setIncludePad(false)
                 .build()
@@ -1006,6 +1019,42 @@ class OcrOverlayView(
         }
     }
 
+    /**
+     * #106: the vertical extent of a line of text in the face this overlay draws in,
+     * at [textSize] — the ink height, measured the same way the advances are, so the
+     * two axes of a node line's fit come from one face and one size.
+     *
+     * A native text view's detected box hugs the drawn ink, and the ink height of
+     * our face at a given size is not a constant across scripts (a line of kanji,
+     * a line of kana and a line of Latin ascenders all differ), so the size that
+     * drew a line is recovered from this measurement rather than assumed. A text
+     * with line breaks is measured per segment and the tallest wins, because a
+     * break is not a glyph.
+     *
+     * Cached per string: a node's lines are asked for once each, and the whole
+     * string once for the breaker's size estimate.
+     */
+    private fun inkHeightMeasurer(textSize: Float): (String) -> Float {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = OverlayFont.typeface(context)
+            this.textSize = textSize.coerceAtLeast(1f)
+        }
+        val bounds = Rect()
+        val cache = HashMap<String, Float>()
+        return { s ->
+            cache.getOrPut(s) {
+                var maxHeight = 0f
+                for (segment in s.split('\n')) {
+                    if (segment.isEmpty()) continue
+                    paint.getTextBounds(segment, 0, segment.length, bounds)
+                    val height = bounds.height().toFloat()
+                    if (height > maxHeight) maxHeight = height
+                }
+                maxHeight
+            }
+        }
+    }
+
 
     /**
      * #106: the split, once per capture — how many detected boxes the tree paid
@@ -1032,8 +1081,8 @@ class OcrOverlayView(
         nodes: Int,
         plan: ScreenTextRoute.Routing,
         screenNodes: List<ScreenTextNode> = emptyList(),
-        recordNodes: List<ScreenTextNode> = emptyList(),
         pageBoxesForLog: List<LineBox> = emptyList(),
+        nodeLines: List<Pair<Int, LineResult>> = emptyList(),
     ) {
         val pkg = ScreenTextReader.lastPackage ?: "unknown"
         // #106: the walk's own numbers, and the package the capture said was in
@@ -1056,13 +1105,28 @@ class OcrOverlayView(
         // invisible there. One entry per node-backed line: the page box it installs
         // at, the node, its rect and its text.
         if (plan.nodeAt.isNotEmpty() && screenNodes.isNotEmpty()) {
+            val linesByPage = nodeLines.toMap()
             val drawn = plan.nodeAt.entries.take(64).joinToString(" ") { (page, nodeIndex) ->
                 val node = screenNodes.getOrNull(nodeIndex)
                 val box = pageBoxesForLog.getOrNull(page)?.rect
                 val r = node?.rect
+                // #106: the extent the layout ACTUALLY drew, against the box it was
+                // drawn into. The row's ink right edge is what the line is supposed to
+                // reach; the last character box's right is where it stops. Equal means
+                // the line spans its ink; short is the mismatch this fix is about. A
+                // bare row (a recovered node) has no measured extent to report.
+                val extent = linesByPage[page]?.let { line ->
+                    val first = line.charBoxes.firstOrNull()?.left
+                    val last = line.charBoxes.lastOrNull()?.right
+                    if (first != null && last != null && box != null) {
+                        " drawn=[$first,$last] gap=${box.right - last}"
+                    } else {
+                        ""
+                    }
+                } ?: ""
                 "#$page@[${box?.left},${box?.top},${box?.right},${box?.bottom}]" +
                     "node$nodeIndex[${r?.left},${r?.top},${r?.right},${r?.bottom}]" +
-                    "\"${node?.text?.take(20) ?: "?"}\""
+                    "\"${node?.text?.take(20) ?: "?"}\"$extent"
             }
             val drawnLine = "screen text lines=${plan.nodeAt.size}: $drawn"
             Log.i("OcrOverlayView", drawnLine)
