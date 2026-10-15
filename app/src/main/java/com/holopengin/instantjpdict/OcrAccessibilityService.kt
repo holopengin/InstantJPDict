@@ -128,9 +128,6 @@ class OcrAccessibilityService : AccessibilityService() {
      */
     private var captureForeground: String? = null
 
-    /** #105: the last volume-down press, for the double-press chord (0 = none yet). */
-    private var lastVolumeDownAt = 0L
-
     /**
      * #105: whether the framework currently has us bound.
      *
@@ -213,11 +210,11 @@ class OcrAccessibilityService : AccessibilityService() {
      * #105: THE TRIGGER. Enabling the service is the capture request, and the
      * platform's own accessibility activations are the two halves of it:
      *
-     *  - [onServiceConnected] — the volume-button and two-finger-swipe gestures
-     *    (and the accessibility-button tap, on a system where that toggles a lone
-     *    service) *toggle the service at the system level*, so the bind is the
-     *    only event we get. Nothing here draws a control: this replaces the
-     *    floating button that used to stand in for it.
+     *  - [onServiceConnected] — the platform shortcut's volume-key and
+     *    two-finger-swipe gestures (and the accessibility-button tap, on a system
+     *    where that toggles a lone service) *toggle the service at the system
+     *    level*, so the bind is the only event we get. Nothing here draws a
+     *    control: this replaces the floating button that used to stand in for it.
      *  - [accessibilityButtonCallback] — the nav-bar accessibility button, and
      *    whatever the user pinned to it, does NOT toggle, so it is a genuine
      *    per-activation trigger and arrives as a callback instead. It is the other
@@ -312,8 +309,8 @@ class OcrAccessibilityService : AccessibilityService() {
      * pinned to it, which is also what the button drawer and the
      * accessibility-button shortcut reach — was activated.
      *
-     * Unlike the volume-button and two-finger-swipe gestures, this does NOT toggle
-     * the service, so it is a genuine per-activation trigger: it shares the guards,
+     * Unlike the platform shortcut's gestures, this does NOT toggle the service,
+     * so it is a genuine per-activation trigger: it shares the guards,
      * the delay and the retry with [onServiceConnected] through
      * [captureFromActivation] rather than duplicating them.
      *
@@ -479,11 +476,11 @@ class OcrAccessibilityService : AccessibilityService() {
         // Only a fresh bind has to wait: the window server is still tearing the old
         // service instance down and will not serve a screenshot yet, and the
         // Settings gate that runs at capture time needs the accessibility windows
-        // list to be populated. A live trigger — the accessibility button, the
-        // volume chord — arrives on a service that is already running,
-        // where waiting 300 ms was the whole of the delay the app-owned button
-        // never had. So the bind waits [BIND_POST_DELAY_MS] and a live trigger waits
-        // the old button's own [LIVE_POST_DELAY_MS].
+        // list to be populated. A live trigger — the accessibility button —
+        // arrives on a service that is already running, where waiting 300 ms was
+        // the whole of the delay the app-owned button never had. So the bind waits
+        // [BIND_POST_DELAY_MS] and a live trigger waits the old button's own
+        // [LIVE_POST_DELAY_MS].
         val postDelay = if (freshBind) BIND_POST_DELAY_MS else LIVE_POST_DELAY_MS
         mainHandler.postDelayed({ capture(reason, isRetry = false, freshBind = freshBind) }, postDelay)
     }
@@ -722,37 +719,11 @@ class OcrAccessibilityService : AccessibilityService() {
         ocrPass = view.startOcr()
     }
 
-    /**
-     * #105: double-press volume-down — a per-press trigger we own.
-     *
-     * The platform's accessibility shortcut *toggles the service*, so it cannot be
-     * per-press: the press that disables can never capture, and disabling the
-     * service ourselves takes the shortcut's own target binding with it (the
-     * shortcut then stops being listed and does nothing). This chord is ours
-     * instead — the service stays resident, each double press is exactly one
-     * capture, and single presses still change the volume: only the *second* press
-     * of a pair is consumed.
-     */
-    private fun handleVolumeChord(keyEvent: KeyEvent): Boolean {
-        if (keyEvent.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
-        if (keyEvent.action != KeyEvent.ACTION_DOWN || keyEvent.repeatCount != 0) return false
-        val now = SystemClock.elapsedRealtime()
-        val previous = lastVolumeDownAt
-        lastVolumeDownAt = now
-        if (previous == 0L || now - previous > VOLUME_CHORD_MS) return false
-        lastVolumeDownAt = 0L
-        captureFromActivation("volume double-press")
-        return true
-    }
-
     override fun onKeyEvent(event: KeyEvent?): Boolean {
         val keyEvent = event ?: return super.onKeyEvent(event)
         
         // Handle global shortcut when overlay is NOT showing
         if (overlayView == null) {
-            // #105: our own volume chord, before and independent of the gamepad pref.
-            if (handleVolumeChord(keyEvent)) return true
-
             val prefs = getSharedPreferences("gamepad_prefs", Context.MODE_PRIVATE)
             val globalShortcutEnabled = prefs.getBoolean("global_shortcut_enabled", false)
             
@@ -810,9 +781,9 @@ class OcrAccessibilityService : AccessibilityService() {
      * *service*, and the system's accessibility-shortcut target binding goes with
      * it — the shortcut stops being listed and then does nothing when pressed
      * (confirmed on-device). The service is what the triggers are attached to, so it
-     * is resident by design; the per-press triggers are the accessibility button,
-     * the volume chord in [onKeyEvent], and the shortcut's *enable* press, which
-     * captures through [onServiceConnected].
+     * is resident by design; the per-press triggers are the accessibility
+     * button and the shortcut's *enable* press, which captures through
+     * [onServiceConnected].
      */
     private fun closeOverlay(reason: String) {
         if (isDestroyed) return
@@ -889,7 +860,7 @@ class OcrAccessibilityService : AccessibilityService() {
 
         /**
          * #105: how long a LIVE trigger waits — one that arrives on a service that
-         * is already connected (the accessibility button, the volume chord).
+         * is already connected (the accessibility button).
          *
          * Nothing is being torn down and no window list has to be read, so this is
          * deliberately not the bind's 300 ms: it is the 50 ms the old app-owned
@@ -912,9 +883,6 @@ class OcrAccessibilityService : AccessibilityService() {
          * user activations, which are a gesture or a button tap.
          */
         private const val ACTIVATION_GUARD_MS = 750L
-
-        /** #105: the window a second volume-down press has to land in. */
-        private const val VOLUME_CHORD_MS = 450L
 
         /** #105: the pause before the one capture retry. */
         private const val CAPTURE_RETRY_DELAY_MS = 500L
