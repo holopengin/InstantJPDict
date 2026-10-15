@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,6 +53,11 @@ import kotlinx.coroutines.withContext
  * favourites, no tap-to-jump. The only two gestures a card carries are the ones
  * the renderer already had (long-press to copy the headword, the bookmark star),
  * so they behave as they do in the overlay.
+ *
+ * Lookups are live: every change to the box schedules one (debounced), a new
+ * change supersedes the one in flight, and the chain itself runs off the main
+ * thread — so the box never waits on a search, and Enter and the button are
+ * conveniences rather than the only trigger.
  *
  * Three ways in beyond the launcher (the home-screen button and the static
  * shortcut both land here through [MainActivity]):
@@ -197,11 +203,23 @@ class ManualLookupActivity : AppCompatActivity() {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable?) {
-                    // Empty/whitespace clears: the results of the previous lookup
-                    // would otherwise sit under an empty box claiming to belong to
-                    // it. Clearing is not a lookup, so no "No results found" — that
-                    // message is for a search that found nothing.
-                    if (s.isNullOrBlank()) clearResults()
+                    val text = s?.toString().orEmpty()
+                    if (text.isBlank()) {
+                        // Empty/whitespace clears: the results of the previous
+                        // lookup would otherwise sit under an empty box claiming
+                        // to belong to it. Clearing is not a lookup, so no "No
+                        // results found" — that message is for a search that
+                        // found nothing. A pending live lookup is cancelled with
+                        // the results: there is nothing left to search for.
+                        lookupJob?.cancel()
+                        clearResults()
+                    } else {
+                        // Live lookup — no Enter and no button needed. Debounced,
+                        // and each run supersedes the one in flight (runLookup
+                        // cancels it), so a burst of typing is one search after
+                        // the pause rather than one per key.
+                        runLookup(text, LIVE_LOOKUP_DEBOUNCE_MS)
+                    }
                 }
             })
         }
@@ -274,14 +292,26 @@ class ManualLookupActivity : AppCompatActivity() {
     }
 
     /**
-     * Run the shared chain off the main thread, like the overlay's lookup. A new
-     * submit cancels the one in flight, so a fast typist never sees an older
-     * lookup's cards replace a newer one's.
+     * Run the shared chain off the main thread, like the overlay's lookup.
+     *
+     * A new run cancels the one in flight, so a fast typist never sees an older
+     * lookup's cards replace a newer one's — and the [debounceMs] wait is part of
+     * that same cancellable job, so a keystroke can never queue work behind
+     * another search. The box itself is never blocked by any of this:
+     * [OcrOverlayStateController.lookupText] runs on [Dispatchers.IO], so typing
+     * stays on the main thread's frame budget whatever a query costs.
+     *
+     * The result is checked against the box before it is shown: a job that was
+     * already past its cancellation check when the text changed (the IO result
+     * landing in the same frame as a keystroke) must not paint results for a
+     * string the user has moved on from.
      */
-    private fun runLookup(text: String) {
+    private fun runLookup(text: String, debounceMs: Long = 0) {
         lookupJob?.cancel()
         lookupJob = lookupScope.launch {
+            if (debounceMs > 0) delay(debounceMs)
             val entries = withContext(Dispatchers.IO) { controller.lookupText(text) }
+            if (input.text?.toString() != text) return@launch
             // A read-only selection lookup is a glance: show what was found, then
             // finish once it has been shown, never returning a replacement.
             if (readOnlyProcessText) {
@@ -324,5 +354,13 @@ class ManualLookupActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "ManualLookupActivity"
+
+        /**
+         * How long the box must be quiet before a keystroke's lookup runs. Live
+         * enough to feel immediate, long enough that a burst of typing is one
+         * search rather than one per key — and every run is cancellable, so the
+         * wait never queues work.
+         */
+        const val LIVE_LOOKUP_DEBOUNCE_MS = 200L
     }
 }
