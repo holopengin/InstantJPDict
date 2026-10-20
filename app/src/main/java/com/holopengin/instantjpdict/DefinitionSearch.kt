@@ -9,10 +9,11 @@ import java.util.Locale
  *
  * The database query is deliberately a bounded scan: `dictionary.definitions`
  * is a JSON text column, so there is no useful index for an arbitrary substring
- * and the query has to inspect rows. The Android DAO caps the candidates by
- * dictionary priority and popularity; this object then filters out rows that
- * only matched JSON keys, scores the real gloss matches, and keeps the best
- * [RESULT_LIMIT].
+ * and the query has to inspect rows. It uses `instr` and `replace`, not JSON1,
+ * because Android's SQLite does not expose JSON1 on every release the app
+ * supports. The Android DAO caps the candidates by dictionary priority and
+ * popularity; this object then filters out markup-only hits, scores the real
+ * gloss matches, and keeps the best [RESULT_LIMIT].
  *
  * Ranking has three signals, strongest first:
  *  - exact gloss match (a whole sense equals the query) beats a whole-word hit,
