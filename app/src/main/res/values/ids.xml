@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The manual lookup screen's results column. Programmatic, so it needs a
+         declared id: the instrumentation test that pins "a selection lookup
+         stays open with results" has to find the cards it asserts on. -->
+    <item name="manual_lookup_results" type="id" />
+</resources>

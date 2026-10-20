@@ -64,9 +64,11 @@ import kotlinx.coroutines.withContext
  *  - `ACTION_SEND` + `text/plain` — a shared selection prefills the box and is
  *    looked up on create;
  *  - `ACTION_PROCESS_TEXT` (`text/plain`) — the selection toolbar's entry. The
- *    text is read from `EXTRA_PROCESS_TEXT`; `EXTRA_PROCESS_TEXT_READONLY` is
- *    respected by never returning a replacement, because this is a lookup, not a
- *    text transformer;
+ *    text is read from `EXTRA_PROCESS_TEXT` and the screen stays up with the
+ *    results, exactly like a share. We never set a replacement result, because
+ *    this is a lookup, not a text transformer — Back returns to the sender. It
+ *    used to finish on the lookup's own frame, which meant the cards were built
+ *    and then the window closed before they could be drawn;
  *  - an ordinary explicit launch from the home screen, with an empty box.
  */
 class ManualLookupActivity : AppCompatActivity() {
@@ -80,9 +82,6 @@ class ManualLookupActivity : AppCompatActivity() {
     private lateinit var input: TextInputEditText
     private lateinit var resultsContent: LinearLayout
     private var lookupJob: Job? = null
-
-    /** True when this launch is a text-selection lookup that must not replace text. */
-    private var readOnlyProcessText = false
 
     /**
      * #89: the bookmark star writes the same store the overlay uses; the manual
@@ -111,13 +110,12 @@ class ManualLookupActivity : AppCompatActivity() {
 
         OverlayEnvironment.prepare(this, controller, lookupScope)
 
-        // A selection-menu lookup never returns a result: it is read-only, and the
-        // activity finishes as soon as it has shown what it found. `ACTION_SEND`
-        // and a plain launch stay on screen. `EXTRA_PROCESS_TEXT_READONLY` is read
-        // for the log only — we never set a replacement result either way, so the
-        // flag cannot change what we return; it records what the sender asked for.
-        readOnlyProcessText = intent?.action == Intent.ACTION_PROCESS_TEXT
-        if (readOnlyProcessText) {
+        // A selection-menu lookup never returns a result: we do not set one, and
+        // Back leaves the sender with RESULT_CANCELED. It stays on screen like a
+        // share so the cards can actually be read; `EXTRA_PROCESS_TEXT_READONLY`
+        // only says the sender's text cannot be replaced, not that this screen
+        // should close itself.
+        if (intent?.action == Intent.ACTION_PROCESS_TEXT) {
             Log.d(TAG, "process-text lookup, readOnly=${isProcessTextReadOnly()}")
         }
 
@@ -173,11 +171,10 @@ class ManualLookupActivity : AppCompatActivity() {
     private fun buildRoot(ui: HarbourUi): View {
         val toolbar = MaterialToolbar(this).apply {
             title = getString(R.string.manual_lookup_title)
-            // A selection-menu launch finishes on Back; a home-screen launch is a
-            // normal task entry and Back returns to the home screen beneath it.
-            setNavigationOnClickListener {
-                if (readOnlyProcessText) finish() else onBackPressedDispatcher.onBackPressed()
-            }
+            // Back closes the screen for every launch shape. A selection/share
+            // launch returns to the app that sent the text; a home-screen or
+            // shortcut launch returns to the screen beneath it.
+            setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
             setNavigationIcon(R.drawable.ic_arrow_back)
             navigationContentDescription = "Back"
         }
@@ -237,6 +234,7 @@ class ManualLookupActivity : AppCompatActivity() {
         })
 
         resultsContent = LinearLayout(this).apply {
+            id = R.id.manual_lookup_results
             orientation = LinearLayout.VERTICAL
         }
 
@@ -312,15 +310,12 @@ class ManualLookupActivity : AppCompatActivity() {
             if (debounceMs > 0) delay(debounceMs)
             val entries = withContext(Dispatchers.IO) { controller.lookupText(text) }
             if (input.text?.toString() != text) return@launch
-            // A read-only selection lookup is a glance: show what was found, then
-            // finish once it has been shown, never returning a replacement.
-            if (readOnlyProcessText) {
-                showResults(entries)
-                Log.d(TAG, "process-text lookup done: ${entries.size} entries, finishing")
-                finish()
-            } else {
-                showResults(entries)
-            }
+            // One exit path for every launch shape. A process-text lookup must
+            // not finish here: `finish()` on the same main-thread turn as
+            // `showResults` tears the window down before a frame is drawn, so the
+            // screen closed with the results never shown. Leaving it up also
+            // matches a share: Back returns to the sender without a replacement.
+            showResults(entries)
         }
     }
 
@@ -347,7 +342,6 @@ class ManualLookupActivity : AppCompatActivity() {
         setIntent(intent)
         // A second share/selection lands on this instance when it is already on
         // top; re-read and look up rather than leaving the previous result up.
-        readOnlyProcessText = readIncomingText() != null
         input.text = null
         applyIncomingText()
     }

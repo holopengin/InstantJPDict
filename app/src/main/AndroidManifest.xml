@@ -167,13 +167,13 @@
              entry. android:label is what that toolbar shows, hence the clear
              verb phrase (R.string.manual_lookup_label) rather than the app name.
 
-             NOT excluded from recents, deliberately: the home-screen button and
-             the lookup shortcut are ordinary task entries, and a normal task row
-             is right for them. A share/selection launch usually finishes at once
-             (selection lookups are read-only and return nothing), so in the
-             share case the row is transient anyway; one activity cannot exclude
-             only some of its launches, and the recurring home-screen path wins
-             that trade. -->
+             NOT excluded from recents, deliberately: the home-screen button, the
+             lookup shortcut, a share and a selection lookup all leave the screen
+             up until Back, and a normal task row is right for them. A selection
+             lookup returns no replacement text, but it is not a different kind
+             of visit: it stays so its results can be read, then Back returns to
+             the sender. One activity cannot exclude only some of its launches,
+             and the recurring home-screen path wins that trade. -->
         <activity
             android:name=".ManualLookupActivity"
             android:exported="true"
