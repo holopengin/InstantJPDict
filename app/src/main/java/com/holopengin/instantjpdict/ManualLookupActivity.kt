@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import android.util.LruCache
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -62,9 +63,11 @@ import kotlinx.coroutines.withContext
  * conveniences rather than the only trigger.
  *
  * #108 adds the direction switch above the results: Japanese to English (the
- * original path), English gloss to Japanese, and romaji to kana followed by the
- * ordinary Japanese lookup. The mode is explicit and persisted because the same
- * string can be valid in more than one direction.
+ * original path) and English gloss to Japanese. Romaji is not a third
+ * direction: it is an input spelling for Japanese, so the Japanese mode
+ * converts ASCII to kana and falls back to the katakana spelling when the
+ * hiragana form finds nothing. The direction is explicit and persisted because
+ * Japanese and English are different indexes.
  *
  * Three ways in beyond the launcher (the home-screen button and the static
  * shortcut both land here through [MainActivity]):
@@ -91,6 +94,13 @@ class ManualLookupActivity : AppCompatActivity() {
     private lateinit var resultsContent: LinearLayout
     private var mode: ManualLookupMode = ManualLookupMode.DEFAULT
     private var lookupJob: Job? = null
+
+    /**
+     * EN→JP scans the dictionary, so repeating a query (mode switch, a
+     * backspace and retype, a selection returning to the same text) should not
+     * repeat the scan. The activity is short-lived, so a small cache is enough.
+     */
+    private val definitionCache = LruCache<String, List<FormattedEntry>>(16)
 
     /**
      * #89: the bookmark star writes the same store the overlay uses; the manual
@@ -382,13 +392,28 @@ class ManualLookupActivity : AppCompatActivity() {
         val activeMode = mode
         lookupJob = lookupScope.launch {
             if (debounceMs > 0) delay(debounceMs)
+            val started = System.currentTimeMillis()
             val entries = withContext(Dispatchers.IO) {
                 when (activeMode) {
-                    ManualLookupMode.JP_TO_EN -> controller.lookupText(text)
-                    ManualLookupMode.ROMAJI_TO_JP -> controller.lookupText(Romaji.toKana(text))
-                    ManualLookupMode.EN_TO_JP -> controller.lookupDefinitionText(text)
+                    ManualLookupMode.JP_TO_EN -> controller.lookupJapaneseText(text)
+                    ManualLookupMode.EN_TO_JP -> {
+                        val key = DefinitionSearch.normalizeQuery(text)
+                        val cached = key?.let { definitionCache.get(it) }
+                        if (cached != null) {
+                            cached
+                        } else {
+                            val fresh = controller.lookupDefinitionText(text)
+                            if (key != null) definitionCache.put(key, fresh)
+                            fresh
+                        }
+                    }
                 }
             }
+            Log.d(
+                TAG,
+                "lookup $activeMode took ${System.currentTimeMillis() - started}ms, " +
+                    "${entries.size} entries, ${text.length} chars",
+            )
             if (activeMode != mode) return@launch
             if (input.text?.toString() != text) return@launch
             // One exit path for every launch shape. A process-text lookup must

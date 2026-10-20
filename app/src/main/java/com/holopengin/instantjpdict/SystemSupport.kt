@@ -126,6 +126,12 @@ interface DictionaryProvider {
      */
     suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> = emptyList()
 
+    /**
+     * The slower gloss scan that removes JSON key spellings first. The fast
+     * scan calls it only when the first pass found no real gloss match.
+     */
+    suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry> = emptyList()
+
     /** dictionaryId → display name, for per-entry source labels. */
     suspend fun dictionaryNames(): Map<Int, String>
 }
@@ -139,6 +145,11 @@ class AndroidDictionaryProvider(private val context: Context) : DictionaryProvid
     override suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> {
         val db = AppDatabase.getDatabase(context)
         return db.dictionaryDao().findByDefinition(query, limit)
+    }
+
+    override suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry> {
+        val db = AppDatabase.getDatabase(context)
+        return db.dictionaryDao().findByDefinitionExcludingKeys(query, limit)
     }
 
     override suspend fun dictionaryNames(): Map<Int, String> {

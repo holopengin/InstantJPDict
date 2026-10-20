@@ -35,18 +35,37 @@ object DefinitionSearch {
      * popularity keeps the useful candidates inside this cap while bounding the
      * time spent parsing definitions. Rare words match far fewer rows.
      */
-    const val CANDIDATE_LIMIT = 2_000
+    const val CANDIDATE_LIMIT = 1_000
 
     /** Cards rendered for one query. */
     const val RESULT_LIMIT = 50
 
+    /** Below this many hits, the slower key-stripping scan is worth running. */
+    const val FALLBACK_MIN_RESULTS = 3
+
     /** Longest literal query accepted by the manual screen. */
     const val QUERY_MAX = 64
+
+    /**
+     * How many candidates get the accurate, plain-text ranking. The cheap pass
+     * below runs over every row the SQL scan returned; only this many are worth
+     * crossing into the definition walker. A common word can fill the SQL cap,
+     * but the rows that survive this pass are the ones with the best literal
+     * match, so holding the expensive pass to a few hundred keeps the search
+     * responsive without shrinking the candidate pool.
+     */
+    private const val ACCURATE_LIMIT = 256
 
     internal data class Hit(
         val entry: DictionaryEntry,
         val exactness: Int,
         val senseIndex: Int,
+        val offsetRatio: Double,
+    )
+
+    private data class QuickHit(
+        val entry: DictionaryEntry,
+        val exactness: Int,
         val offsetRatio: Double,
     )
 
@@ -74,7 +93,7 @@ object DefinitionSearch {
         if (entries.isEmpty()) return emptyList()
 
         val bestPerEntry = LinkedHashMap<String, Hit>()
-        for (entry in entries) {
+        for (entry in prefilter(entries, needle)) {
             val hit = hit(entry, needle) ?: continue
             val key = if (entry.id != 0) {
                 "id:${entry.id}"
@@ -91,6 +110,41 @@ object DefinitionSearch {
             .sortedWith(COMPARATOR)
             .take(limit)
             .map { it.entry }
+    }
+
+    /**
+     * Cheap pass over the SQL candidates, before the plain-text walker. It uses
+     * the stored JSON directly, with just the escaped newline/tab decoded so a
+     * multi-word gloss can still be found. The accurate pass decides the final
+     * order; this only chooses which rows reach it.
+     */
+    private fun prefilter(entries: List<DictionaryEntry>, needle: String): List<DictionaryEntry> {
+        if (entries.size <= ACCURATE_LIMIT) return entries
+        return entries.asSequence()
+            .mapNotNull { quickHit(it, needle) }
+            .sortedWith(QUICK_COMPARATOR)
+            .take(ACCURATE_LIMIT)
+            .map { it.entry }
+            .toList()
+    }
+
+    private fun quickHit(entry: DictionaryEntry, needle: String): QuickHit? {
+        val raw = entry.definitions
+            .lowercase(Locale.ROOT)
+            .replace("\\n", " ")
+            .replace("\\t", " ")
+        val index = raw.indexOf(needle)
+        if (index < 0) return null
+        val exactness = when {
+            raw.contains("\"$needle\"") -> 3
+            isWholeWord(raw, index, needle.length) -> 2
+            else -> 1
+        }
+        return QuickHit(
+            entry = entry,
+            exactness = exactness,
+            offsetRatio = index.toDouble() / raw.length.coerceAtLeast(1),
+        )
     }
 
     internal fun hit(entry: DictionaryEntry, normalizedQuery: String): Hit? {
@@ -128,6 +182,11 @@ object DefinitionSearch {
     private val COMPARATOR: Comparator<Hit> =
         compareByDescending<Hit> { it.exactness }
             .thenBy { it.senseIndex }
+            .thenBy { it.offsetRatio }
+            .thenByDescending { it.entry.popularity }
+
+    private val QUICK_COMPARATOR: Comparator<QuickHit> =
+        compareByDescending<QuickHit> { it.exactness }
             .thenBy { it.offsetRatio }
             .thenByDescending { it.entry.popularity }
 }

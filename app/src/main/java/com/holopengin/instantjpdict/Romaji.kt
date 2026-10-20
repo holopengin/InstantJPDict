@@ -3,7 +3,7 @@ package com.holopengin.instantjpdict
 import java.util.Locale
 
 /**
- * #108: Hepburn-style romaji to kana for the manual lookup's romaji mode.
+ * #108: Hepburn-style romaji to kana for the manual lookup's Japanese mode.
  *
  * This is a front door to the existing kana lookup, not a second search path:
  * "shinjuku" becomes しんじゅく and the ordinary term chain runs from there.
@@ -149,6 +149,38 @@ object Romaji {
         }
         return out.toString()
     }
+
+    /** Hiragana to katakana for the same pronunciation. Non-kana passes through. */
+    fun toKatakana(kana: String): String = buildString(kana.length) {
+        for (c in kana) {
+            append(if (c in '\u3041'..'\u3096') c + 0x60 else c)
+        }
+    }
+
+    /**
+     * Katakana spellings of a hiragana query, in the order worth trying. The
+     * literal conversion comes first. A second form turns a vowel kana that
+     * follows a consonant into `ー`, which is how loanwords are normally
+     * written (`びいる` -> `ビール`, `こおひい` -> `コーヒー`). Duplicates are
+     * dropped.
+     */
+    fun katakanaVariants(hiragana: String): List<String> {
+        val direct = toKatakana(hiragana)
+        val longVowels = buildString(direct.length) {
+            for ((index, c) in direct.withIndex()) {
+                val previous = direct.getOrNull(index - 1)
+                val vowelAfterConsonant = c in KATAKANA_VOWELS &&
+                    previous != null &&
+                    previous in '\u30A1'..'\u30FA' &&
+                    previous !in KATAKANA_VOWELS &&
+                    previous != 'ン'
+                if (vowelAfterConsonant) append('ー') else append(c)
+            }
+        }
+        return listOf(direct, longVowels).distinct()
+    }
+
+    private val KATAKANA_VOWELS = setOf('ア', 'イ', 'ウ', 'エ', 'オ')
 
     /**
      * Hepburn macrons are one character where the kana spelling uses two.

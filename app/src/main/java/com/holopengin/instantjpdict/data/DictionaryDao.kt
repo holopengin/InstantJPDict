@@ -19,17 +19,34 @@ interface DictionaryDao {
     suspend fun findByTexts(texts: List<String>): List<DictionaryEntry>
 
     /**
-     * #108: bounded English-gloss scan. `definitions` is JSON text, so a
+     * #108: fast bounded English-gloss scan. `definitions` is JSON text, so a
      * leading-wildcard search cannot use the kanji/reading indexes; the cap and
      * the priority/popularity order bound the work. [DefinitionSearch] filters
      * the remaining hits and ranks the real gloss matches.
      *
+     * This scan does not strip JSON keys, so it can return markup-only rows.
+     * The controller calls [findByDefinitionExcludingKeys] only when this pass
+     * produced no real gloss match. Normal words pay for one cheap `instr`
+     * scan; words that are also JSON keys pay for the slower fallback.
+     *
      * JSON1 is deliberately not used: it is not enabled in Android's SQLite on
      * every supported release (minSdk 30), so a `json_tree` query would fail at
-     * runtime on older devices. The `replace` removes the exact `"query":` key
-     * spelling before the substring test, which keeps a common word from
-     * matching every row's JSON keys. Values such as `"span"` can still match a
-     * tag value; [DefinitionSearch] drops those after the scan.
+     * runtime on older devices.
+     */
+    @Query("""
+        SELECT d.* FROM dictionary d
+        JOIN dictionary_meta m ON d.dictionaryId = m.id
+        WHERE instr(lower(d.definitions), lower(:query)) > 0
+        ORDER BY m.priority ASC, d.popularity DESC
+        LIMIT :limit
+    """)
+    suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry>
+
+    /**
+     * The slower fallback: remove the exact `"query":` key spelling before the
+     * substring test, so a word like `content` does not match every structured
+     * row's JSON keys. Values such as `"span"` can still match a tag value;
+     * [DefinitionSearch] drops those after the scan.
      */
     @Query("""
         SELECT d.* FROM dictionary d
@@ -41,7 +58,7 @@ interface DictionaryDao {
         ORDER BY m.priority ASC, d.popularity DESC
         LIMIT :limit
     """)
-    suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry>
+    suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDictionary(dictionary: DictionaryMeta): Long

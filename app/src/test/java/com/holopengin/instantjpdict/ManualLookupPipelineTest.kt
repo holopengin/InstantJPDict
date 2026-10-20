@@ -64,11 +64,26 @@ class ManualLookupPipelineTest {
     }
 
     private fun controller(rows: List<DictionaryEntry>): OcrOverlayStateController =
+        controllerWith(FakeProvider(rows))
+
+    private fun controllerWith(provider: DictionaryProvider): OcrOverlayStateController =
         OcrOverlayStateController().apply {
             deinflector = testDeinflector()
-            dictionaryProvider = FakeProvider(rows)
+            dictionaryProvider = provider
             gson = Gson()
         }
+
+    private class FallbackProvider(
+        private val fast: List<DictionaryEntry>,
+        private val slow: List<DictionaryEntry>,
+    ) : DictionaryProvider {
+        override suspend fun findByTexts(texts: List<String>): List<DictionaryEntry> = emptyList()
+        override suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> =
+            fast.take(limit)
+        override suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry> =
+            slow.take(limit)
+        override suspend fun dictionaryNames(): Map<Int, String> = mapOf(0 to "JMdict")
+    }
 
     @Test
     fun lookupTextResolvesAWordThroughTheSharedChain() = runBlocking {
@@ -134,18 +149,44 @@ class ManualLookupPipelineTest {
     }
 
     @Test
+    fun definitionLookupFallsBackWhenTheFastScanOnlyFoundMarkup() = runBlocking {
+        val markupOnly = entry(
+            "日本語",
+            "にほんご",
+            definitions = """[{"tag":"span","content":"日本語"}]""",
+        )
+        val real = entry("スパン", "スパン", definitions = """["span"]""")
+        val c = controllerWith(FallbackProvider(listOf(markupOnly), listOf(real)))
+
+        val out = c.lookupDefinitionText("span")
+
+        assertEquals(listOf("スパン"), out.map { it.term })
+    }
+
+    @Test
     fun romajiUsesTheSameKanaChainRatherThanASecondSearch() = runBlocking {
         val c = controller(listOf(entry("猫", "ねこ")))
 
         // The contract is parity, not a particular display term: a kana search
-        // for ねこ already resolves through the reading, so the romaji front
-        // door must return exactly those entries.
+        // for ねこ already resolves through the reading, so the Japanese mode
+        // must return exactly those entries for romaji input.
         val kana = c.lookupText("ねこ")
-        val romaji = c.lookupText(Romaji.toKana("neko"))
+        val romaji = c.lookupJapaneseText("neko")
 
         assertTrue(kana.isNotEmpty())
         assertEquals(kana.map { it.term }, romaji.map { it.term })
         assertEquals(kana.map { it.readingGroups }, romaji.map { it.readingGroups })
+    }
+
+    @Test
+    fun aKatakanaLoanwordResolvesFromRomajiThroughTheHiraganaFallback() = runBlocking {
+        val c = controller(listOf(entry("テスト", "テスト")))
+
+        // てすと is not in the dictionary; テスト is. The Japanese mode must try
+        // the katakana spelling after the hiragana query finds nothing.
+        val out = c.lookupJapaneseText("tesuto")
+
+        assertEquals(listOf("テスト"), out.map { it.term })
     }
 
     @Test

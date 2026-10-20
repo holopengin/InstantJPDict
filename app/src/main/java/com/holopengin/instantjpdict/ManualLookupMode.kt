@@ -6,14 +6,14 @@ import android.content.SharedPreferences
 /**
  * #108: what the manual lookup box searches against.
  *
- * The mode is explicit, never inferred. Romaji and English can collide on the
- * same input ("tori" is both 鳥 and an English-looking word), so the user picks
- * the direction once and it is persisted with the other input preferences.
+ * The direction is explicit because Japanese and English are different
+ * indexes. Romaji is not a direction: it is an input spelling for Japanese, so
+ * the default mode accepts either kana, kanji, or romaji. A stored
+ * `romaji_to_jp` from an earlier build falls back to this mode.
  *
  * [JP_TO_EN] is the default and the behaviour #89 shipped: the box is a window
- * onto the ordinary term lookup. [ROMAJI_TO_JP] converts the typed romaji to
- * kana and then runs that same lookup. [EN_TO_JP] searches the English glosses
- * stored in `dictionary.definitions`.
+ * onto the ordinary term lookup, with romaji converted first. [EN_TO_JP]
+ * searches the English glosses stored in `dictionary.definitions`.
  */
 enum class ManualLookupMode(
     val storedValue: String,
@@ -29,11 +29,6 @@ enum class ManualLookupMode(
         storedValue = "en_to_jp",
         labelRes = R.string.manual_lookup_mode_en_to_jp,
         hintRes = R.string.manual_lookup_hint_en,
-    ),
-    ROMAJI_TO_JP(
-        storedValue = "romaji_to_jp",
-        labelRes = R.string.manual_lookup_mode_romaji_to_jp,
-        hintRes = R.string.manual_lookup_hint_romaji,
     );
 
     companion object {

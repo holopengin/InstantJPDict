@@ -66,4 +66,13 @@ class RomajiTest {
         assertEquals("ゃ", Romaji.toKana("xya"))
         assertEquals("ぁ", Romaji.toKana("la"))
     }
+
+    @Test
+    fun katakanaVariantsCoverLoanwordSpelling() {
+        assertEquals("テスト", Romaji.toKatakana("てすと"))
+        assertEquals(listOf("ビイル", "ビール"), Romaji.katakanaVariants("びいる"))
+        assertEquals(listOf("コオヒイ", "コーヒー"), Romaji.katakanaVariants("こおひい"))
+        // Already katakana, or kanji, has no meaningful second spelling.
+        assertEquals(emptyList<String>(), Romaji.katakanaVariants("テスト").filter { it != "テスト" })
+    }
 }

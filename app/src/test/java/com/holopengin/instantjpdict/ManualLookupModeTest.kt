@@ -18,6 +18,7 @@ class ManualLookupModeTest {
     fun missingAndUnknownValuesFallBackToJapaneseLookup() {
         assertEquals(ManualLookupMode.JP_TO_EN, ManualLookupMode.fromStored(null))
         assertEquals(ManualLookupMode.JP_TO_EN, ManualLookupMode.fromStored(""))
+        assertEquals(ManualLookupMode.JP_TO_EN, ManualLookupMode.fromStored("romaji_to_jp"))
         assertEquals(ManualLookupMode.JP_TO_EN, ManualLookupMode.fromStored("something-old"))
     }
 

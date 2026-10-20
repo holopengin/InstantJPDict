@@ -662,6 +662,27 @@ class OcrOverlayStateController {
         lookupFollowingText(inputScope(text))?.matches ?: emptyList()
 
     /**
+     * #108 follow-up: the manual screen's Japanese path. Japanese input is
+     * searched exactly as before. ASCII input is treated as romaji, converted
+     * to kana, and searched through the same chain. If that finds nothing and
+     * the query is hiragana, the katakana spellings are tried in order, which
+     * is what makes `tesuto` reach テスト and `biiru` reach ビール.
+     *
+     * The tap path does not call this: OCR text is already Japanese and must
+     * keep its byte-for-byte behaviour.
+     */
+    suspend fun lookupJapaneseText(text: String): List<FormattedEntry> {
+        val primary = ManualLookupQuery.primary(text) ?: return emptyList()
+        val first = lookupText(primary)
+        if (first.isNotEmpty()) return first
+        for (variant in ManualLookupQuery.katakanaFallbacks(primary)) {
+            val alternate = lookupText(variant)
+            if (alternate.isNotEmpty()) return alternate
+        }
+        return emptyList()
+    }
+
+    /**
      * #108: English-to-Japanese lookup. The provider scans the stored gloss
      * column for the literal query, [DefinitionSearch] keeps and ranks the real
      * gloss matches, and the same renderer produces the standard cards from the
@@ -678,8 +699,19 @@ class OcrOverlayStateController {
         val provider = dictionaryProvider ?: return emptyList()
         val g = gson ?: return emptyList()
 
-        val candidates = provider.findByDefinition(query, DefinitionSearch.CANDIDATE_LIMIT)
-        val ranked = DefinitionSearch.rank(candidates, query)
+        var ranked = DefinitionSearch.rank(
+            provider.findByDefinition(query, DefinitionSearch.CANDIDATE_LIMIT),
+            query,
+        )
+        // The fast scan can be filled by JSON keys and tag values. Pay for the
+        // key-stripping scan only when the fast pass produced almost nothing.
+        if (ranked.size < DefinitionSearch.FALLBACK_MIN_RESULTS) {
+            val fallback = DefinitionSearch.rank(
+                provider.findByDefinitionExcludingKeys(query, DefinitionSearch.CANDIDATE_LIMIT),
+                query,
+            )
+            if (fallback.size > ranked.size) ranked = fallback
+        }
         if (ranked.isEmpty()) return emptyList()
 
         val dictNames = try { provider.dictionaryNames() } catch (_: Exception) { emptyMap() }
