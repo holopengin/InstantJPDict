@@ -662,6 +662,37 @@ class OcrOverlayStateController {
         lookupFollowingText(inputScope(text))?.matches ?: emptyList()
 
     /**
+     * #108: English-to-Japanese lookup. The provider scans the stored gloss
+     * column for the literal query, [DefinitionSearch] keeps and ranks the real
+     * gloss matches, and the same renderer produces the standard cards from the
+     * matched entries. There is no deinflection here: an English query is not a
+     * Japanese surface form.
+     *
+     * Entries are grouped by (dictionary, headword) before formatting so a
+     * multi-reading word still renders as one card with its readings, while
+     * different dictionaries keep their own blocks, exactly as the term path
+     * does.
+     */
+    suspend fun lookupDefinitionText(text: String): List<FormattedEntry> {
+        val query = DefinitionSearch.normalizeQuery(text) ?: return emptyList()
+        val provider = dictionaryProvider ?: return emptyList()
+        val g = gson ?: return emptyList()
+
+        val candidates = provider.findByDefinition(query, DefinitionSearch.CANDIDATE_LIMIT)
+        val ranked = DefinitionSearch.rank(candidates, query)
+        if (ranked.isEmpty()) return emptyList()
+
+        val dictNames = try { provider.dictionaryNames() } catch (_: Exception) { emptyMap() }
+        val grouped = LinkedHashMap<Pair<Int, String>, MutableList<DictionaryEntry>>()
+        for (entry in ranked) {
+            val headword = entry.kanji.ifEmpty { entry.reading }
+            grouped.getOrPut(entry.dictionaryId to headword) { mutableListOf() }.add(entry)
+        }
+        val matches = grouped.map { (key, entries) -> TermMatch(key.second, entries) }
+        return formatDictionaryResults(matches, g, dictNames)
+    }
+
+    /**
      * The shared chain, from a `followingText` window to formatted entries.
      *
      * Null when the controller is not prepared or the window is empty. The

@@ -19,6 +19,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.textfield.TextInputEditText
 import com.holopengin.instantjpdict.util.BookmarkCandidate
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +61,11 @@ import kotlinx.coroutines.withContext
  * thread — so the box never waits on a search, and Enter and the button are
  * conveniences rather than the only trigger.
  *
+ * #108 adds the direction switch above the results: Japanese to English (the
+ * original path), English gloss to Japanese, and romaji to kana followed by the
+ * ordinary Japanese lookup. The mode is explicit and persisted because the same
+ * string can be valid in more than one direction.
+ *
  * Three ways in beyond the launcher (the home-screen button and the static
  * shortcut both land here through [MainActivity]):
  *  - `ACTION_SEND` + `text/plain` — a shared selection prefills the box and is
@@ -80,7 +87,9 @@ class ManualLookupActivity : AppCompatActivity() {
     private val controller = OcrOverlayStateController()
 
     private lateinit var input: TextInputEditText
+    private lateinit var modeGroup: MaterialButtonToggleGroup
     private lateinit var resultsContent: LinearLayout
+    private var mode: ManualLookupMode = ManualLookupMode.DEFAULT
     private var lookupJob: Job? = null
 
     /**
@@ -107,6 +116,7 @@ class ManualLookupActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        mode = ManualLookupMode.read(this)
 
         OverlayEnvironment.prepare(this, controller, lookupScope)
 
@@ -180,7 +190,7 @@ class ManualLookupActivity : AppCompatActivity() {
         }
 
         input = TextInputEditText(this).apply {
-            hint = getString(R.string.manual_lookup_hint)
+            hint = getString(mode.hintRes)
             // Single-line + the search IME action: the soft keyboard's key becomes
             // "Search", which is the submit the spec asks for. A multi-line field
             // would show Enter instead and never surface the search action.
@@ -241,6 +251,7 @@ class ManualLookupActivity : AppCompatActivity() {
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(fieldCard)
+            addView(buildModeToggle(ui))
             addView(resultsContent)
         }
 
@@ -275,6 +286,64 @@ class ManualLookupActivity : AppCompatActivity() {
         return root
     }
 
+    /**
+     * #108: the explicit direction switch. Three modes, one checked at a time,
+     * persisted immediately. Changing it re-runs the current box text so the
+     * result on screen always belongs to the selected mode.
+     */
+    private fun buildModeToggle(ui: HarbourUi): MaterialButtonToggleGroup {
+        modeGroup = MaterialButtonToggleGroup(this).apply {
+            isSingleSelection = true
+            isSelectionRequired = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = ui.dp(8)
+                bottomMargin = ui.dp(8)
+            }
+        }
+
+        ManualLookupMode.entries.forEach { candidate ->
+            val button = MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle,
+            ).apply {
+                text = getString(candidate.labelRes)
+                isAllCaps = false
+                textSize = 11f
+                minWidth = 0
+                minimumWidth = 0
+                insetTop = 0
+                insetBottom = 0
+                isCheckable = true
+                id = View.generateViewId()
+                tag = candidate
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            modeGroup.addView(button)
+            if (candidate == mode) modeGroup.check(button.id)
+        }
+
+        modeGroup.addOnButtonCheckedListener { group, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val selected = group.findViewById<MaterialButton>(checkedId)?.tag as? ManualLookupMode
+                ?: return@addOnButtonCheckedListener
+            if (selected == mode) return@addOnButtonCheckedListener
+            mode = selected
+            ManualLookupMode.write(this, selected)
+            updateHint()
+            val text = input.text?.toString().orEmpty()
+            if (text.isBlank()) clearResults() else runLookup(text)
+        }
+        return modeGroup
+    }
+
+    private fun updateHint() {
+        input.hint = getString(mode.hintRes)
+    }
+
     // ---- lookup ----
 
     private fun submit() {
@@ -306,9 +375,21 @@ class ManualLookupActivity : AppCompatActivity() {
      */
     private fun runLookup(text: String, debounceMs: Long = 0) {
         lookupJob?.cancel()
+        // The mode is read once, on the main thread, so a switch in the middle
+        // of a search cannot send the result to the wrong panel. The listener
+        // starts a fresh run when the mode changes, and this check drops any
+        // result that was already past cancellation.
+        val activeMode = mode
         lookupJob = lookupScope.launch {
             if (debounceMs > 0) delay(debounceMs)
-            val entries = withContext(Dispatchers.IO) { controller.lookupText(text) }
+            val entries = withContext(Dispatchers.IO) {
+                when (activeMode) {
+                    ManualLookupMode.JP_TO_EN -> controller.lookupText(text)
+                    ManualLookupMode.ROMAJI_TO_JP -> controller.lookupText(Romaji.toKana(text))
+                    ManualLookupMode.EN_TO_JP -> controller.lookupDefinitionText(text)
+                }
+            }
+            if (activeMode != mode) return@launch
             if (input.text?.toString() != text) return@launch
             // One exit path for every launch shape. A process-text lookup must
             // not finish here: `finish()` on the same main-thread turn as

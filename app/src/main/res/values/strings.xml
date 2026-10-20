@@ -17,6 +17,11 @@
     <string name="manual_lookup_label">Look up in InstantJPDict</string>
     <string name="manual_lookup_title">Manual lookup</string>
     <string name="manual_lookup_hint">Type or paste Japanese</string>
+    <string name="manual_lookup_hint_en">Type English to find Japanese</string>
+    <string name="manual_lookup_hint_romaji">Type romaji, e.g. neko or shinjuku</string>
+    <string name="manual_lookup_mode_jp_to_en">JP → EN</string>
+    <string name="manual_lookup_mode_en_to_jp">EN → JP</string>
+    <string name="manual_lookup_mode_romaji_to_jp">Romaji → JP</string>
     <string name="shortcut_lookup_short_label">Look up</string>
     <string name="shortcut_lookup_long_label">Look up text</string>
 </resources>

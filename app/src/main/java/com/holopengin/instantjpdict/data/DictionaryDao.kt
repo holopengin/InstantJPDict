@@ -18,6 +18,31 @@ interface DictionaryDao {
     """)
     suspend fun findByTexts(texts: List<String>): List<DictionaryEntry>
 
+    /**
+     * #108: bounded English-gloss scan. `definitions` is JSON text, so a
+     * leading-wildcard search cannot use the kanji/reading indexes. `json_tree`
+     * restricts the match to string values, which keeps JSON keys (`content`,
+     * `tag`, `style`) out of the candidate set; the cap and the
+     * priority/popularity order bound the work. [DefinitionSearch] then filters
+     * the remaining markup-only hits and ranks the real gloss matches.
+     *
+     * `json_valid` is the guard for the malformed-blob fallback some old rows
+     * may carry: an invalid document simply does not enter the scan.
+     */
+    @Query("""
+        SELECT d.* FROM dictionary d
+        JOIN dictionary_meta m ON d.dictionaryId = m.id
+        WHERE json_valid(d.definitions)
+          AND EXISTS (
+            SELECT 1 FROM json_tree(d.definitions) AS jt
+            WHERE jt.type = 'text'
+              AND instr(lower(jt.value), lower(:query)) > 0
+          )
+        ORDER BY m.priority ASC, d.popularity DESC
+        LIMIT :limit
+    """)
+    suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDictionary(dictionary: DictionaryMeta): Long
 

@@ -57,6 +57,9 @@ class ManualLookupPipelineTest {
         override suspend fun findByTexts(texts: List<String>): List<DictionaryEntry> =
             rows.filter { it.kanji in texts || it.reading in texts }
 
+        override suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> =
+            rows.filter { it.definitions.contains(query, ignoreCase = true) }.take(limit)
+
         override suspend fun dictionaryNames(): Map<Int, String> = mapOf(0 to "JMdict", 2 to "KANJIDIC")
     }
 
@@ -118,6 +121,31 @@ class ManualLookupPipelineTest {
         val out = c.lookupText("食")
 
         assertTrue("the KANJIDIC kanji row is appended", out.any { it.dictionaryName == "KANJIDIC" })
+    }
+
+    @Test
+    fun lookupDefinitionTextSearchesGlossesAndReturnsTheStandardCard() = runBlocking {
+        val c = controller(listOf(entry("食べる", "たべる", definitions = """["to eat"]""")))
+
+        val out = c.lookupDefinitionText("eat")
+
+        assertEquals(listOf("食べる"), out.map { it.term })
+        assertEquals("JMdict", out[0].dictionaryName)
+    }
+
+    @Test
+    fun romajiUsesTheSameKanaChainRatherThanASecondSearch() = runBlocking {
+        val c = controller(listOf(entry("猫", "ねこ")))
+
+        // The contract is parity, not a particular display term: a kana search
+        // for ねこ already resolves through the reading, so the romaji front
+        // door must return exactly those entries.
+        val kana = c.lookupText("ねこ")
+        val romaji = c.lookupText(Romaji.toKana("neko"))
+
+        assertTrue(kana.isNotEmpty())
+        assertEquals(kana.map { it.term }, romaji.map { it.term })
+        assertEquals(kana.map { it.readingGroups }, romaji.map { it.readingGroups })
     }
 
     @Test
