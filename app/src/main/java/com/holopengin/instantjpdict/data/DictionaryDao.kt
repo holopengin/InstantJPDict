@@ -37,7 +37,11 @@ interface DictionaryDao {
         SELECT d.* FROM dictionary d
         JOIN dictionary_meta m ON d.dictionaryId = m.id
         WHERE instr(lower(d.definitions), lower(:query)) > 0
-        ORDER BY m.priority ASC, d.popularity DESC
+        ORDER BY
+          CASE WHEN instr(lower(d.definitions), '"' || lower(:query) || '"') > 0 THEN 0 ELSE 1 END,
+          instr(lower(d.definitions), lower(:query)) ASC,
+          m.priority ASC,
+          d.popularity DESC
         LIMIT :limit
     """)
     suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry>
@@ -55,7 +59,11 @@ interface DictionaryDao {
             lower(replace(d.definitions, '"' || lower(:query) || '":', '')),
             lower(:query)
         ) > 0
-        ORDER BY m.priority ASC, d.popularity DESC
+        ORDER BY
+          CASE WHEN instr(lower(d.definitions), '"' || lower(:query) || '"') > 0 THEN 0 ELSE 1 END,
+          instr(lower(d.definitions), lower(:query)) ASC,
+          m.priority ASC,
+          d.popularity DESC
         LIMIT :limit
     """)
     suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry>

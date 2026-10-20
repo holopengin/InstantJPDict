@@ -54,6 +54,26 @@ class DefinitionSearchTest {
     }
 
     @Test
+    fun aNounGlossBeatsALaterVerbSenseForPlant() {
+        // Jitendex packs its senses into structured content; the plain text is
+        // still one flattened line, and the noun gloss is the first sense.
+        val plant = entry(
+            1,
+            "植物",
+            """[{"type":"structured-content","content":[{"tag":"span","content":"plant"},{"tag":"span","content":"vegetation"}]}]""",
+        )
+        val stand = entry(
+            2,
+            "立てる",
+            """["to stand","to set up","to erect","to plant"]""",
+        )
+
+        val out = DefinitionSearch.rank(listOf(stand, plant), "plant")
+
+        assertEquals(listOf("植物", "立てる"), out.map { it.kanji })
+    }
+
+    @Test
     fun aMatchOnlyInJsonMarkupIsDiscarded() {
         // "span" is a tag value, not a gloss. The SQL-side substring scan can
         // find it; the ranking must not turn it into a result.

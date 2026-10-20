@@ -35,7 +35,7 @@ object DefinitionSearch {
      * popularity keeps the useful candidates inside this cap while bounding the
      * time spent parsing definitions. Rare words match far fewer rows.
      */
-    const val CANDIDATE_LIMIT = 1_000
+    const val CANDIDATE_LIMIT = 2_000
 
     /** Cards rendered for one query. */
     const val RESULT_LIMIT = 50

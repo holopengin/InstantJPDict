@@ -149,6 +149,21 @@ class ManualLookupPipelineTest {
     }
 
     @Test
+    fun definitionResultsRenderInRankedOrder() = runBlocking {
+        val stand = entry(
+            "立てる",
+            "たてる",
+            definitions = """["to stand","to set up","to erect","to plant"]""",
+        )
+        val plant = entry("植物", "しょくぶつ", definitions = """["plant","vegetation"]""")
+        val c = controller(listOf(stand, plant))
+
+        val out = c.lookupDefinitionText("plant")
+
+        assertEquals(listOf("植物", "立てる"), out.map { it.term })
+    }
+
+    @Test
     fun definitionLookupFallsBackWhenTheFastScanOnlyFoundMarkup() = runBlocking {
         val markupOnly = entry(
             "日本語",
@@ -180,13 +195,32 @@ class ManualLookupPipelineTest {
 
     @Test
     fun aKatakanaLoanwordResolvesFromRomajiThroughTheHiraganaFallback() = runBlocking {
-        val c = controller(listOf(entry("テスト", "テスト")))
+        // 手 matches the prefix て, so the primary query is not empty. It is a
+        // prefix match, not the whole input, and must not stop テスト.
+        val c = controller(
+            listOf(
+                entry("手", "て"),
+                entry("テスト", "テスト"),
+            )
+        )
 
-        // てすと is not in the dictionary; テスト is. The Japanese mode must try
-        // the katakana spelling after the hiragana query finds nothing.
         val out = c.lookupJapaneseText("tesuto")
 
-        assertEquals(listOf("テスト"), out.map { it.term })
+        assertEquals("テスト", out.first().term)
+    }
+
+    @Test
+    fun aLongVowelLoanwordResolvesThroughTheSecondKatakanaVariant() = runBlocking {
+        val c = controller(
+            listOf(
+                entry("美", "び"),
+                entry("ビール", "ビール"),
+            )
+        )
+
+        val out = c.lookupJapaneseText("biiru")
+
+        assertEquals("ビール", out.first().term)
     }
 
     @Test

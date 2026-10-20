@@ -673,13 +673,29 @@ class OcrOverlayStateController {
      */
     suspend fun lookupJapaneseText(text: String): List<FormattedEntry> {
         val primary = ManualLookupQuery.primary(text) ?: return emptyList()
-        val first = lookupText(primary)
-        if (first.isNotEmpty()) return first
-        for (variant in ManualLookupQuery.katakanaFallbacks(primary)) {
-            val alternate = lookupText(variant)
-            if (alternate.isNotEmpty()) return alternate
+        val primaryScope = inputScope(primary)
+        val primaryResult = lookupFollowingText(primaryScope)
+        val primaryMatches = primaryResult?.matches.orEmpty()
+
+        // A prefix match is not an answer for a whole input. てすと matches 手
+        // at its first character; that must not stop the katakana fallback from
+        // finding テスト. `maxLen` is the length the chain actually matched.
+        if (primaryResult != null && primaryResult.maxLen >= primaryScope.length) {
+            return primaryMatches
         }
-        return emptyList()
+
+        var bestMatches = primaryMatches
+        var bestLength = primaryResult?.maxLen ?: 0
+        for (variant in ManualLookupQuery.katakanaFallbacks(primary)) {
+            val scope = inputScope(variant)
+            val result = lookupFollowingText(scope) ?: continue
+            if (result.maxLen > bestLength) {
+                bestLength = result.maxLen
+                bestMatches = result.matches
+            }
+            if (bestLength >= scope.length) return result.matches
+        }
+        return bestMatches
     }
 
     /**
