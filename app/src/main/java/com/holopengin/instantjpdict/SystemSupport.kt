@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryEntry
+import com.holopengin.instantjpdict.data.GlossIndexer
 import kotlin.math.abs
 
 data class JpDictRect(
@@ -144,6 +145,16 @@ class AndroidDictionaryProvider(private val context: Context) : DictionaryProvid
 
     override suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> {
         val db = AppDatabase.getDatabase(context)
+        GlossIndexer.ensureIndexed(context)
+
+        // The indexed path is token based. A query that matches no token (a
+        // fragment in the middle of a word, or non-ASCII text) falls through to
+        // the bounded scan, which preserves the literal-substring behaviour.
+        val fts = DefinitionSearch.ftsQuery(query)
+        if (fts != null) {
+            val indexed = db.dictionaryDao().findByDefinitionFts(fts, limit)
+            if (indexed.isNotEmpty()) return indexed
+        }
         return db.dictionaryDao().findByDefinition(query, limit)
     }
 

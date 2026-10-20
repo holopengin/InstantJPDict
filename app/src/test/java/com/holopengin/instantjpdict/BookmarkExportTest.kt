@@ -196,5 +196,11 @@ class BookmarkExportTest {
     @Test
     fun definitions_plain_all_joins_entries_and_drops_duplicates() {
         assertEquals("one\ntwo", Definitions.plainAll(listOf("[\"one\"]", "[\"two\",\"one\"]")))
+        // The English index uses the row-preserving form: one result per input
+        // row, including the malformed fallback.
+        assertEquals(
+            listOf("one", "two\none", "{not json"),
+            Definitions.plainRows(listOf("[\"one\"]", "[\"two\",\"one\"]", "{not json")),
+        )
     }
 }

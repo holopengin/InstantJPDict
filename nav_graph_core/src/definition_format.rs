@@ -88,6 +88,17 @@ pub fn definition_format_plain_all(definitions_json_rows: Vec<String>) -> String
     jpdict_core::definition_format::plain_all_text(&definitions_json_rows)
 }
 
+/// Flatten a batch of definition blobs, one plain-text string per input row.
+/// The English search index builds from this: one FFI crossing per import or
+/// backfill batch instead of one per dictionary entry.
+#[uniffi::export]
+pub fn definition_format_plain_rows(definitions_json_rows: Vec<String>) -> Vec<String> {
+    definitions_json_rows
+        .iter()
+        .map(|row| jpdict_core::definition_format::plain_text(row))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     //! Mirror of the PC `jpdict_core::definition_format` contract, run through
@@ -180,6 +191,22 @@ mod tests {
         assert_eq!(
             definition_format_plain_all(vec!["[\"one\"]".to_string(), "[\"two\",\"one\"]".to_string()]),
             "one\ntwo"
+        );
+    }
+
+    #[test]
+    fn plain_rows_keep_one_result_per_input_row() {
+        assert_eq!(
+            definition_format_plain_rows(vec![
+                "[\"plant\",\"vegetation\"]".to_string(),
+                "[\"to plant\"]".to_string(),
+                "{not json".to_string(),
+            ]),
+            vec![
+                "plant\nvegetation".to_string(),
+                "to plant".to_string(),
+                "{not json".to_string(),
+            ]
         );
     }
 

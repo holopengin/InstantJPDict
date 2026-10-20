@@ -8,8 +8,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DictionaryEntry::class, DictionaryMeta::class, DictionaryTag::class, Bookmark::class],
-    version = 6,
+    entities = [
+        DictionaryEntry::class,
+        DictionaryMeta::class,
+        DictionaryTag::class,
+        Bookmark::class,
+        DictionaryGloss::class,
+        DictionaryGlossFts::class,
+    ],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,13 +67,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * #108 follow-up: the English gloss index. Existing dictionaries start
+         * with `glossIndexed = 0`; [GlossIndexer] fills their rows on the first
+         * English lookup. The FTS table is created without sync triggers here
+         * because the bulk backfill and import both finish with a rebuild.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(DictionaryMetaSchema.ADD_GLOSS_INDEXED)
+                db.execSQL(DictionaryGlossSchema.CREATE_TABLE)
+                db.execSQL(DictionaryGlossSchema.CREATE_ENTRY_INDEX)
+                db.execSQL(DictionaryGlossSchema.CREATE_DICTIONARY_INDEX)
+                db.execSQL(DictionaryGlossSchema.CREATE_FTS)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "instant_jp_dict_db"
-                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     // F5/#86: the explicit parameter the no-arg overload was replaced
                     // by; `true` is the old behaviour (drop every table on a schema
                     // mismatch). The hand-written migrations above are what kept

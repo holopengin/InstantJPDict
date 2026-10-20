@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict.data
 
 import android.content.Context
 import android.util.Log
+import com.holopengin.instantjpdict.util.Definitions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -111,6 +112,7 @@ class DictionaryImporter(private val context: Context) {
         dao.findDictionaryByName(title)?.let { existing ->
             Log.i(TAG, "Replacing existing '${existing.name}' (id=${existing.id})")
             dao.deleteEntriesForDictionary(existing.id)
+            dao.deleteGlossesForDictionary(existing.id)
             dao.deleteTagsForDictionary(existing.id)
             dao.deleteDictionary(existing.id)
         }
@@ -188,7 +190,27 @@ class DictionaryImporter(private val context: Context) {
             
             val dbJob = launch {
                 for (batch in batchChannel) {
-                    dao.insertAll(batch)
+                    val ids = dao.insertAll(batch)
+                    // The built-in pitch dictionary is lookup data, not English
+                    // glosses; indexing it would add 124k useless FTS rows.
+                    if (!builtIn) {
+                        check(ids.size == batch.size) {
+                            "insertAll returned ${ids.size} ids for ${batch.size} entries"
+                        }
+                        val plain = Definitions.plainRows(batch.map { it.definitions })
+                        check(plain.size == batch.size) {
+                            "plainRows returned ${plain.size} values for ${batch.size} entries"
+                        }
+                        dao.insertGlosses(
+                            batch.mapIndexed { index, entry ->
+                                DictionaryGloss(
+                                    entryId = ids[index].toInt(),
+                                    dictionaryId = entry.dictionaryId,
+                                    text = plain[index],
+                                )
+                            },
+                        )
+                    }
                     totalProcessed += batch.size
                     onProgress(totalProcessed)
                 }
@@ -239,6 +261,14 @@ class DictionaryImporter(private val context: Context) {
             batchChannel.close()
             dbJob.join()
             zipInputStream.close()
+
+            // #108 follow-up: build the FTS shadow from the gloss rows written
+            // above. The migration creates that table without triggers, so this
+            // is the one place that brings it up to date after a bulk import.
+            dictionaryId?.let { id ->
+                GlossIndexer.rebuild(db)
+                dao.setGlossIndexed(id, true)
+            }
             
             // #43: `builtIn` is the completion marker, not a label. Flipping it
             // only after every bank is written means an import killed part-way

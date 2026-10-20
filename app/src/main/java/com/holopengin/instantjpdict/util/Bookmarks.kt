@@ -6,6 +6,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import uniffi.nav_graph_core.definitionFormatPlain
 import uniffi.nav_graph_core.definitionFormatPlainAll
+import uniffi.nav_graph_core.definitionFormatPlainRows
 
 /**
  * #67: the stable identity of a bookmarked headword — glyph, reading, and the
@@ -75,6 +76,14 @@ object Definitions {
     /** Several definition blobs (multiple entries in one dictionary block) as one blob of lines. */
     fun plainAll(definitionsJsonRows: List<String>): String =
         definitionFormatPlainAll(definitionsJsonRows)
+
+    /**
+     * One plain-text blob per input row. The English search index uses this to
+     * cross the shim once per import or backfill batch instead of once per
+     * entry.
+     */
+    fun plainRows(definitionsJsonRows: List<String>): List<String> =
+        definitionFormatPlainRows(definitionsJsonRows)
 }
 
 /**

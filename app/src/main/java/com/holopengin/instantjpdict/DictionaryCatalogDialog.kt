@@ -23,6 +23,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryDownloader
 import com.holopengin.instantjpdict.data.DictionaryImporter
+import com.holopengin.instantjpdict.data.GlossIndexer
 import com.holopengin.instantjpdict.util.CatalogEntry
 import com.holopengin.instantjpdict.util.DictionaryCatalog
 import com.holopengin.instantjpdict.util.ImportProgress
@@ -286,8 +287,10 @@ object DictionaryCatalogDialog {
                                     false
                                 } else {
                                     dao.deleteEntriesForDictionary(meta.id)
+                                    dao.deleteGlossesForDictionary(meta.id)
                                     dao.deleteTagsForDictionary(meta.id)
                                     dao.deleteDictionary(meta.id)
+                                    GlossIndexer.rebuild(AppDatabase.getDatabase(context))
                                     true
                                 }
                             }

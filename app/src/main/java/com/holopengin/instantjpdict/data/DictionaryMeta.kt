@@ -26,7 +26,13 @@ data class DictionaryMeta(
      * both and the catalog could not tell which one is installed. This records
      * the provenance so the two rows can be mutually exclusive.
      */
-    val catalogId: String? = null
+    val catalogId: String? = null,
+    /**
+     * #108 follow-up: true once [DictionaryGloss] has been built for this
+     * dictionary. Existing installs start false and the indexer fills them in
+     * on the first English lookup.
+     */
+    val glossIndexed: Boolean = false,
 )
 
 /**
@@ -41,4 +47,8 @@ data class DictionaryMeta(
 object DictionaryMetaSchema {
     const val ADD_CATALOG_ID =
         "ALTER TABLE `dictionary_meta` ADD COLUMN `catalogId` TEXT"
+
+    /** #108 follow-up: the English index completion flag. */
+    const val ADD_GLOSS_INDEXED =
+        "ALTER TABLE `dictionary_meta` ADD COLUMN `glossIndexed` INTEGER NOT NULL DEFAULT 0"
 }

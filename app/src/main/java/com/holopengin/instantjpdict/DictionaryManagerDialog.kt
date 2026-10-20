@@ -18,6 +18,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.holopengin.instantjpdict.data.AppDatabase
 import com.holopengin.instantjpdict.data.DictionaryMeta
+import com.holopengin.instantjpdict.data.GlossIndexer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -195,8 +196,10 @@ object DictionaryManagerDialog {
                 owner?.lifecycleScope?.launch {
                     withContext(Dispatchers.IO) {
                         db.dictionaryDao().deleteEntriesForDictionary(dict.id)
+                        db.dictionaryDao().deleteGlossesForDictionary(dict.id)
                         db.dictionaryDao().deleteTagsForDictionary(dict.id)
                         db.dictionaryDao().deleteDictionary(dict.id)
+                        GlossIndexer.rebuild(db)
                     }
                     progress.dismiss()
                     onDone()

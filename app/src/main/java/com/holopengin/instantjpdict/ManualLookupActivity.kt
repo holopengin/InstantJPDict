@@ -23,6 +23,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.textfield.TextInputEditText
+import com.holopengin.instantjpdict.data.GlossIndexer
 import com.holopengin.instantjpdict.util.BookmarkCandidate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -129,6 +130,15 @@ class ManualLookupActivity : AppCompatActivity() {
         mode = ManualLookupMode.read(this)
 
         OverlayEnvironment.prepare(this, controller, lookupScope)
+
+        // #108 follow-up: start the one-time English index build as soon as the
+        // screen opens, so the first EN→JP query usually finds it ready. The
+        // indexer checks a small meta table and returns immediately when there
+        // is nothing left to do.
+        lookupScope.launch(Dispatchers.IO) {
+            runCatching { GlossIndexer.ensureIndexed(this@ManualLookupActivity) }
+                .onFailure { Log.w(TAG, "English index build failed", it) }
+        }
 
         // A selection-menu lookup never returns a result: we do not set one, and
         // Back leaves the sender with RESULT_CANCELED. It stays on screen like a

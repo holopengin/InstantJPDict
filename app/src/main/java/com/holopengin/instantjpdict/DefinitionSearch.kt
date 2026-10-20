@@ -81,6 +81,24 @@ object DefinitionSearch {
     }
 
     /**
+     * The FTS4 expression for the indexed scan. Each alphanumeric token gets a
+     * prefix star, so `plant` matches `plant` and `plants`, and `to eat`
+     * requires both tokens. The normaliser has already lowercased the text;
+     * only `[a-z0-9]` survives, so no FTS operator can leak in from the box.
+     */
+    fun ftsQuery(text: String): String? {
+        val tokens = normalizeQuery(text)
+            ?.split(TOKEN_BOUNDARY)
+            ?.filter { it.isNotEmpty() }
+            ?.take(8)
+            .orEmpty()
+        if (tokens.isEmpty()) return null
+        return tokens.joinToString(" AND ") { "$it*" }
+    }
+
+    private val TOKEN_BOUNDARY = Regex("[^a-z0-9]+")
+
+    /**
      * Filter [entries] to rows whose readable definition contains [query], then
      * return the best [limit] entries in display order.
      */

@@ -115,6 +115,16 @@ class DefinitionSearchTest {
     }
 
     @Test
+    fun theFtsExpressionIsTokenisedAndOperatorSafe() {
+        assertEquals("plant*", DefinitionSearch.ftsQuery("plant"))
+        assertEquals("to* AND eat*", DefinitionSearch.ftsQuery("to eat"))
+        assertEquals("e* AND mail*", DefinitionSearch.ftsQuery("e-mail"))
+        assertNull(DefinitionSearch.ftsQuery("   "))
+        // Anything that is not alphanumeric is a separator, never an operator.
+        assertEquals("plant* AND or* AND food*", DefinitionSearch.ftsQuery("plant OR food"))
+    }
+
+    @Test
     fun queryIsCappedAtTheDocumentedLiteralLength() {
         val long = "a".repeat(DefinitionSearch.QUERY_MAX + 20)
         assertEquals(DefinitionSearch.QUERY_MAX, DefinitionSearch.normalizeQuery(long)?.length)

@@ -1052,6 +1052,8 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1257,6 +1259,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_definition_format_plain(`definitionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_definition_format_plain_all(`definitionsJsonRows`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_definition_format_plain_rows(`definitionsJsonRows`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_definition_format_redirect_targets(`definitionsJson`: RustBuffer.ByValue,`maxTargets`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1581,6 +1585,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_definition_format_plain(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_definition_format_plain_all(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_definition_format_plain_rows(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_definition_format_redirect_targets(
     ): Short
@@ -1928,6 +1934,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_definition_format_plain_all() != 19427.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_definition_format_plain_rows() != 26883.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_definition_format_redirect_targets() != 16176.toShort()) {
@@ -9881,6 +9890,20 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_plain_all(
+        FfiConverterSequenceString.lower(`definitionsJsonRows`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Flatten a batch of definition blobs, one plain-text string per input row.
+         * The English search index builds from this: one FFI crossing per import or
+         * backfill batch instead of one per dictionary entry.
+         */ fun `definitionFormatPlainRows`(`definitionsJsonRows`: List<kotlin.String>): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_definition_format_plain_rows(
         FfiConverterSequenceString.lower(`definitionsJsonRows`),_status)
 }
     )
