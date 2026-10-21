@@ -102,6 +102,7 @@ class ManualLookupActivity : AppCompatActivity() {
      * repeat the scan. The activity is short-lived, so a small cache is enough.
      */
     private val definitionCache = LruCache<String, List<FormattedEntry>>(16)
+    private var indexNoticeShown = false
 
     /**
      * #89: the bookmark star writes the same store the overlay uses; the manual
@@ -132,13 +133,9 @@ class ManualLookupActivity : AppCompatActivity() {
         OverlayEnvironment.prepare(this, controller, lookupScope)
 
         // #108 follow-up: start the one-time English index build as soon as the
-        // screen opens, so the first EN→JP query usually finds it ready. The
-        // indexer checks a small meta table and returns immediately when there
-        // is nothing left to do.
-        lookupScope.launch(Dispatchers.IO) {
-            runCatching { GlossIndexer.ensureIndexed(this@ManualLookupActivity) }
-                .onFailure { Log.w(TAG, "English index build failed", it) }
-        }
+        // screen opens. The request returns immediately; a query that arrives
+        // before the index is ready uses the scan fallback rather than waiting.
+        GlossIndexer.requestIndex(this)
 
         // A selection-menu lookup never returns a result: we do not set one, and
         // Back leaves the sender with RESULT_CANCELED. It stays on screen like a
@@ -403,27 +400,50 @@ class ManualLookupActivity : AppCompatActivity() {
         lookupJob = lookupScope.launch {
             if (debounceMs > 0) delay(debounceMs)
             val started = System.currentTimeMillis()
-            val entries = withContext(Dispatchers.IO) {
-                when (activeMode) {
-                    ManualLookupMode.JP_TO_EN -> controller.lookupJapaneseText(text)
-                    ManualLookupMode.EN_TO_JP -> {
-                        val key = DefinitionSearch.normalizeQuery(text)
-                        val cached = key?.let { definitionCache.get(it) }
-                        if (cached != null) {
-                            cached
-                        } else {
-                            val fresh = controller.lookupDefinitionText(text)
-                            if (key != null) definitionCache.put(key, fresh)
-                            fresh
+            val entries = try {
+                withContext(Dispatchers.IO) {
+                    when (activeMode) {
+                        ManualLookupMode.JP_TO_EN -> controller.lookupJapaneseText(text)
+                        ManualLookupMode.EN_TO_JP -> {
+                            val key = DefinitionSearch.normalizeQuery(text)
+                            val cached = key?.let { definitionCache.get(it) }
+                            if (cached != null) {
+                                cached
+                            } else {
+                                val fresh = controller.lookupDefinitionText(text)
+                                if (key != null) definitionCache.put(key, fresh)
+                                fresh
+                            }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "lookup $activeMode failed", e)
+                if (activeMode == mode && input.text?.toString() == text) {
+                    Toast.makeText(
+                        this@ManualLookupActivity,
+                        "Lookup failed: ${e.message ?: e.javaClass.simpleName}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                return@launch
             }
             Log.d(
                 TAG,
                 "lookup $activeMode took ${System.currentTimeMillis() - started}ms, " +
                     "${entries.size} entries, ${text.length} chars",
             )
+            if (activeMode == ManualLookupMode.EN_TO_JP &&
+                GlossIndexer.isIndexing() &&
+                !indexNoticeShown
+            ) {
+                indexNoticeShown = true
+                Toast.makeText(
+                    this@ManualLookupActivity,
+                    "Preparing the English index. This search uses the slow path.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
             if (activeMode != mode) return@launch
             if (input.text?.toString() != text) return@launch
             // One exit path for every launch shape. A process-text lookup must

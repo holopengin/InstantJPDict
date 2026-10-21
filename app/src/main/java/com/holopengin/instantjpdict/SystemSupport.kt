@@ -2,6 +2,7 @@ package com.holopengin.instantjpdict
 
 import android.content.Context
 import android.graphics.Rect
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -138,24 +139,38 @@ interface DictionaryProvider {
 }
 
 class AndroidDictionaryProvider(private val context: Context) : DictionaryProvider {
+    private companion object {
+        const val TAG = "DictionaryProvider"
+    }
+
     override suspend fun findByTexts(texts: List<String>): List<DictionaryEntry> {
         val db = AppDatabase.getDatabase(context)
         return db.dictionaryDao().findByTexts(texts)
     }
 
     override suspend fun findByDefinition(query: String, limit: Int): List<DictionaryEntry> {
-        val db = AppDatabase.getDatabase(context)
-        GlossIndexer.ensureIndexed(context)
+        val dao = AppDatabase.getDatabase(context).dictionaryDao()
 
-        // The indexed path is token based. A query that matches no token (a
-        // fragment in the middle of a word, or non-ASCII text) falls through to
-        // the bounded scan, which preserves the literal-substring behaviour.
+        // The index is an optimisation, never a prerequisite. If building or
+        // querying it fails, the same bounded scan the app shipped before the
+        // index still answers the lookup. The exception is logged so the debug
+        // build can name the cause instead of showing an empty screen.
         val fts = DefinitionSearch.ftsQuery(query)
         if (fts != null) {
-            val indexed = db.dictionaryDao().findByDefinitionFts(fts, limit)
-            if (indexed.isNotEmpty()) return indexed
+            GlossIndexer.requestIndex(context)
+            // A partially built index must not answer a query with half the
+            // dictionary. While the build runs, use the scan; the next query
+            // after it finishes gets the indexed path.
+            if (!GlossIndexer.isIndexing()) {
+                try {
+                    val indexed = dao.findByDefinitionFts(fts, limit)
+                    if (indexed.isNotEmpty()) return indexed
+                } catch (e: Exception) {
+                    Log.e(TAG, "Indexed definition search failed; using the scan fallback", e)
+                }
+            }
         }
-        return db.dictionaryDao().findByDefinition(query, limit)
+        return dao.findByDefinition(query, limit)
     }
 
     override suspend fun findByDefinitionExcludingKeys(query: String, limit: Int): List<DictionaryEntry> {

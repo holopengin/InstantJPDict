@@ -1,9 +1,17 @@
 package com.holopengin.instantjpdict.data
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.holopengin.instantjpdict.util.Definitions
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,6 +32,45 @@ object GlossIndexer {
 
     /** One index build at a time: two lookups must not duplicate rows. */
     private val mutex = Mutex()
+
+    /**
+     * The index build is a background job, not a prerequisite for answering a
+     * lookup. A large existing dictionary can take tens of seconds to index;
+     * making the first query wait for that looked like a broken search, so the
+     * provider starts this and immediately falls back to the scan if the index
+     * is not ready yet.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val main = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var buildJob: Job? = null
+
+    /** True while a build is writing rows. Queries use the scan meanwhile. */
+    fun isIndexing(): Boolean = buildJob?.isActive == true
+
+    fun requestIndex(context: Context) {
+        if (buildJob?.isActive == true) return
+        synchronized(this) {
+            if (buildJob?.isActive == true) return
+            val appContext = context.applicationContext
+            buildJob = scope.launch {
+                try {
+                    ensureIndexed(appContext)
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    Log.e(TAG, "English index build failed", t)
+                    main.post {
+                        Toast.makeText(
+                            appContext,
+                            "English index failed; search will use the slow scan",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
 
     suspend fun ensureIndexed(context: Context) = withContext(Dispatchers.IO) {
         mutex.withLock {
