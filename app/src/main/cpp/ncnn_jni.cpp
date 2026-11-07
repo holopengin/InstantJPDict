@@ -2,7 +2,7 @@
 //
 // All inference logic (net options, blob extraction, tensor-width guard,
 // top-K packing) lives in ppocr_ncnn_core.{h,cpp}, which is shared verbatim
-// with the PC app (InstantJPDictDecky native/ppocr_ncnn). Keep this file to
+// with the PC app (InstantJPDictPC native/ppocr_ncnn). Keep this file to
 // buffer marshalling only — a fix that changes results belongs in the core.
 #include <jni.h>
 #include <vector>

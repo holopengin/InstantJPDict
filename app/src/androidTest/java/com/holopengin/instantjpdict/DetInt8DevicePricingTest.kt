@@ -83,7 +83,7 @@ import kotlin.math.roundToInt
  * So there is no option configuration in which det int8 is both fast and
  * correct, the override had no future value, and keeping it would have held
  * `ppocr_ncnn_core.{h,cpp}` byte-identical with the PC mirror
- * (`InstantJPDictDecky/accessibility_daemon/native/ppocr_ncnn/`) for a dead
+ * (`InstantJPDictPC/native/ppocr_ncnn/`) for a dead
  * knob. The native seam was removed with the measurement; the two Kotlin seams
  * that are worth keeping — [DetNcnn.createFromPaths] and
  * [OcrEngine.replaceDetForTest] — stayed, because they make any *future* det
