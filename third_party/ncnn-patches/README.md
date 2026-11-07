@@ -26,5 +26,30 @@ building the fork itself, which contains all three.
 Rebuild the exact tree with `tools/build_ncnn.sh` (clone fork at the pin,
 verify markers, build host `ncnn2table`/`ncnn2int8` + `arm64-v8a libncnn.a`
 with `NCNN_VULKAN=OFF`). Verified here: script output `src/` is byte-identical
-(`diff -r`) to the fork working tree. Compile leg not yet run on this machine
-(no cmake) — first full build happens with the nuke-and-pave run.
+(`diff -r`) to the fork working tree.
+
+## Rebase status (2026-11-07)
+
+The shipped pin is still `b498fc0`. It is also tagged `ijp-b498fc07` on the
+fork, so the commit stays reachable even if fork master is rewritten again. A
+rebase onto `Tencent/ncnn` master `437f18f7` is published as branch
+`rebase/upstream-2026-11-07` (tag `ijp-2026-11-07`, head
+`44d6b00574df0112f66df7569a7620b437a25f71`). The branch is five commits: the
+Vulkan GELU shader lands without `Squeeze_vulkan` ever being added, so the old
+"drop Squeeze_vulkan" commit is gone; the final tree is unchanged.
+
+None of the six fork commits is fully upstreamed. Two needed adaptation for
+upstream's new `NCNN_VALIDATION`: the depthwise 201/202 `load_param` check and
+the activation-type-7 checks in 15 fused-activation layers. The `gpu.cpp`
+integer-dot-product extension gate is dropped as redundant — every shader that
+calls `dotPacked*EXT` declares the extension inline.
+
+Verified: host CPU-only build, host tools, Android arm64 build with the app's
+exact flags, all three shipped models load with validation on, the unmodified
+app JNI links, and `rec_dyn` blob 191/`out0` are byte-identical to `b498fc0`.
+`det` float output drifts ~1.4e-7 (upstream kernel drift; det uses none of the
+fork fixes).
+
+Not shipped yet: the pin bump and vendored-lib refresh are gated on an arm64
+device smoke test. ARM kernels changed in the 128 upstream commits and cannot
+be executed on the host. Full analysis: `docs/ncnn-rebase-2026-11-07.md`.
