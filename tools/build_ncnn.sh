@@ -30,7 +30,7 @@
 set -euo pipefail
 
 FORK=https://github.com/holopengin/ncnn.git
-FORK_PIN=b498fc0786102a68af498ecf36c05b0b3b1fc074 # fork master; bump to follow
+FORK_PIN=44d6b00574df0112f66df7569a7620b437a25f71 # rebase/upstream-2026-11-07; device-validated 2026-11-07
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 
 OUT=""

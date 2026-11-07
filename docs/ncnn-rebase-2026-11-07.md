@@ -28,9 +28,9 @@ remote was modified. Nothing was pushed.
 * **Verification:** host and Android arm64 builds pass; all three shipped app
   models load; `rec_dyn` output is **byte-identical** to the old pin; the
   app's JNI layer compiles and links unchanged.
-* **Not safe to ship until the fork branch is published and the pin in
-  `tools/build_ncnn.sh` is bumped and the vendored lib rebuilt.** The rebase
-  itself is sound; the remaining work is the two-repo handoff.
+* **Shipped (2026-11-07):** the vendored `libncnn.a`/headers are refreshed,
+  both repos pin `44d6b005`, and the Pixel 7a arm64 smoke test passes: the det
+  boxes gate, both rec prep/parity tests, and the kana model self-check.
 
 ## Repositories and revisions
 
@@ -367,21 +367,19 @@ fixes).
    `rebase/upstream-2026-11-07`; the tag `ijp-2026-11-07` points at the same
    head. Fork master was not rewritten. The current pin `b498fc07` is tagged
    `ijp-b498fc07` so it stays reachable.
-2. **Bump the app pin.** In `tools/build_ncnn.sh`, change
-   `FORK_PIN=b498fc078...` to `44d6b00574df0112f66df7569a7620b437a25f71`
-   (and update the "fork master" comment). Rebuild with
-   `ANDROID_NDK=/home/holopengin/android-sdk/ndk/28.2.13676358 tools/build_ncnn.sh --out /tmp/ncnn_build`,
-   then refresh `app/src/main/cpp/ncnn/{include,lib/arm64-v8a}` from
-   `android-install/`. The Gradle `activation_ss` guard and the script's three
-   marker gates will pass as shown above.
-3. **Device smoke test before shipping:** run the OCR rec path on a real
-   arm64 device. Host x86 is byte-identical, but the ARM kernels changed in the
-   128 upstream commits and cannot be executed here (no qemu/arm runner).
-   Include det and the kana model; det float output is expected to move by
-   ~1e-7.
-4. **PC repo:** if `InstantJPDictPC` vendors the same ncnn build, re-vendor the
-   same headers/lib and keep the `ppocr` core files byte-identical per the
-   shared-backend rule. Do not let the two repos pin different ncnn revs.
+2. **Applied.** `tools/build_ncnn.sh` pins
+   `44d6b00574df0112f66df7569a7620b437a25f71`, and
+   `app/src/main/cpp/ncnn/{include,lib/arm64-v8a}` is refreshed from the
+   verified `android-install/` tree. The Gradle `activation_ss` guard and the
+   three marker gates pass.
+3. **Device smoke test: passed (2026-11-07).** Pixel 7a (arm64), 4/4 tests:
+   `KanaSizeNcnnDeviceTest`, `DetLetterboxParityTest#boxesMatchThroughTheEngine`,
+   and both `RecPrepParityTest` methods. The kana self-check passes all ten
+   published vectors; rec stays text/alternative-identical (`textDiff=0`,
+   `altDiff=0`); det boxes pass through the engine.
+4. **PC repo:** pinned to `44d6b005` and re-vendored from the same rebased
+   tree, keeping the `ppocr` core files byte-identical per the shared-backend
+   rule. Both repos now pin the same ncnn rev.
 5. **Track the fork-only delta.** The branch still carries two fork-only
    behaviors that upstream rejects under `NCNN_VALIDATION`: fused activation
    type 7 and depthwise scale 201/202. If upstream later adds either, drop the

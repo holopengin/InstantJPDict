@@ -30,10 +30,11 @@ with `NCNN_VULKAN=OFF`). Verified here: script output `src/` is byte-identical
 
 ## Rebase status (2026-11-07)
 
-The shipped pin is still `b498fc0`. It is also tagged `ijp-b498fc07` on the
-fork, so the commit stays reachable even if fork master is rewritten again. A
-rebase onto `Tencent/ncnn` master `437f18f7` is published as branch
-`rebase/upstream-2026-11-07` (tag `ijp-2026-11-07`, head
+The shipped pin is `44d6b005` (`rebase/upstream-2026-11-07`). The old pin
+`b498fc0` remains tagged `ijp-b498fc07` on the fork, so it stays reachable even
+if fork master is rewritten again. The rebase onto `Tencent/ncnn` master
+`437f18f7` is published as branch `rebase/upstream-2026-11-07` (tag
+`ijp-2026-11-07`, head
 `44d6b00574df0112f66df7569a7620b437a25f71`). The branch is five commits: the
 Vulkan GELU shader lands without `Squeeze_vulkan` ever being added, so the old
 "drop Squeeze_vulkan" commit is gone; the final tree is unchanged.
@@ -50,6 +51,7 @@ app JNI links, and `rec_dyn` blob 191/`out0` are byte-identical to `b498fc0`.
 `det` float output drifts ~1.4e-7 (upstream kernel drift; det uses none of the
 fork fixes).
 
-Not shipped yet: the pin bump and vendored-lib refresh are gated on an arm64
-device smoke test. ARM kernels changed in the 128 upstream commits and cannot
-be executed on the host. Full analysis: `docs/ncnn-rebase-2026-11-07.md`.
+Device-validated 2026-11-07 on a Pixel 7a (arm64): the det boxes gate, both
+rec prep/parity tests, and the kana model self-check all pass. The vendored
+`libncnn.a` and headers are refreshed from the same tree, and both repos pin
+`44d6b005`. Full analysis: `docs/ncnn-rebase-2026-11-07.md`.
