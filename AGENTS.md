@@ -60,6 +60,23 @@ Build a debug or benchmark variant only when there is a real reason (native
 symbol triage, a benchmark run, or a bug that only reproduces outside R8), and
 say why when you deliver it. See #90 for the size history behind this choice.
 
+## Shared OCR backend
+
+`app/src/main/cpp/{ppocr_ncnn_core,kana_size_core}.{h,cpp}`, the
+`PP-OCRv6_small_ncnn/` and `kana_size/` models, and the shared pipeline assets
+are mirrored byte-for-byte into InstantJPDictPC. The check script lives in the
+PC repo (`tools/sync_ppocr_core.sh`), and the PreCommit hook here calls it when
+a sibling checkout exists:
+
+```
+cd /path/to/InstantJPDictPC
+tools/sync_ppocr_core.sh --check /path/to/InstantJPDict
+```
+
+The mobile repo is the source of truth for the native cores and assets; the PC
+repo is the source of truth for `jpdict-core`, which `nav_graph_core` consumes
+at a pinned rev. Land native-core/asset changes here first, then mirror them.
+
 ## Shim bindings (generated)
 
 `app/src/main/java/uniffi/nav_graph_core/nav_graph_core.kt` is generated from the

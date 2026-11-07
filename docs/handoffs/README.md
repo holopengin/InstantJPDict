@@ -10,7 +10,7 @@ report on this branch.
 - **Environment**: prefix shell commands with `source /tmp/opencode/env.sh`
   (repo paths, JDK, linker, python). Android repo
   `/home/holopengin/Projects/InstantJPDict` (branch `master`); PC repo
-  `/home/holopengin/repos/InstantJPDictDecky` (`master`).
+  `/home/holopengin/Projects/InstantJPDictPC` (`master`).
 - **Pattern**: a shim in `nav_graph_core/src/<module>.rs` delegates to
   `jpdict_core`; the Kotlin facade keeps its public API so call sites and tests
   compile unchanged; the shim carries mirror tests through the exported surface.

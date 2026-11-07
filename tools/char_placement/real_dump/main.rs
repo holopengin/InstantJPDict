@@ -75,7 +75,15 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let out_path = &args[args.len() - 1];
 
-    let assets = "/home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/assets";
+    // Default to the sibling PC checkout; override with JPDICT_ASSETS when the
+    // repos are laid out differently.
+    let assets = std::env::var_os("JPDICT_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../../InstantJPDictPC/assets")
+        });
+    let assets = assets.to_str().expect("assets path is valid UTF-8");
     let mut engine = OcrEngine::new(assets, RecognitionMode::Both, 4).expect("engine loads");
     let mut out = std::io::BufWriter::new(std::fs::File::create(out_path).expect("out file"));
 

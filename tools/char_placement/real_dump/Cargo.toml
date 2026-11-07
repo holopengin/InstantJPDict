@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-jpdict_core = { path = "/home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/core", default-features = false, features = ["native"] }
+# PC upstream, pinned to the same rev as nav_graph_core so this dev tool does
+# not depend on a side-by-side checkout.
+jpdict-core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "68ed90dc0aba99bb4bd33fe959ef7185ae1b368d", default-features = false, features = ["native"] }
 image = "0.25"
 serde_json = "1"
 

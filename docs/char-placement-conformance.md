@@ -1,7 +1,7 @@
 # Character-positioning conformance spec
 
-**Audience:** the PC build agent (InstantJPDictPC, `accessibility_daemon`
-conformance corpus, harness `core/src/conformance.rs`, `cargo test`).
+**Audience:** the PC build agent (InstantJPDictPC, `tests/conformance`
+corpus, harness `jpdict-core/src/conformance.rs`, `cargo test`).
 
 **Purpose:** defines *conforming* for the character-box placement stage — the
 metric, three conformance tiers, and paste-ready additions for the PC
@@ -250,7 +250,7 @@ not gate. Run from `tools/char_placement/`:
 # dump: real inference over the PC-hosted recognition fixtures (their inputs
 # are the conformance cases themselves)
 tools/char_placement/real_dump: ./target/release/rec_dump \
-    <instantjpdictdecky>/accessibility_daemon/tests/conformance/cases \
+    <instantjpdictpc>/tests/conformance/cases \
     /tmp/real_lines.jsonl
 $V real_eval.py /tmp/real_lines.jsonl
 ```

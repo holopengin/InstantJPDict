@@ -36,7 +36,7 @@ writes in Kotlin.
 1. PC: new `yomitan_parse.rs` as above; `importer.rs` delegates; add crate tests
    (there is **no** Android `DictionaryImporterTest` today, so the crate tests
    are the parser's only direct pin — mirror the Android shapes you find and use
-   the existing Yomitan fixtures under `accessibility_daemon/tests/data/`).
+   the existing Yomitan fixtures under `tests/data/`).
 2. Shim `nav_graph_core/src/yomitan_parse.rs` (`mod yomitan_parse;`):
    - `yomitan_parse_term_bank(json: String) -> Vec<DictionaryEntryRow>`
    - `yomitan_parse_kanji_bank(json: String) -> Vec<DictionaryEntryRow>`

@@ -18,10 +18,10 @@ Different SHA-256. Android's file is the newer/canonical one.
 ## Deliverable
 
 1. **Canonical data**: replace the PC repo's
-   `accessibility_daemon/assets/catalog/dictionaries.json` with Android's
+   `assets/catalog/dictionaries.json` with Android's
    4-entry file (byte-identical). Android keeps its asset (it is the licence
    reference and the test fixture) but stops reading it at runtime.
-2. **PC model/parse** in `core/src/data/catalog.rs`:
+2. **PC model/parse** in `jpdict-core/src/data/catalog.rs`:
    - `CatalogEntry` gains `title` (rename from `family`), `recommended: bool`
      (default false); `CatalogFile` gains `schema`; keep `id/name/description/
      url/bytes/sha256/license/source`.
@@ -50,8 +50,8 @@ Different SHA-256. Android's file is the newer/canonical one.
 
 ## Files owned
 
-- PC: `accessibility_daemon/assets/catalog/dictionaries.json`,
-  `core/src/data/catalog.rs`, `core/src/data/db.rs` (only the
+- PC: `assets/catalog/dictionaries.json`,
+  `jpdict-core/src/data/catalog.rs`, `jpdict-core/src/data/db.rs` (only the
   `name_matches_family` move + call sites).
 - Android: `nav_graph_core/src/catalog.rs` (new), `nav_graph_core/src/lib.rs`
   (wire), `app/src/main/java/com/holopengin/instantjpdict/util/DictionaryCatalog.kt`,

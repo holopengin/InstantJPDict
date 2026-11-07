@@ -5,13 +5,13 @@ conformance corpus, the pinned geometry (the shipped algorithm's PC output),
 the crop box and the raw per-timestep top-K, so the placement algorithms can
 be compared on real inference evidence without a device.
 
-It is deliberately a separate crate: it links `jpdict_core` with the `native`
-feature from the PC checkout and never touches that checkout's files.
+It is deliberately a separate crate: it links `jpdict-core` with the `native`
+feature from the pinned PC git rev (the same rev as `nav_graph_core`) and
+never touches a PC checkout's files.
 
 ## Build (once, on a machine that has the pinned ncnn static lib)
 
-The Android repo's worktree already depends on the PC path, so the PC checkout
-must be present.  ncnn itself is not committed: build it with the PC repo's
+ncnn itself is not committed: build it with the PC repo's
 `tools/build_ncnn_pc.sh`, or, on this machine, reuse the prebuilt archive in
 `/tmp/ncnn_build`:
 
@@ -23,9 +23,10 @@ cp /tmp/ncnn_build/build-host/src/{ncnn_export,layer_shader_type_enum,layer_type
    /tmp/opencode/ncnn-install/include/ncnn/
 ```
 
-`Cargo.toml` hardcodes the PC checkout path (this is a one-machine research
-tool); adjust it if that path moves.  `build.rs` only adds the OpenMP link
-flag the prebuilt ncnn needs.
+The PC assets default to the sibling checkout
+(`../../../../InstantJPDictPC/assets`); set `JPDICT_ASSETS` if the repos are
+laid out differently.  `build.rs` only adds the OpenMP link flag the prebuilt
+ncnn needs.
 
 ```
 NCNN_PC_DIR=/tmp/opencode/ncnn-install cargo build --release
@@ -35,7 +36,7 @@ NCNN_PC_DIR=/tmp/opencode/ncnn-install cargo build --release
 
 ```
 ./target/release/rec_dump <pc-conformance-cases-dir> /tmp/opencode/real_lines.jsonl
-# e.g. /home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/tests/conformance/cases
+# e.g. ../../../../InstantJPDictPC/tests/conformance/cases
 
 # arbitrary screenshots/photos (no case JSON; rows carry an absolute `image`
 # field that real_eval prefers over the case lookup).  Det params pinned to

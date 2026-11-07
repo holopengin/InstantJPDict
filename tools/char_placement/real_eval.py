@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -139,7 +140,13 @@ def main() -> None:
         "--images",
         type=Path,
         default=Path(
-            "/home/holopengin/repos/InstantJPDictDecky/accessibility_daemon/tests/conformance"
+            os.environ.get(
+                "JPDICT_PC_CONFORMANCE",
+                Path(__file__).resolve().parents[3]
+                / "InstantJPDictPC"
+                / "tests"
+                / "conformance",
+            )
         ),
     )
     ap.add_argument("--json", type=Path, default=None)
