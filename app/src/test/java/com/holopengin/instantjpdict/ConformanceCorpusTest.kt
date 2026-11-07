@@ -25,7 +25,7 @@ import kotlin.math.sin
  * (ticket `pipeline-sharing/01`).
  *
  * The cases live as plain-data JSON under `app/src/test/resources/conformance/`
- * (byte-identical copies of the PC `accessibility_daemon/tests/conformance/`
+ * (byte-identical copies of the PC `tests/conformance/`
  * corpus — see `README.md` there for provenance and the re-sync procedure) and
  * are parsed with Gson, already a project dependency: no new test dependency
  * was added for this runner. Every pure-module stage runs 1:1 against the
@@ -114,6 +114,9 @@ class ConformanceCorpusTest {
         // behind an instrumented benchmark, and char boxes from real inference
         // are an accepted platform substitution (TOLERANCES.md §2/§5).
         "recognition" to "needs hosted ncnn inference; PC-only until Android tests can host it",
+        // The six Tier-1 vectors are pinned by CharPlacementTest against the
+        // same Python reference; there is no JVM runner for this kind yet.
+        "char_placement" to "covered by CharPlacementTest; no JVM conformance runner",
     )
 
     /** Case ids covered by reason rather than by a runner. */
@@ -124,6 +127,9 @@ class ConformanceCorpusTest {
         "recognition-05-phone-ui-1", "recognition-06-phone-ui-2",
         "recognition-07-phone-ui-3", "recognition-08-phone-ui-4",
         "recognition-09-phone-ui-5",
+        "char-placement-01-synth-core-h", "char-placement-02-synth-core-v",
+        "char-placement-03-synth-rotated-h", "char-placement-04-synth-degraded-h",
+        "char-placement-05-synth-ruby-v", "char-placement-06-synth-spacing-h",
     )
 
     @Test
@@ -158,9 +164,23 @@ class ConformanceCorpusTest {
         for (c in manual) {
             val body = c.root.getAsJsonObject("case")
             // Even manual, the rule holds: explicit case values, never platform
-            // defaults (TOLERANCES.md §3).
-            body.doubleField("det_thresh")
-            body.doubleField("det_unclip")
+            // defaults (TOLERANCES.md §3). Detection-backed kinds carry the
+            // detector tunables; char-placement vectors carry their own crop,
+            // steps and expected boxes instead.
+            if (c.kind == "detection" || c.kind == "recognition") {
+                body.doubleField("det_thresh")
+                body.doubleField("det_unclip")
+            }
+            if (c.kind == "char_placement") {
+                assertTrue(
+                    "${c.id}: char-placement needs explicit expected boxes",
+                    body.getAsJsonArray("expect_boxes").size() > 0,
+                )
+                assertTrue(
+                    "${c.id}: char-placement needs explicit text",
+                    body.get("text").asString.isNotEmpty(),
+                )
+            }
             if (c.kind == "recognition") {
                 assertEquals("$c.id: recognition runs in mode both", "both", body.stringField("recognition_mode"))
                 assertTrue(
@@ -533,19 +553,29 @@ class ConformanceCorpusTest {
             val body = c.root.getAsJsonObject("case")
             val term = body.stringField("term")
             val reading = body.stringField("reading")
-            // Payload by reference, like the PC harness: the Android-side copy
-            // of the shared fixture (verified byte-identical with the PC
-            // tests/data/jitendex/entries.json at copy time; the case's
-            // definitions_ref names the PC-side path).
-            val row = root.getAsJsonArray("entries").firstOrNull {
-                val o = it.asJsonObject
-                o.get("term").asString == term && o.get("reading").asString == reading
-            } ?: error("${c.id}: no jitendex fixture for $term ($reading)")
+            // Payload by reference or inline, exactly like the PC harness.
+            // `definitions_ref` cases resolve through the Android-side copy of
+            // the shared fixture (verified byte-identical with the PC
+            // tests/data/jitendex/entries.json at copy time). Synthetic edge
+            // cases (e.g. the NBSP tag case) carry `definitions` inline.
+            val inlineDefs = body.get("definitions")
+            val refDefs = body.get("definitions_ref")
+            check(!(inlineDefs != null && refDefs != null)) {
+                "${c.id}: set definitions or definitions_ref, not both"
+            }
+            val definitions = inlineDefs ?: run {
+                val row = root.getAsJsonArray("entries").firstOrNull {
+                    val o = it.asJsonObject
+                    o.get("term").asString == term && o.get("reading").asString == reading
+                } ?: error("${c.id}: no jitendex fixture for $term ($reading)")
+                row.asJsonObject.get("definitions")
+            }
+            val rules = body.get("rules")?.takeUnless { it.isJsonNull }?.asString ?: ""
             val entry = DictionaryEntry(
                 kanji = term,
                 reading = reading,
-                definitions = Gson().toJson(row.asJsonObject.get("definitions")),
-                rules = "",
+                definitions = Gson().toJson(definitions),
+                rules = rules,
                 popularity = 0,
                 dictionaryId = 1,
             )
@@ -587,7 +617,7 @@ class ConformanceCorpusTest {
     /**
      * The shipped rules file both sides pin behavior against
      * (`app/src/main/assets/deinflect.json`, verified byte-identical with the
-     * PC `accessibility_daemon/assets/deinflect.json` at copy time — see the
+     * PC `assets/deinflect.json` at copy time — see the
      * corpus `README.md`). Filesystem lookup like [allCases]: the classloader
      * cannot list directories, and main assets are not on the unit-test
      * classpath.

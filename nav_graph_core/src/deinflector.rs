@@ -107,7 +107,7 @@ mod tests {
 
     /// The shipped rules text, read from the Android repo the way the Kotlin
     /// facade reads the asset (`../app/src/main/assets/deinflect.json`, byte
-    /// identical with the PC `accessibility_daemon/assets/deinflect.json`).
+    /// identical with the PC `assets/deinflect.json`).
     /// Skipped when the asset is absent (e.g. a checkout without it).
     fn shipped_rules() -> Option<Arc<Deinflector>> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

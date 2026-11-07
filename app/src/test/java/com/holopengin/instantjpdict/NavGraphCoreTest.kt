@@ -9,7 +9,7 @@ import uniffi.nav_graph_core.navigate
 
 /**
  * Android mirror of the PC `jpdict_core::nav_graph` regression tests
- * (`accessibility_daemon/core/src/nav_graph.rs`, tests `nav_graph_01..08`).
+ * (`jpdict-core/src/nav_graph.rs`, tests `nav_graph_01..08`).
  *
  * `nav_graph_core` no longer carries its own algorithm: it delegates to
  * `jpdict_core::nav_graph` (pipeline-sharing/04), so these tests call the real
