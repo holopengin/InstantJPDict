@@ -138,9 +138,10 @@ jobs:
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          BUILD_TOOLS=$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
-          AAPT="$BUILD_TOOLS/aapt"
-          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT=$(find "$SDK/build-tools" -type f -name aapt | sort -V | tail -1)
+          APKSIGNER=$(find "$SDK/build-tools" -type f -name apksigner | sort -V | tail -1)
+          test -x "$AAPT" || { echo "::error::aapt not found under $SDK/build-tools" >&2; exit 1; }
+          test -x "$APKSIGNER" || { echo "::error::apksigner not found under $SDK/build-tools" >&2; exit 1; }
           APK=app/build/outputs/apk/release/app-release.apk
 
           BADGING=$("$AAPT" dump badging "$APK")
@@ -158,7 +159,10 @@ jobs:
             exit 1
           }
 
-          SIGNER=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          SIGNER_OUTPUT=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          printf '%s\n' "$SIGNER_OUTPUT" | tail -20
+          SIGNER=$(printf '%s\n' "$SIGNER_OUTPUT" | tr -d '\r' \
+            | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
           EXPECTED_SIGNER=e68b44b624313d55216c487242cbe4d62ddbde8b54aa928cc9cf634822d28b89
           test "$SIGNER" = "$EXPECTED_SIGNER" || {
             echo "::error::APK is signed by $SIGNER, expected $EXPECTED_SIGNER" >&2
