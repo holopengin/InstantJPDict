@@ -1,6 +1,6 @@
 # <img src="./logo.svg"> InstantJPDict
 
-InstantJPDict is an Android application which provides instant Japanese-to-English dictionary lookups using on-device OCR (Optical Character Recognition) pipeline. Ideal for reading games, social media, or any other Japanese content where copying text is difficult. Also includes an experimental camera mode so you can do lookups faster than web-based tools ever could.
+InstantJPDict is an Android application which provides instant Japanese-to-English dictionary lookups using a single-tap, on-device OCR (Optical Character Recognition) pipeline. Ideal for reading games, social media, or any other Japanese content where copying text is difficult.
 
 It imports dictionaries in the Yomitan format such as [Jitendex, ](https://jitendex.org/pages/downloads.html)[JMDict, and KANJIDIC](https://github.com/yomidevs/jmdict-yomitan). Currently untested with other dictionaries.
 
@@ -34,13 +34,15 @@ for direct APK downloads.
 - **On-device OCR**: High-speed Japanese text recognition without an internet connection.
 - **Screen OCR anywhere**: trigger it from the accessibility button or the accessibility shortcut — no floating button of ours.
 - **Camera Mode**: Instant OCR for your physical books, manga, games, etc.
-- **Yomitan Dictionaries**: Imports Yomitan format dictionaries, with one-click installs for a curated selection.
+- **OCR Any Image**: Use Android's Share flow to get the same OCR view for any image.
 - **Instant Lookup**: Tap recognized characters to see dictionary entries immediately.
+- **Frictionless Corrections**: In the rare case the OCR makes a mistake, corrections are only a tap away. Alternatives for every character come from the same AI model's confidence scores, plus additional entries from an n-gram model and kanji decomposition tables.
+- **Manual Lookups**: Lookup JP->EN (including Romaji input) and EN->JP within the main app.
+- **Yomitan Dictionaries**: Imports Yomitan format dictionaries, with one-click installs for a curated selection.
 - **Deinflection**: Support for verb and adjective conjugations, just like yomitan. Tap the first character of a word, and the dictionary form will surface.
-- **Frictionless Corrections**: In the rare case the OCR makes a mistake, corrections are only a tap away. We use the text recognition model's own prediction ratings, plus a lightweight n-gram model and kanji decomposition table, to provide the most likely alternatives. Plus a manual input mode as a last resort.
 
 ## Roadmap
-- [ ] Standard dictionary search mode + share text from other apps
+- [ ] Better, more consistent theming across the entire app
 - [ ] Better scene-text detection for camera mode (keystone, curves, skew)
 
 ## Credits
