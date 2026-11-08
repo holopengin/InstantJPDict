@@ -4,6 +4,20 @@ InstantJPDict is an Android application which provides instant Japanese-to-Engli
 
 It imports dictionaries in the Yomitan format such as [Jitendex, ](https://jitendex.org/pages/downloads.html)[JMDict, and KANJIDIC](https://github.com/yomidevs/jmdict-yomitan). Currently untested with other dictionaries.
 
+## Install
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.holopengin.instantjpdict%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fholopengin%2FInstantJPDict%22%2C%22author%22%3A%22holopengin%22%2C%22name%22%3A%22InstantJPDict%22%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%7D%22%7D"><img src="docs/assets/obtainium-badge.png" alt="Get it on Obtainium" height="48"></a>
+
+InstantJPDict is distributed through GitHub releases and is best installed with
+[Obtainium](https://github.com/ImranR98/Obtainium). The badge adds this repo with
+prereleases enabled, because the current releases are release candidates. If
+you add `https://github.com/holopengin/InstantJPDict` by hand, enable **Include
+prereleases**. The app requires Android 11+ on an arm64-v8a device.
+
+See [docs/obtainium.md](docs/obtainium.md) for the release, versioning and
+signing rules, and the [Releases page](https://github.com/holopengin/InstantJPDict/releases)
+for direct APK downloads.
+
 ## Demo
 <div><video controls src="https://github.com/user-attachments/assets/44073eb7-8ecc-45e8-8f89-f661ef5bba38"></video></div>
 

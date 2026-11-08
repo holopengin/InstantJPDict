@@ -1,0 +1,183 @@
+name: Release APK
+
+# Builds a tagged commit, verifies the production id / version / signer, and
+# uploads the APK to the GitHub release. Obtainium reads those releases.
+#
+# Required repository secrets (see docs/obtainium.md):
+#   RELEASE_KEYSTORE_BASE64, RELEASE_STORE_PASSWORD,
+#   RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+#
+# The expected signer fingerprint is the current release key. If the key is
+# rotated, update EXPECTED_SIGNER here and in docs/obtainium.md.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and release (e.g. v1.0.0-rc8)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Fetch the release LFS files
+        run: |
+          git lfs pull --include="app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a,app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
+
+      - name: Verify the tag is on master
+        run: |
+          set -euo pipefail
+          git fetch origin master --no-tags
+          if ! git merge-base --is-ancestor HEAD origin/master; then
+            echo "::error::release tag $TAG is not an ancestor of master" >&2
+            exit 1
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;28.2.13676358" "cmake;3.22.1"
+
+      - name: Install Rust Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Restore release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::missing repository secret $name" >&2
+              exit 1
+            fi
+          done
+          install -d -m 700 "$HOME/keys" "$HOME/.config/instantjpdict"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$HOME/keys/instantjpdict-release.p12"
+          chmod 600 "$HOME/keys/instantjpdict-release.p12"
+          python3 - <<'PY'
+          import os
+
+          def esc(value):
+              return (value.replace("\\", "\\\\")
+                           .replace(":", "\\:")
+                           .replace("=", "\\=")
+                           .replace(" ", "\\ ")
+                           .replace("\n", "\\n")
+                           .replace("\r", "\\r")
+                           .replace("\t", "\\t"))
+
+          path = os.path.expanduser("~/.config/instantjpdict/keystore.properties")
+          with open(path, "w") as f:
+              f.write("storeFile=%s\n" % os.path.expanduser("~/keys/instantjpdict-release.p12"))
+              f.write("storeType=PKCS12\n")
+              f.write("storePassword=%s\n" % esc(os.environ["RELEASE_STORE_PASSWORD"]))
+              f.write("keyAlias=%s\n" % esc(os.environ["RELEASE_KEY_ALIAS"]))
+              f.write("keyPassword=%s\n" % esc(os.environ["RELEASE_KEY_PASSWORD"]))
+          os.chmod(path, 0o600)
+          PY
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease -Ptagged --no-daemon --console=plain
+
+      - name: Verify APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BUILD_TOOLS=$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          AAPT="$BUILD_TOOLS/aapt"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          APK=app/build/outputs/apk/release/app-release.apk
+
+          BADGING=$("$AAPT" dump badging "$APK")
+          PACKAGE=$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          VERSION_CODE=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          VERSION_NAME=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          EXPECTED_VERSION="${TAG#v}"
+
+          test "$PACKAGE" = "com.holopengin.instantjpdict" || {
+            echo "::error::wrong package id: $PACKAGE (a tagged build must be com.holopengin.instantjpdict)" >&2
+            exit 1
+          }
+          test "$VERSION_NAME" = "$EXPECTED_VERSION" || {
+            echo "::error::versionName $VERSION_NAME does not match tag $TAG" >&2
+            exit 1
+          }
+
+          SIGNER=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          EXPECTED_SIGNER=e68b44b624313d55216c487242cbe4d62ddbde8b54aa928cc9cf634822d28b89
+          test "$SIGNER" = "$EXPECTED_SIGNER" || {
+            echo "::error::APK is signed by $SIGNER, expected $EXPECTED_SIGNER" >&2
+            exit 1
+          }
+
+          mkdir -p dist
+          ASSET="dist/InstantJPDict-$VERSION_NAME.apk"
+          cp "$APK" "$ASSET"
+          echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_NAME: ${{ steps.apk.outputs.versionName }}
+          ASSET: ${{ steps.apk.outputs.asset }}
+        run: |
+          set -euo pipefail
+          NOTES="docs/${VERSION_NAME}-tester-notes.md"
+          PRERELEASE=""
+          case "$VERSION_NAME" in *-rc*) PRERELEASE="--prerelease" ;; esac
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+            gh release edit "$TAG" --title "InstantJPDict $VERSION_NAME" $PRERELEASE
+            if [ -f "$NOTES" ]; then
+              gh release edit "$TAG" --notes-file "$NOTES"
+            fi
+          elif [ -f "$NOTES" ]; then
+            gh release create "$TAG" "$ASSET" \
+              --title "InstantJPDict $VERSION_NAME" \
+              $PRERELEASE --notes-file "$NOTES"
+          else
+            gh release create "$TAG" "$ASSET" \
+              --title "InstantJPDict $VERSION_NAME" \
+              $PRERELEASE --generate-notes
+          fi

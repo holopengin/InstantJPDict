@@ -13,6 +13,9 @@ jobs:
         with:
           path: InstantJPDict
 
+      - name: Fetch the Android LFS model files
+        run: git -C InstantJPDict lfs pull --include="app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
+
       - name: Check out the PC repo
         uses: actions/checkout@v4
         with:
