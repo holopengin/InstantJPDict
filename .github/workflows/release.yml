@@ -44,8 +44,18 @@ jobs:
 
       - name: Fetch the release LFS files
         run: |
-          git lfs pull --include="app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a" \
-            --include="app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
+          set -euo pipefail
+          git lfs pull --include="app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a"
+          git lfs pull --include="app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
+          for f in \
+            app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a \
+            app/src/main/assets/PP-OCRv6_small_ncnn/det.bin \
+            app/src/main/assets/PP-OCRv6_small_ncnn/rec_dyn.bin; do
+            if head -c 64 "$f" | grep -q '^version https://git-lfs'; then
+              echo "::error::$f is still an LFS pointer" >&2
+              exit 1
+            fi
+          done
 
       - name: Verify the tag is on master
         run: |
