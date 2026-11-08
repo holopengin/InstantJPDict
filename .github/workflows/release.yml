@@ -44,7 +44,8 @@ jobs:
 
       - name: Fetch the release LFS files
         run: |
-          git lfs pull --include="app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a,app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
+          git lfs pull --include="app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a" \
+            --include="app/src/main/assets/PP-OCRv6_small_ncnn/*.bin"
 
       - name: Verify the tag is on master
         run: |

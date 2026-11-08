@@ -104,6 +104,9 @@ across a key change; users must uninstall and reinstall.
 | `RELEASE_KEY_ALIAS` | `instantjpdict` |
 | `RELEASE_KEY_PASSWORD` | the key password |
 
+Until these secrets exist, a tag build stops at the restore step with a clear
+missing-secret error; add them before cutting the next release.
+
 The workflow writes the keystore and properties under `$HOME`, so the same
 Gradle signing path is used locally and in CI. It checks:
 
