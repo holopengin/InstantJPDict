@@ -19,6 +19,11 @@ class DictionaryRedirectsTest {
     // ヽ (real row): genuine glossary + see-also references — not a redirect.
     private val glossWithRefs = """[{"content": [{"content": {"content": "repetition mark in katakana", "tag": "li"}, "data": {"content": "glossary"}, "lang": "en", "style": {"listStyleType": "circle"}, "tag": "ul"}, {"content": {"content": ["see: ", {"content": "一の字点", "href": "?query=一の字点&wildcards=off", "lang": "ja", "tag": "a"}, {"content": " kana iteration mark", "data": {"content": "refGlosses"}, "style": {"fontSize": "65%", "verticalAlign": "middle"}, "tag": "span"}], "tag": "li"}, "data": {"content": "references"}, "lang": "en", "style": {"listStyleType": "'➡️ '"}, "tag": "ul"}], "type": "structured-content"}]"""
 
+    // 說教 (Jitendex 2026.08.11.0, real row): the pointer is wrapped in a
+    // div whose data.content is "redirect-glossary", and the v3 deinflection
+    // pair follows it. The wrapper must not count as definitional content.
+    private val jitendexRedirect = """[{"content":{"content":["⟶",{"content":[{"content":["説",{"content":"せっ","tag":"rt"}],"tag":"ruby"},{"content":["教",{"content":"きょう","tag":"rt"}],"tag":"ruby"}],"href":"?query=%E8%AA%AC%E6%95%99&wildcards=off&primary_reading=%E3%81%9B%E3%81%A3%E3%81%8D%E3%82%87%E3%81%86","lang":"ja","tag":"a"}],"data":{"content":"redirect-glossary"},"lang":"ja","tag":"div"},"type":"structured-content"},["説教",["redirected from 說教"]]]"""
+
     @Test
     fun pure_single_resolves() {
         assertEquals(listOf("あかん"), DictionaryRedirects.extractTargets(pureSingle))
@@ -30,6 +35,11 @@ class DictionaryRedirectsTest {
             listOf("阿呆陀羅", "あほんだら"),
             DictionaryRedirects.extractTargets(pureDual)
         )
+    }
+
+    @Test
+    fun jitendex_redirect_glossary_resolves() {
+        assertEquals(listOf("説教"), DictionaryRedirects.extractTargets(jitendexRedirect))
     }
 
     @Test
