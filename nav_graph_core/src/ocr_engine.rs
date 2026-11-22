@@ -861,8 +861,9 @@ mod tests {
             .collect()
     }
 
-    /// The re-decode walk crosses: blank resets, space never collapses,
-    /// repeats collapse, columns interpolate, and the empty cache is `None`.
+    /// The re-decode walk crosses: blank resets, every class (space included)
+    /// collapses against the previous emitted one, columns interpolate, and the
+    /// empty cache is `None`.
     #[test]
     fn re_decode_walk_crosses() {
         let raw = vec![
@@ -875,9 +876,9 @@ mod tests {
             step(&[('い' as i32, 0.90)]),
         ];
         let re = ocr_engine_re_decode(raw, false).expect("walk decodes");
-        assert_eq!(re.text, "ああ  い");
-        assert_eq!(re.char_cols, vec![0.0, 3.0, 4.0, 5.0, 6.0]);
-        assert_eq!(re.alternatives.len(), 5);
+        assert_eq!(re.text, "ああ い");
+        assert_eq!(re.char_cols, vec![0.0, 3.0, 4.0, 6.0]);
+        assert_eq!(re.alternatives.len(), 4);
         assert!(ocr_engine_re_decode(vec![], false).is_none());
     }
 

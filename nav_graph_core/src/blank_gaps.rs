@@ -839,17 +839,20 @@ mod tests {
     #[test]
     fn timestep_walk_reproduces_the_collapse_rules() {
         let cells = |ch: char| vec![GapCell { ch: ch as i32, score: 1.0 }];
-        // blank (U+3000) resets the repeat state, a space never collapses.
+        // blank (U+3000) resets the repeat state; every class, space included,
+        // collapses against the previous emitted one.
         let raw = vec![
             cells('あ'),
             cells('あ'),        // repeat: collapses
             cells('\u{3000}'),  // blank: resets
             cells('あ'),        // emitted after the blank
-            cells(' '),         // space: always emitted
-            cells(' '),         // space: never collapses
+            cells(' '),         // space: emitted
+            cells(' '),         // same run: collapses
+            cells('\u{3000}'),  // blank: ends the run
+            cells(' '),         // new run: emitted
             cells('い'),
         ];
-        assert_eq!(blank_gap_timestep_columns(raw), vec![0.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(blank_gap_timestep_columns(raw), vec![0.0, 3.0, 4.0, 7.0, 8.0]);
     }
 
     #[test]

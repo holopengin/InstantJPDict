@@ -104,8 +104,9 @@ internal fun medianOf(values: FloatArray): Float = blankGapMedian(values.toList(
 /**
  * Emitted character → CTC timestep column, recovered from
  * [LineResult.rawAlternatives] (`OcrEngine.kt`). The walk's assumptions (head is
- * the first entry, blank resets the repeat state, a space never collapses) live in
- * the Rust port; this forwards the data.
+ * the first entry, blank resets the repeat state, every class — space included —
+ * collapses against the previous emitted one) live in the Rust port; this
+ * forwards the data.
  *
  * The ported walk reads `alts.first()` and nothing else — the whole top-K behind
  * a timestep is dead weight here, which is why a recognised line's rows stay

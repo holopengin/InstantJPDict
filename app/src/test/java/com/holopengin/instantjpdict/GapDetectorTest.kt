@@ -236,19 +236,22 @@ class GapDetectorTest {
     @Test
     fun timestep_walk_matches_the_documented_assumptions() {
         // Entry 0 is the argmax; '\u3000' is the blank entry (OcrEngine.kt:2159);
-        // blank resets the repeat state, spaces never collapse.
+        // blank resets the repeat state, and every class — space included —
+        // collapses against the previous emitted character.
         val raw = listOf(
             step('あ', 0.90f),                   // t0 emitted
             step('あ', 0.80f),                   // t1 CTC repeat → collapsed
             blankStep,                            // t2 blank → resets the previous char
             step('あ', 0.70f),                   // t3 emitted again after the blank
             step(' ', 0.60f),                    // t4 space
-            step(' ', 0.50f),                    // t5 space again — spaces never collapse
-            step('い', 0.90f),                   // t6
+            step(' ', 0.50f),                    // t5 same run → collapsed
+            blankStep,                            // t6 blank → ends the space run
+            step(' ', 0.40f),                    // t7 new run → emitted
+            step('い', 0.90f),                   // t8
         )
 
         assertArrayEquals(
-            floatArrayOf(0f, 3f, 4f, 5f, 6f),
+            floatArrayOf(0f, 3f, 4f, 7f, 8f),
             timestepColumns(raw),
             0f,
         )
