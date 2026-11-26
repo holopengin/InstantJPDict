@@ -17,6 +17,17 @@ use std::sync::Mutex;
 use crate::blank_gaps::GapCell;
 use crate::BoundingBox;
 
+/// The `GapCell.ch` contract is a Kotlin `Char`, i.e. a UTF-16 code unit, not
+/// a Unicode scalar. The model vocab contains at least one supplementary
+/// character (`U+1F468` in the wild), and `Char(Int)` throws
+/// `Invalid Char code: 128104` for it. Match the decoder's own
+/// `to_kotlin_char`: cross the first UTF-16 unit, exactly as the pre-page-path
+/// decode did.
+fn to_kotlin_char(ch: char) -> i32 {
+    let mut code_units = [0u16; 2];
+    ch.encode_utf16(&mut code_units)[0] as i32
+}
+
 #[derive(Debug, uniffi::Error)]
 pub enum PageOcrError {
     Engine { reason: String },
@@ -268,7 +279,7 @@ fn map_line(line: jpdict_core::page_ocr::PageLine) -> PageLineRecord {
             .iter()
             .flat_map(|row| row.iter())
             .map(|&(ch, score)| GapCell {
-                ch: ch as i32,
+                ch: to_kotlin_char(ch),
                 score,
             })
             .collect(),
@@ -298,7 +309,7 @@ fn map_alts(rows: Vec<Vec<(char, f32)>>) -> Vec<Vec<GapCell>> {
         .map(|alts| {
             alts.into_iter()
                 .map(|(ch, score)| GapCell {
-                    ch: ch as i32,
+                    ch: to_kotlin_char(ch),
                     score,
                 })
                 .collect()
@@ -325,4 +336,22 @@ fn map_quad(quad: jpdict_core::models::RotatedBox) -> PageQuad {
         y: c0.y + vy * quad.h,
     };
     PageQuad { c0, c1, c2, c3 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The exact class that crashed the Pixel (`U+1F468`, 128104) and a BMP
+    /// character must both cross as valid Kotlin `Char` code units.
+    #[test]
+    fn supplementary_chars_cross_as_utf16_code_units() {
+        assert_eq!(to_kotlin_char('あ'), 0x3042);
+        let man = '\u{1F468}';
+        let mut buf = [0u16; 2];
+        let expected = man.encode_utf16(&mut buf)[0] as i32;
+        assert_eq!(expected, 0xD83D);
+        assert!(to_kotlin_char(man) <= 0xFFFF);
+        assert_eq!(to_kotlin_char(man), expected);
+    }
 }
