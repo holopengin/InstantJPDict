@@ -18,7 +18,15 @@ private const val TAG = "PageOcrModels"
  * Returns null when an asset cannot be copied; the caller then keeps the old
  * path (and reports "not ready") rather than crashing.
  */
-internal fun materialisePageOcrModelDir(context: Context): File? {
+internal fun materialisePageOcrModelDir(context: Context): File? =
+    synchronized(pageOcrModelLock) { materialisePageOcrModelDirLocked(context) }
+
+/** One copy per process: the service and the share activity can construct an
+ *  engine at the same time, and the parent-directory cleanup below must not
+ *  run while the other host is still writing its first copy. */
+private val pageOcrModelLock = Any()
+
+private fun materialisePageOcrModelDirLocked(context: Context): File? {
     val stamp = try {
         @Suppress("DEPRECATION")
         context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
