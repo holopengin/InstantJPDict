@@ -1056,6 +1056,14 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1203,6 +1211,16 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_method_oovcandidates_majority_components(`ptr`: Pointer,`topK`: RustBuffer.ByValue,`needFraction`: Double,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_method_oovcandidates_neighbours_of(`ptr`: Pointer,`emitted`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_clone_pagerecognizer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_free_pagerecognizer(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_constructor_pagerecognizer_new(`modelDir`: RustBuffer.ByValue,`batchSize`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nav_graph_core_fn_method_pagerecognizer_cancel(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nav_graph_core_fn_method_pagerecognizer_recognize(`ptr`: Pointer,`rgba`: RustBuffer.ByValue,`width`: Int,`height`: Int,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_blank_gap_default_horizontal_ratio(uniffi_out_err: UniffiRustCallStatus, 
     ): Float
@@ -1814,6 +1832,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_nav_graph_core_checksum_method_oovcandidates_neighbours_of(
     ): Short
+    fun uniffi_nav_graph_core_checksum_method_pagerecognizer_cancel(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_method_pagerecognizer_recognize(
+    ): Short
     fun uniffi_nav_graph_core_checksum_constructor_componenttable_parse(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_ctcdecode_new(
@@ -1837,6 +1859,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_constructor_kanjivarianttable_parse(
     ): Short
     fun uniffi_nav_graph_core_checksum_constructor_oovcandidates_new(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_constructor_pagerecognizer_new(
     ): Short
     fun ffi_nav_graph_core_uniffi_contract_version(
     ): Int
@@ -2278,6 +2302,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nav_graph_core_checksum_method_oovcandidates_neighbours_of() != 53821.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nav_graph_core_checksum_method_pagerecognizer_cancel() != 23607.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_method_pagerecognizer_recognize() != 29141.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nav_graph_core_checksum_constructor_componenttable_parse() != 18278.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2312,6 +2342,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_constructor_oovcandidates_new() != 27416.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_constructor_pagerecognizer_new() != 7645.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -5801,6 +5834,290 @@ public object FfiConverterTypeOovCandidates: FfiConverter<OovCandidates, Pointer
 }
 
 
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * A loaded page engine: det + rec + kana nets live here, once.
+ */
+public interface PageRecognizerInterface {
+    
+    /**
+     * Ask the in-flight [`recognize`](Self::recognize) to stop. Safe from any
+     * thread; the next call clears the flag.
+     */
+    fun `cancel`()
+    
+    /**
+     * Recognize one page. `rgba` is `width * height * 4` bytes in row-major
+     * RGBA order. It crosses as a `ByteArray` (not a boxed `List<Int>`) so a
+     * full-page capture is one bulk copy.
+     */
+    fun `recognize`(`rgba`: kotlin.ByteArray, `width`: kotlin.UInt, `height`: kotlin.UInt, `options`: PageOcrOptionsRecord): PageResultRecord
+    
+    companion object
+}
+
+/**
+ * A loaded page engine: det + rec + kana nets live here, once.
+ */
+open class PageRecognizer: Disposable, AutoCloseable, PageRecognizerInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    /**
+     * Load the model set from an on-disk directory (the app materialises
+     * `PP-OCRv6_small_ncnn/` and `kana_size/` there first).
+     */
+    constructor(`modelDir`: kotlin.String, `batchSize`: kotlin.UInt) :
+        this(
+    uniffiRustCallWithError(PageOcrException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_constructor_pagerecognizer_new(
+        FfiConverterString.lower(`modelDir`),FfiConverterUInt.lower(`batchSize`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_free_pagerecognizer(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_clone_pagerecognizer(pointer!!, status)
+        }
+    }
+
+    
+    /**
+     * Ask the in-flight [`recognize`](Self::recognize) to stop. Safe from any
+     * thread; the next call clears the flag.
+     */override fun `cancel`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_pagerecognizer_cancel(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Recognize one page. `rgba` is `width * height * 4` bytes in row-major
+     * RGBA order. It crosses as a `ByteArray` (not a boxed `List<Int>`) so a
+     * full-page capture is one bulk copy.
+     */
+    @Throws(PageOcrException::class)override fun `recognize`(`rgba`: kotlin.ByteArray, `width`: kotlin.UInt, `height`: kotlin.UInt, `options`: PageOcrOptionsRecord): PageResultRecord {
+            return FfiConverterTypePageResultRecord.lift(
+    callWithPointer {
+    uniffiRustCallWithError(PageOcrException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_method_pagerecognizer_recognize(
+        it, FfiConverterByteArray.lower(`rgba`),FfiConverterUInt.lower(`width`),FfiConverterUInt.lower(`height`),FfiConverterTypePageOcrOptionsRecord.lower(`options`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageRecognizer: FfiConverter<PageRecognizer, Pointer> {
+
+    override fun lower(value: PageRecognizer): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): PageRecognizer {
+        return PageRecognizer(value)
+    }
+
+    override fun read(buf: ByteBuffer): PageRecognizer {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: PageRecognizer) = 8UL
+
+    override fun write(value: PageRecognizer, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
 
 /**
  * Bounding box for a detected character.
@@ -7217,6 +7534,251 @@ public object FfiConverterTypeNavGraph: FfiConverterRustBuffer<NavGraph> {
 
 
 /**
+ * One recognized line crossing the boundary.
+ */
+data class PageLineRecord (
+    var `bbox`: BoundingBox, 
+    var `quad`: PageQuad?, 
+    var `text`: kotlin.String, 
+    var `charBoxes`: List<BoundingBox>, 
+    var `alternatives`: List<List<GapCell>>, 
+    /**
+     * The raw top-K table flattened: `raw_cells` is every row concatenated,
+     * `raw_row_starts` its `rows + 1` boundaries. Kotlin rebuilds the compact
+     * `TimestepTopK` from these without materialising a nested list first.
+     */
+    var `rawCells`: List<GapCell>, 
+    var `rawRowStarts`: List<kotlin.Long>, 
+    var `charCols`: List<kotlin.Float>, 
+    var `seqLenTotal`: kotlin.Int, 
+    var `cropX`: kotlin.Int, 
+    var `cropY`: kotlin.Int, 
+    var `cropW`: kotlin.Int, 
+    var `cropH`: kotlin.Int, 
+    var `isVertical`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageLineRecord: FfiConverterRustBuffer<PageLineRecord> {
+    override fun read(buf: ByteBuffer): PageLineRecord {
+        return PageLineRecord(
+            FfiConverterTypeBoundingBox.read(buf),
+            FfiConverterOptionalTypePageQuad.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeBoundingBox.read(buf),
+            FfiConverterSequenceSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceTypeGapCell.read(buf),
+            FfiConverterSequenceLong.read(buf),
+            FfiConverterSequenceFloat.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageLineRecord) = (
+            FfiConverterTypeBoundingBox.allocationSize(value.`bbox`) +
+            FfiConverterOptionalTypePageQuad.allocationSize(value.`quad`) +
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterSequenceTypeBoundingBox.allocationSize(value.`charBoxes`) +
+            FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`) +
+            FfiConverterSequenceTypeGapCell.allocationSize(value.`rawCells`) +
+            FfiConverterSequenceLong.allocationSize(value.`rawRowStarts`) +
+            FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
+            FfiConverterInt.allocationSize(value.`seqLenTotal`) +
+            FfiConverterInt.allocationSize(value.`cropX`) +
+            FfiConverterInt.allocationSize(value.`cropY`) +
+            FfiConverterInt.allocationSize(value.`cropW`) +
+            FfiConverterInt.allocationSize(value.`cropH`) +
+            FfiConverterBoolean.allocationSize(value.`isVertical`)
+    )
+
+    override fun write(value: PageLineRecord, buf: ByteBuffer) {
+            FfiConverterTypeBoundingBox.write(value.`bbox`, buf)
+            FfiConverterOptionalTypePageQuad.write(value.`quad`, buf)
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterSequenceTypeBoundingBox.write(value.`charBoxes`, buf)
+            FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
+            FfiConverterSequenceTypeGapCell.write(value.`rawCells`, buf)
+            FfiConverterSequenceLong.write(value.`rawRowStarts`, buf)
+            FfiConverterSequenceFloat.write(value.`charCols`, buf)
+            FfiConverterInt.write(value.`seqLenTotal`, buf)
+            FfiConverterInt.write(value.`cropX`, buf)
+            FfiConverterInt.write(value.`cropY`, buf)
+            FfiConverterInt.write(value.`cropW`, buf)
+            FfiConverterInt.write(value.`cropH`, buf)
+            FfiConverterBoolean.write(value.`isVertical`, buf)
+    }
+}
+
+
+
+/**
+ * Per-run knobs. The app reads its preferences once per capture and passes
+ * them here, so one engine instance can serve every debug switch without a
+ * rebuild.
+ */
+data class PageOcrOptionsRecord (
+    var `detModelSize`: kotlin.UInt, 
+    var `detLongSide`: kotlin.UInt, 
+    var `detThresh`: kotlin.Float, 
+    var `detUnclip`: kotlin.Float, 
+    var `detFurigana`: kotlin.Boolean, 
+    var `detRotated`: kotlin.Boolean, 
+    var `cap`: kotlin.Boolean, 
+    var `snap`: kotlin.Boolean, 
+    var `uniform`: kotlin.Boolean, 
+    var `rubyTrimVertical`: kotlin.Boolean, 
+    var `recSquish`: kotlin.Float, 
+    var `recWorkers`: kotlin.UInt, 
+    var `kanaSizeCorrection`: kotlin.Boolean, 
+    var `saveSamples`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageOcrOptionsRecord: FfiConverterRustBuffer<PageOcrOptionsRecord> {
+    override fun read(buf: ByteBuffer): PageOcrOptionsRecord {
+        return PageOcrOptionsRecord(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageOcrOptionsRecord) = (
+            FfiConverterUInt.allocationSize(value.`detModelSize`) +
+            FfiConverterUInt.allocationSize(value.`detLongSide`) +
+            FfiConverterFloat.allocationSize(value.`detThresh`) +
+            FfiConverterFloat.allocationSize(value.`detUnclip`) +
+            FfiConverterBoolean.allocationSize(value.`detFurigana`) +
+            FfiConverterBoolean.allocationSize(value.`detRotated`) +
+            FfiConverterBoolean.allocationSize(value.`cap`) +
+            FfiConverterBoolean.allocationSize(value.`snap`) +
+            FfiConverterBoolean.allocationSize(value.`uniform`) +
+            FfiConverterBoolean.allocationSize(value.`rubyTrimVertical`) +
+            FfiConverterFloat.allocationSize(value.`recSquish`) +
+            FfiConverterUInt.allocationSize(value.`recWorkers`) +
+            FfiConverterBoolean.allocationSize(value.`kanaSizeCorrection`) +
+            FfiConverterBoolean.allocationSize(value.`saveSamples`)
+    )
+
+    override fun write(value: PageOcrOptionsRecord, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`detModelSize`, buf)
+            FfiConverterUInt.write(value.`detLongSide`, buf)
+            FfiConverterFloat.write(value.`detThresh`, buf)
+            FfiConverterFloat.write(value.`detUnclip`, buf)
+            FfiConverterBoolean.write(value.`detFurigana`, buf)
+            FfiConverterBoolean.write(value.`detRotated`, buf)
+            FfiConverterBoolean.write(value.`cap`, buf)
+            FfiConverterBoolean.write(value.`snap`, buf)
+            FfiConverterBoolean.write(value.`uniform`, buf)
+            FfiConverterBoolean.write(value.`rubyTrimVertical`, buf)
+            FfiConverterFloat.write(value.`recSquish`, buf)
+            FfiConverterUInt.write(value.`recWorkers`, buf)
+            FfiConverterBoolean.write(value.`kanaSizeCorrection`, buf)
+            FfiConverterBoolean.write(value.`saveSamples`, buf)
+    }
+}
+
+
+
+/**
+ * The four corners of a non-axis-aligned line, in source pixels:
+ * local `(0,0)`, `(w,0)`, `(w,h)`, `(0,h)`.
+ */
+data class PageQuad (
+    var `c0`: QuadPoint, 
+    var `c1`: QuadPoint, 
+    var `c2`: QuadPoint, 
+    var `c3`: QuadPoint
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageQuad: FfiConverterRustBuffer<PageQuad> {
+    override fun read(buf: ByteBuffer): PageQuad {
+        return PageQuad(
+            FfiConverterTypeQuadPoint.read(buf),
+            FfiConverterTypeQuadPoint.read(buf),
+            FfiConverterTypeQuadPoint.read(buf),
+            FfiConverterTypeQuadPoint.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageQuad) = (
+            FfiConverterTypeQuadPoint.allocationSize(value.`c0`) +
+            FfiConverterTypeQuadPoint.allocationSize(value.`c1`) +
+            FfiConverterTypeQuadPoint.allocationSize(value.`c2`) +
+            FfiConverterTypeQuadPoint.allocationSize(value.`c3`)
+    )
+
+    override fun write(value: PageQuad, buf: ByteBuffer) {
+            FfiConverterTypeQuadPoint.write(value.`c0`, buf)
+            FfiConverterTypeQuadPoint.write(value.`c1`, buf)
+            FfiConverterTypeQuadPoint.write(value.`c2`, buf)
+            FfiConverterTypeQuadPoint.write(value.`c3`, buf)
+    }
+}
+
+
+
+data class PageResultRecord (
+    var `lines`: List<PageLineRecord>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageResultRecord: FfiConverterRustBuffer<PageResultRecord> {
+    override fun read(buf: ByteBuffer): PageResultRecord {
+        return PageResultRecord(
+            FfiConverterSequenceTypePageLineRecord.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageResultRecord) = (
+            FfiConverterSequenceTypePageLineRecord.allocationSize(value.`lines`)
+    )
+
+    override fun write(value: PageResultRecord, buf: ByteBuffer) {
+            FfiConverterSequenceTypePageLineRecord.write(value.`lines`, buf)
+    }
+}
+
+
+
+/**
  * One output box in crop pixels; the cross axis is the whole crop. The PC
  * port returns `[f64; 4]`; the shim narrows to `f32` for the mobile shapes.
  */
@@ -7514,6 +8076,41 @@ public object FfiConverterTypeProfileBand: FfiConverterRustBuffer<ProfileBand> {
             FfiConverterBoolean.write(value.`bgLight`, buf)
             FfiConverterInt.write(value.`lo`, buf)
             FfiConverterInt.write(value.`hi`, buf)
+    }
+}
+
+
+
+/**
+ * One point of a located line's upright frame.
+ */
+data class QuadPoint (
+    var `x`: kotlin.Float, 
+    var `y`: kotlin.Float
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeQuadPoint: FfiConverterRustBuffer<QuadPoint> {
+    override fun read(buf: ByteBuffer): QuadPoint {
+        return QuadPoint(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: QuadPoint) = (
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`)
+    )
+
+    override fun write(value: QuadPoint, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
     }
 }
 
@@ -8052,6 +8649,86 @@ public object FfiConverterTypeCatalogParseError : FfiConverterRustBuffer<Catalog
 
 
 
+
+
+sealed class PageOcrException: kotlin.Exception() {
+    
+    class Engine(
+        
+        val `reason`: kotlin.String
+        ) : PageOcrException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+    class Unavailable(
+        
+        val `reason`: kotlin.String
+        ) : PageOcrException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PageOcrException> {
+        override fun lift(error_buf: RustBuffer.ByValue): PageOcrException = FfiConverterTypePageOcrError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageOcrError : FfiConverterRustBuffer<PageOcrException> {
+    override fun read(buf: ByteBuffer): PageOcrException {
+        
+
+        return when(buf.getInt()) {
+            1 -> PageOcrException.Engine(
+                FfiConverterString.read(buf),
+                )
+            2 -> PageOcrException.Unavailable(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PageOcrException): ULong {
+        return when(value) {
+            is PageOcrException.Engine -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+            is PageOcrException.Unavailable -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: PageOcrException, buf: ByteBuffer) {
+        when(value) {
+            is PageOcrException.Engine -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+            is PageOcrException.Unavailable -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
 /**
  * Where a popup entry came from. The panel tints non-`Head` entries by source
  * so the provenance is visible at a glance.
@@ -8345,6 +9022,38 @@ public object FfiConverterOptionalTypeLookupDeinflectionChain: FfiConverterRustB
         } else {
             buf.put(1)
             FfiConverterTypeLookupDeinflectionChain.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePageQuad: FfiConverterRustBuffer<PageQuad?> {
+    override fun read(buf: ByteBuffer): PageQuad? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePageQuad.read(buf)
+    }
+
+    override fun allocationSize(value: PageQuad?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePageQuad.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PageQuad?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePageQuad.write(value, buf)
         }
     }
 }
@@ -9245,6 +9954,34 @@ public object FfiConverterSequenceTypeLookupTermMatch: FfiConverterRustBuffer<Li
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeLookupTermMatch.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePageLineRecord: FfiConverterRustBuffer<List<PageLineRecord>> {
+    override fun read(buf: ByteBuffer): List<PageLineRecord> {
+        val len = buf.getInt()
+        return List<PageLineRecord>(len) {
+            FfiConverterTypePageLineRecord.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PageLineRecord>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePageLineRecord.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PageLineRecord>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePageLineRecord.write(it, buf)
         }
     }
 }

@@ -44,11 +44,21 @@ echo "NDK: $ANDROID_NDK_HOME"
 # 2. Set up cargo config for the NDK toolchain
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
 export CC_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
-# No CXX export: the nav-only `jpdict_core` surface (ticket
-# pipeline-sharing/05) has no C++ in its closure, so the `cc` crate never
-# runs. (The plain `cargo build` above still needs the linker + AR.)
+# The unified page OCR enables jpdict-core's `native` feature for Android, so
+# the shared PP-OCRv6 C++ core and the kana C ABI are in this crate's closure.
+export CXX_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang++"
 export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+
+# jpdict-core's build.rs expects an install prefix (`lib/libncnn.a` +
+# `include/ncnn`). The Android app already vendors exactly that prebuilt fork;
+# expose it under the layout the shared crate reads instead of rebuilding it.
+NCNN_PREFIX="$CARGO_DIR/target/ncnn-android"
+VENDORED_NCNN="$PROJECT_DIR/app/src/main/cpp/ncnn"
+mkdir -p "$NCNN_PREFIX/lib" "$NCNN_PREFIX/include"
+ln -sfn "$VENDORED_NCNN/lib/arm64-v8a/libncnn.a" "$NCNN_PREFIX/lib/libncnn.a"
+ln -sfn "$VENDORED_NCNN/include/ncnn" "$NCNN_PREFIX/include/ncnn"
+export NCNN_PC_DIR="$NCNN_PREFIX"
 
 # 3. Build the Rust library for aarch64-linux-android. The 16 KB page alignment
 # comes from .cargo/config.toml's rustflags; the check in 3b holds it even when
@@ -86,6 +96,23 @@ echo "16 KB alignment: OK ($load_count LOAD segments checked)"
 mkdir -p "$JNILIBS_DIR"
 cp "$SO" "$JNILIBS_DIR/"
 echo "Copied libnav_graph_core.so to $JNILIBS_DIR"
+
+# The native OCR core is C++ and links the NDK's shared libc++ runtime. The
+# app's CMake build statically links its own copy, but this Rust cdylib asks
+# for libc++_shared.so, so ship the matching NDK runtime beside it.
+CXX_SHARED="$TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
+if [ -f "$CXX_SHARED" ]; then
+    cp "$CXX_SHARED" "$JNILIBS_DIR/"
+    # The NDK runtime ships with symbols (~9 MB); strip both copied libraries
+    # so the APK does not carry them. The 16 KB alignment check above already
+    # judged the Rust library's program headers, which stripping preserves.
+    "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded \
+        "$JNILIBS_DIR/libnav_graph_core.so" "$JNILIBS_DIR/libc++_shared.so"
+    echo "Copied and stripped libc++_shared.so to $JNILIBS_DIR"
+else
+    echo "ERROR: libc++_shared.so not found at $CXX_SHARED" >&2
+    exit 1
+fi
 
 # 5. Generate Kotlin bindings using uniffi-bindgen
 # Generate Kotlin bindings using uniffi-bindgen

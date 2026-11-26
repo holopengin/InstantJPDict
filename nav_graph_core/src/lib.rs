@@ -45,6 +45,7 @@ mod kanji_variants;
 mod oov_candidates;
 mod oov_suggestions;
 mod ocr_engine;
+mod page_ocr;
 mod pitch;
 mod rotated_geometry;
 mod ruby_style;

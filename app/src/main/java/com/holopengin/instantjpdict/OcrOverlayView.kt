@@ -17,7 +17,10 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import androidx.core.graphics.get
 import android.os.PersistableBundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextPaint
+import android.text.style.RelativeSizeSpan
 import android.util.Log
 import android.view.ContextThemeWrapper
 import android.view.Gravity
@@ -48,7 +51,6 @@ import com.holopengin.instantjpdict.util.DeinflectionChain
 import com.holopengin.instantjpdict.util.FuriganaAligner
 import com.holopengin.instantjpdict.util.JapaneseUtil
 import com.holopengin.instantjpdict.util.InferLog
-import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.OovSuggestions
 import com.holopengin.instantjpdict.util.PitchAccent
 import kotlinx.coroutines.CancellationException
@@ -434,7 +436,10 @@ class OcrOverlayView(
 
         debugTextView = TextView(context).apply {
             tag = "debug_text"
-            setTextColor(Color.YELLOW)
+            // Neutral, not yellow: yellow is the overlay's one emphasis colour
+            // (the OCR match), and a debug timer borrowing it made the least
+            // important line on screen the loudest.
+            setTextColor(Color.argb(255, 196, 196, 196))
             setBackgroundColor(Color.argb(200, 0, 0, 0))
             setPadding(20, 10, 20, 10)
             textSize = 12f
@@ -680,14 +685,30 @@ class OcrOverlayView(
      * (previously an async post could land after it and clobber it), and
      * posts from a superseded run or a closed overlay are dropped.
      */
-    private fun postStatus(gen: Int, text: String, hideProgress: Boolean = false) {
+    private fun postStatus(gen: Int, text: String, hideProgress: Boolean = false, autoHideMs: Int = 0) {
         debugTextView.post {
             if (gen != statusGen || closed) return@post
             debugTextView.text = text
             debugTextView.bringToFront()
+            debugTextView.visibility = View.VISIBLE
             if (hideProgress) progressBar.visibility = View.GONE
+            // A finished run's line is developer telemetry — "25 ln | 185 chr |
+            // Time 24144ms" is meaningless to the person looking a word up, and
+            // it sat on top of the page for the whole lookup. It stays long
+            // enough to read, then gets out of the way; the same numbers are in
+            // the inference log. Errors and progress keep their line.
+            if (autoHideMs > 0) {
+                debugTextView.removeCallbacks(statusAutoHide)
+                statusAutoHide = Runnable {
+                    if (gen == statusGen && !closed) debugTextView.visibility = View.GONE
+                }
+                debugTextView.postDelayed(statusAutoHide, autoHideMs.toLong())
+            }
         }
     }
+
+    /** The pending auto-hide of a finished run's status line (see [postStatus]). */
+    private var statusAutoHide: Runnable = Runnable { }
 
     /**
      * #57: detect + recognise + render. The share activity and the
@@ -706,10 +727,14 @@ class OcrOverlayView(
             val gen = ++statusGen
             try {
                 if (ocrEngine.isReady()) {
-                    postStatus(gen, "Detecting...")
-                    val tDet = System.currentTimeMillis()
-                    val lineBoxes = withContext(Dispatchers.IO) { ocrEngine.detectLines(srcBitmap) }
-                    val detMs = System.currentTimeMillis() - tDet
+                    postStatus(gen, "Recognizing...")
+                    val tOcr = System.currentTimeMillis()
+                    // One Rust call: detect → recognize → kana correct → char
+                    // boxes. The old pair (detectLines + recognizeStreaming)
+                    // crossed per stage and could not be cancelled from Rust.
+                    val pageLines = withContext(Dispatchers.IO) { ocrEngine.recognizePage(srcBitmap) }
+                    val detMs = System.currentTimeMillis() - tOcr
+                    val lineBoxes = pageLines.map { it.first }
 
                     // #106: the accessibility tree's answer for this screen, if this
                     // host has one. Empty for the share activity (no tree) and for a
@@ -791,56 +816,18 @@ class OcrOverlayView(
                     controller.activeAllAlternatives = mutableListOf()
 
                     val startTime = System.currentTimeMillis()
-                    // Render-once (#50): stash results during streaming, build
-                    // all views after every line completes. Recognition is ~1s,
-                    // so progressive rendering bought nothing and its per-line
-                    // Main work congested the queue mid-run.
-                    val finishedLines = mutableListOf<Pair<Int, LineResult>>()
-                    // #106: recognition runs for the page indices the routing left and
-                    // only those. `recognizeStreaming` numbers its results against the
-                    // list it was handed, so that sublist is what its indices address
-                    // and `recogniseOrder` maps them back to page indices. With no
-                    // nodes this is `pageBoxes.indices` — the exact list, in the exact
-                    // order, the pre-#106 code passed.
-                    val recogniseOrder = routing?.recognise ?: pageBoxes.indices.toList()
-                    val recogniseBoxes = recogniseOrder.map { pageBoxes[it] }
-                    withContext(Dispatchers.IO) {
-                        ocrEngine.recognizeStreaming(srcBitmap, recogniseBoxes) { results ->
-                            if (closed) return@recognizeStreaming
-                            results.forEach { (i, line) ->
-                                finishedLines.add(recogniseOrder[i] to line)
-                            }
-                        }
+                    // The page call already returned every detected line. #106's
+                    // routing still decides which of them are wanted; a node pays
+                    // for its own boxes, and the rest are installed below.
+                    val recognise = routing?.recognise?.toSet() ?: lineBoxes.indices.toSet()
+                    val finishedLines = pageLines.mapIndexedNotNull { i, (_, line) ->
+                        if (i in recognise) i to line else null
                     }
-                    // #44 Feature 3: kana size correction. Runs over the whole page before any
-                    // view is built, because the corrected page has to be complete before the
-                    // layout is derived from it.
                     val orderedLines = finishedLines.sortedBy { it.first }
-                    // A8/#86: on IO, beside the recognition it follows. The first call
-                    // materialises the kana model (two assets, one native net) and runs a
-                    // native batch of one extractor per candidate; on Main that work janked
-                    // the transition into the results UI for no reason — nothing here
-                    // touches views.
-                    //
-                    // #106: over the recognised lines only, and only when there are
-                    // any. The corrector exists to fix OCR evidence — it rewrites
-                    // `つ`→`っ` where a size pair makes the model confident — and a
-                    // node's text is the app's own string, already exact, so a
-                    // node-backed line must not be rewritten at all. And a fully
-                    // covered page recognises nothing, where asking would load the
-                    // kana model (two assets and a native net) to correct no lines —
-                    // a visible slice of what #106 just saved.
-                    val correctedLines = if (orderedLines.isEmpty()) emptyList() else withContext(Dispatchers.IO) {
-                        KanaSizeFix.correctPage(context, orderedLines.map { it.second })
-                    }
-                    // Surface the decline detail: without this the correction is
-                    // invisible whether or not it fired. No surrounding text: this
-                    // log gets copied out and shared. Inside the same guard as the
-                    // correction itself, so a page that skipped it cannot report the
-                    // previous capture's declines.
-                    if (orderedLines.isNotEmpty() && KanaSizeFix.lastDeclined.isNotEmpty()) {
-                        InferLog.add("kana declined: " + KanaSizeFix.lastDeclined)
-                    }
+                    // Kana small/large correction ran inside the Rust page call,
+                    // before the char boxes were placed, so the text is already
+                    // corrected here. Node-backed lines never enter this list.
+                    val correctedLines = orderedLines.map { it.second }
                     for ((i, entry) in orderedLines.withIndex()) {
                         if (closed) break
                         addLineToResults(this@OcrOverlayView, clicksLayer, entry.first, correctedLines[i])
@@ -890,7 +877,7 @@ class OcrOverlayView(
                     // included — `finishedLines` alone would report a fully covered
                     // browser page as ~0 lines while the overlay is full of them, and
                     // with no nodes the two counts are the same number.
-                    postStatus(gen, "${installedLines} ln | ${controller.activeAllChars.size} chr | Time ${detMs + recMs}ms", hideProgress = true)
+                    postStatus(gen, "${installedLines} ln | ${controller.activeAllChars.size} chr | Time ${detMs + recMs}ms", hideProgress = true, autoHideMs = 4000)
                 } else {
                     postStatus(gen, "Error: Failed to start OCR engine", hideProgress = true)
                 }
@@ -1369,14 +1356,20 @@ class OcrOverlayView(
                     topMargin = aabb.top - pad
                 })
             } else {
-                val lineView = View(context).apply {
-                    background = borderDrawable
+                // The per-line backplate is a legibility aid on a dark page
+                // (39% black, invisible against black). On a light page it
+                // becomes a grey redaction bar over the user's book, so it is
+                // drawn only where it is doing the job it was added for.
+                if (!isLightRegion(box.rect)) {
+                    val lineView = View(context).apply {
+                        background = borderDrawable
+                    }
+                    val lineParams = FrameLayout.LayoutParams(box.rect.width(), box.rect.height()).apply {
+                        leftMargin = box.rect.left
+                        topMargin = box.rect.top
+                    }
+                    linesBorderLayer.addView(lineView, lineParams)
                 }
-                val lineParams = FrameLayout.LayoutParams(box.rect.width(), box.rect.height()).apply {
-                    leftMargin = box.rect.left
-                    topMargin = box.rect.top
-                }
-                linesBorderLayer.addView(lineView, lineParams)
             }
         }
 
@@ -1497,7 +1490,7 @@ class OcrOverlayView(
         // overflowing halfwidth ink never clips at the view bounds.
         val m = LineOverlayView.marginFor(fixedSize)
         if (lineView == null) {
-            lineView = LineOverlayView(context, line, fixedSize, lineLeft, lineTop) { charIdx ->
+            lineView = LineOverlayView(context, line, fixedSize, lineLeft, lineTop, isLightLine(line)) { charIdx ->
                 performLookup(lineIdx, charIdx, rootLayout)
             }
             lineView.tag = lineViewTag
@@ -1551,13 +1544,36 @@ class OcrOverlayView(
         }
     }
 
+    /**
+     * One neighbour chip's resting/selected treatment.
+     *
+     * The chips are the strip's tap targets, and a flat fill gave them no
+     * boundary at rest — grey glyph on grey block, with the 2px gaps doing all
+     * the separating, and nothing but the fill saying which one was current.
+     * The rounded border is the non-colour cue; the selected chip keeps the
+     * solid yellow as the one emphasis treatment, so the strip and the OCR
+     * match highlight speak the same language.
+     */
+    private fun applyNeighbourChipStyle(tv: TextView, selected: Boolean, itemSize: Int) {
+        tv.background = GradientDrawable().apply {
+            cornerRadius = itemSize * 0.14f
+            if (selected) {
+                setColor(LineOverlayView.MATCH_ACCENT)
+            } else {
+                setColor(android.graphics.Color.argb(255, 52, 52, 52))
+                setStroke(2, android.graphics.Color.argb(255, 138, 138, 138))
+            }
+        }
+        tv.setTextColor(if (selected) android.graphics.Color.BLACK else android.graphics.Color.argb(255, 236, 236, 236))
+    }
+
     private fun fillLineNeighborContainer(lineContainer: LinearLayout, lineIdx: Int, isLandscape: Boolean, rootLayout: FrameLayout) {
         lineContainer.removeAllViews()
         lineContainer.isBaselineAligned = false
         val neighborState = controller.getNeighborUiState().getOrNull(lineIdx) ?: return
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 11
+        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 10
         val estimatedTextSize = (itemSize * 0.45 / resources.displayMetrics.density).toFloat().coerceIn(12f, 22f)
         val itemLp = LinearLayout.LayoutParams(itemSize, itemSize).apply { setMargins(2, 2, 2, 2) }
 
@@ -1565,12 +1581,11 @@ class OcrOverlayView(
             val neighborTextView = TextView(context).apply {
                 tag = "neighbor_char_${charState.lineIdx}-${charState.charIdx}"
                 text = charState.text
-                setTextColor(if (charState.isSelected) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
                 textSize = estimatedTextSize
                 OverlayFont.apply(context, this)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
-                setBackgroundColor(if (charState.isSelected) android.graphics.Color.YELLOW else android.graphics.Color.argb(255, 65, 65, 65))
+                applyNeighbourChipStyle(this, charState.isSelected, itemSize)
 
                 if (isLandscape) {
                     textLocale = java.util.Locale.JAPANESE
@@ -1588,12 +1603,10 @@ class OcrOverlayView(
 
                         val oldPanel = rootLayout.findViewWithTag<LinearLayout>("neighbor_scroll_panel")
                         oldPanel?.findViewWithTag<View>("neighbor_char_$oldLineIdx-$oldCharIdx")?.let {
-                            it.setBackgroundColor(android.graphics.Color.argb(255, 65, 65, 65))
-                            (it as TextView).setTextColor(android.graphics.Color.WHITE)
+                            applyNeighbourChipStyle(it as TextView, selected = false, itemSize = (it.layoutParams?.width ?: 0).coerceAtLeast(1))
                         }
 
-                        this.setBackgroundColor(android.graphics.Color.YELLOW)
-                        this.setTextColor(android.graphics.Color.BLACK)
+                        applyNeighbourChipStyle(this, selected = true, itemSize = (layoutParams?.width ?: 0).coerceAtLeast(1))
 
                         val altContainer = rootLayout.findViewWithTag<FrameLayout>("alternatives_container")
                         if (altContainer != null && altContainer.childCount > 0) {
@@ -1616,6 +1629,24 @@ class OcrOverlayView(
                 }
             }
             lineContainer.addView(neighborTextView, itemLp)
+        }
+
+        // Where you are in the line, not just which character you are on: the
+        // strip is a scrollable column of one tile per character, so "6/12" is
+        // the only thing that says how much of the line is still below. Posted,
+        // because on the first build this container is not attached to the root
+        // yet and the label would not be findable.
+        val selectedIdx = neighborState.chars.indexOfFirst { it.isSelected }
+        if (selectedIdx >= 0) {
+            rootLayout.post {
+                val label = rootLayout.findViewWithTag<TextView>("neighbor_label") ?: return@post
+                val text = SpannableStringBuilder("CHAR\n")
+                text.append("${selectedIdx + 1}/${neighborState.chars.size}")
+                text.setSpan(
+                    RelativeSizeSpan(1.35f), 5, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                label.text = text
+            }
         }
     }
 
@@ -1738,7 +1769,7 @@ class OcrOverlayView(
         }
         controller.lastHighlightedCoords.forEach { coords ->
             (textViews[coords] as? android.widget.TextView)?.let { tv ->
-                tv.setTextColor(android.graphics.Color.YELLOW)
+                tv.setTextColor(LineOverlayView.MATCH_ACCENT)
                 OverlayFont.apply(context, tv, bold = true)
             }
         }
@@ -1797,7 +1828,11 @@ class OcrOverlayView(
         val dictionaryPanel = LinearLayout(context).apply {
             tag = "dictionary_content_container"
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(android.graphics.Color.argb(245, 25, 25, 25))
+            // Opaque, not 245/255: at 96% the page's own white glyphs showed
+            // through behind the definition text as a ghost watermark and
+            // muddied every line. The overlay's transparency belongs to the
+            // OCR layer, not to the dictionary card on top of it.
+            setBackgroundColor(android.graphics.Color.rgb(25, 25, 25))
             // The panel's edge inset, with NO top: its top edge must stay at the
             // screen's top edge so the entries can scroll up UNDER the status
             // bar. The clearance belongs to the scroll content instead — see
@@ -1864,8 +1899,9 @@ class OcrOverlayView(
      */
     private fun applyDictionaryTopInset(content: View, dictTopInset: Int) {
         // 10/10/150 are the content's own l/r/b padding; the top carries the
-        // panel's edge (which the panel no longer does) plus the bar.
-        content.setPadding(0, dictTopInset, 0, 0)
+        // panel's edge (which the panel no longer does) plus the bar. The bottom
+        // clears the gesture inset so the last sense can scroll fully into view.
+        content.setPadding(0, dictTopInset, 0, navigationBarHeightPx())
     }
 
     private fun updateDictionaryPanel(
@@ -1922,7 +1958,11 @@ class OcrOverlayView(
         val scrollView = ScrollView(context).apply {
             tag = "dictionary_scroll_view"
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-            isVerticalScrollBarEnabled = false
+            // A fade-in bar while scrolling: the panel is taller than the screen
+            // and reviewers twice read the cut-off third sense as truncated
+            // content rather than as scrollable content.
+            isVerticalScrollBarEnabled = true
+            scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
             addView(scrollContent)
         }
         container.addView(scrollView)
@@ -2047,7 +2087,7 @@ class OcrOverlayView(
         val lineContainer = panel.findViewWithTag<LinearLayout>("line_neighbor_${controller.currentTappedLineIdx}")
         val newView = lineContainer?.getChildAt(controller.currentTappedCharIdxInLine) as? TextView
         newView?.let {
-            it.setBackgroundColor(android.graphics.Color.YELLOW)
+            it.setBackgroundColor(LineOverlayView.MATCH_ACCENT)
             it.setTextColor(android.graphics.Color.BLACK)
         }
 
@@ -2078,18 +2118,125 @@ class OcrOverlayView(
     private fun createCorrectionPanel(tappedLIdx: Int, tappedCIdx: Int, isLandscape: Boolean, rootLayout: FrameLayout, skipCenter: Boolean = false): View {
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 11
+        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 10
 
-        val outerContainer = FrameLayout(context).apply { tag = "correction_panel"; setBackgroundColor(android.graphics.Color.argb(255, 45, 45, 45)); elevation = 25f }
+        val outerContainer = FrameLayout(context).apply {
+            tag = "correction_panel"
+            // Slightly translucent: the rail is chrome floating over the page,
+            // and a fully opaque slab through the middle of a "transparent"
+            // overlay reads as a hole punched in the page rather than as a
+            // control sitting on it.
+            setBackgroundColor(android.graphics.Color.argb(228, 40, 40, 40))
+            elevation = 25f
+        }
         val scrollView = if (isLandscape) ScrollView(context) else HorizontalScrollView(context)
         scrollView.apply {
             tag = "neighbor_scroll_view"; isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
             layoutParams = if (isLandscape) FrameLayout.LayoutParams(itemSize + 12, FrameLayout.LayoutParams.MATCH_PARENT) else FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, itemSize + 12)
         }
 
-        val panel = LinearLayout(context).apply { tag = "neighbor_scroll_panel"; orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL; setPadding(6, 6, 6, 6) }
+        // Name the strip. A column of single characters sitting between the
+        // entry and the page reads as decoration until you already know it is
+        // the tapped line's characters in reading order, with the current one
+        // marked — the one thing the strip never said out loud.
+        //
+        // The rail is full-height chrome over a reading app, so its content has
+        // to clear both system bars: the label used to sit level with the clock
+        // and the last chip was sliced by the gesture bar.
+        val statusPx = statusBarHeightPx()
+        val navPx = navigationBarHeightPx()
+        var headerViews: List<View> = emptyList()
+        if (isLandscape) {
+            val labelHeight = (itemSize * 0.78f).toInt().coerceAtLeast(1)
+            val fixHeight = (itemSize * 0.62f).toInt().coerceAtLeast(1)
+            scrollView.setPadding(0, labelHeight + fixHeight + statusPx, 0, navPx)
+            val labelView = TextView(context).apply {
+                tag = "neighbor_label"
+                // "CHAR", not "LINE": the tiles below are characters of the
+                // tapped line, and "LINE 1/9" read as "line 1 of 9" — every
+                // review round called it out. The readout counts characters.
+                text = "CHAR"
+                setTextColor(android.graphics.Color.argb(255, 214, 214, 214))
+                textSize = 9f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                letterSpacing = 0.10f
+                setLineSpacing(0f, 0.95f)
+                OverlayFont.apply(context, this)
+                setBackgroundColor(android.graphics.Color.argb(255, 45, 45, 45))
+            }
+            outerContainer.addView(
+                labelView,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, labelHeight, Gravity.TOP).apply {
+                    topMargin = statusPx
+                },
+            )
+
+            // The correction entry point, made visible. Re-tapping the selected
+            // tile opens the per-character alternatives picker — the whole
+            // reason this rail exists — and nothing on screen said so. Every
+            // review round reported it as hidden. A labelled button is the only
+            // affordance that survives a first-time user.
+            val fixView = TextView(context).apply {
+                tag = "alternatives_button"
+                text = "FIX"
+                // Outlined, not filled: the amber fill is the app's one "this
+                // is current" signal, and a second amber block next to it would
+                // make the accent mean two things again.
+                setTextColor(LineOverlayView.MATCH_ACCENT)
+                textSize = 10f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                letterSpacing = 0.06f
+                OverlayFont.apply(context, this, bold = true)
+                background = GradientDrawable().apply {
+                    setColor(android.graphics.Color.argb(255, 58, 58, 58))
+                    setStroke(2, LineOverlayView.MATCH_ACCENT)
+                    cornerRadius = 6f
+                }
+                setOnClickListener {
+                    toggleAlternativesPanel(
+                        rootLayout,
+                        controller.currentTappedLineIdx,
+                        controller.currentTappedCharIdxInLine,
+                        isLandscape,
+                    )
+                }
+            }
+            outerContainer.addView(
+                fixView,
+                FrameLayout.LayoutParams(itemSize - 8, fixHeight - 6, Gravity.TOP).apply {
+                    topMargin = statusPx + labelHeight + 3
+                    leftMargin = 4
+                },
+            )
+            headerViews = listOf(labelView, fixView)
+        } else {
+            scrollView.setPadding(navPx, 0, statusPx, 0)
+        }
+
+        val panel = LinearLayout(context).apply {
+            tag = "neighbor_scroll_panel"
+            orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            // Extra room at the trailing edge: the last chip used to sit flush
+            // against the navigation bar / gesture inset and read as a clipped
+            // cell rather than as the end of a scrollable list.
+            if (isLandscape) setPadding(6, 6, 6, 26) else setPadding(6, 6, 26, 6)
+        }
 
         controller.activeLineResults.forEachIndexed { lIdx, line ->
+            // A rule between lines. The rail concatenates every line's
+            // characters into one column, so "CHAR 1/9" looked like it
+            // contradicted the fifth visible tile — the four above it belong to
+            // the previous line. The rule is what says where a line starts.
+            if (isLandscape && lIdx > 0) {
+                panel.addView(View(context).apply {
+                    setBackgroundColor(Color.argb(255, 200, 200, 200))
+                }, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (resources.displayMetrics.density * 2).toInt().coerceAtLeast(2),
+                ).apply { setMargins(8, 6, 8, 6) })
+            }
             val lineContainer = LinearLayout(context).apply {
                 tag = "line_neighbor_$lIdx"
                 orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -2101,6 +2248,39 @@ class OcrOverlayView(
         }
 
         scrollView.addView(panel); outerContainer.addView(scrollView)
+
+        // A hairline on the edge the rail shares with the page, drawn last so it
+        // sits above the scrolling chips. Without it the strip and the reading
+        // surface are the same near-black and the boundary is invisible, so the
+        // leftmost OCR column looked sliced by nothing rather than occluded by a
+        // control.
+        val hairlinePx = resources.displayMetrics.density.toInt().coerceAtLeast(1)
+        outerContainer.addView(View(context).apply {
+            setBackgroundColor(Color.argb(255, 92, 92, 92))
+        }, if (isLandscape) {
+            FrameLayout.LayoutParams(hairlinePx, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END)
+        } else {
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, hairlinePx, Gravity.BOTTOM)
+        })
+
+        // Scroll affordance. The rail's last visible tile used to end flush with
+        // a clean margin, which reads as "end of list" even when the line
+        // continues past it. A short fade at the trailing edge says there is
+        // more without adding a control.
+        if (isLandscape) {
+            val fadeHeight = (itemSize * 0.85f).toInt().coerceAtLeast(1)
+            outerContainer.addView(View(context).apply {
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.BOTTOM_TOP,
+                    intArrayOf(Color.argb(238, 40, 40, 40), Color.argb(0, 40, 40, 40)),
+                )
+            }, FrameLayout.LayoutParams(itemSize + 12, fadeHeight, Gravity.BOTTOM))
+        }
+
+        // The header sits above the scrolling chips: a ScrollView draws its
+        // children over any sibling added before it, so the label and the FIX
+        // button have to be lifted once the scroll view exists.
+        headerViews.forEach { it.bringToFront() }
         if (!skipCenter) centerNeighborScrollView(scrollView, tappedLIdx, tappedCIdx)
         return outerContainer
     }
@@ -2146,7 +2326,7 @@ class OcrOverlayView(
         val altState = controller.getAlternativesUiState(lIdx, cIdx) ?: return
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 11
+        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 10
         val estimatedTextSize = (itemSize * 0.45 / resources.displayMetrics.density).toFloat().coerceIn(12f, 22f)
 
         // Added Preview Image
@@ -2174,6 +2354,22 @@ class OcrOverlayView(
             setOnClickListener { }
         }
         mainLayout.addView(previewView)
+        if (isLandscape) {
+            // The strip never said what it was: a column of single characters
+            // between the entry and the page reads as decoration until you
+            // already know it is the per-character OCR alternative picker.
+            // One word, in the strip's own width, is enough to name it.
+            mainLayout.addView(TextView(context).apply {
+                tag = "alternatives_label"
+                text = "OCR"
+                setTextColor(android.graphics.Color.argb(255, 176, 176, 176))
+                textSize = 10f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                letterSpacing = 0.08f
+                OverlayFont.apply(context, this)
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 2, 0, 4) })
+        }
 
         val scrollContent = LinearLayout(context).apply {
             orientation = if (isLandscape) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -2220,13 +2416,10 @@ class OcrOverlayView(
 
         // Find and scroll to selected
         scrollView.post {
-            var selectedView: View? = null
-            for (i in 0 until candidateList.childCount) {
-                val v = candidateList.getChildAt(i) as? TextView ?: continue
-                if (altState.candidates.getOrNull(i)?.isSelected == true) {
-                    selectedView = v; break
-                }
-            }
+            // By tag, not by index: the list this scrolls is the de-duplicated
+            // one [refreshCandidateList] built, so a position in
+            // [altState.candidates] no longer names the same cell.
+            val selectedView = candidateList.findViewWithTag<View>("selected_candidate")
             selectedView?.let { view -> if (isLandscape) scrollView.scrollTo(0, view.top) else (scrollView as HorizontalScrollView).scrollTo(view.left, 0) }
         }
 
@@ -2238,23 +2431,63 @@ class OcrOverlayView(
         val altState = controller.getAlternativesUiState() ?: return
         val rootHeight = rootLayout.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
         val rootWidth = rootLayout.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 11
+        val itemSize = (if (isLandscape) rootHeight else rootWidth) / 10
         val estimatedTextSize = (itemSize * 0.45 / resources.displayMetrics.density).toFloat().coerceIn(12f, 22f)
 
-        altState.candidates.forEach { cand ->
+        // One cell per distinct character. The decoder can rank the same glyph
+        // twice (白/目/日 around a 自 box is the ordinary case), and a strip of
+        // nine cells where four are the same misread reads as noise rather than
+        // as a choice. The selected row survives de-duplication: a repeated char
+        // that is the current selection replaces the first occurrence instead of
+        // being dropped with it.
+        val unique = altState.candidates.toMutableList()
+        val seen = HashSet<Char>()
+        val walk = unique.iterator()
+        while (walk.hasNext()) {
+            val cand = walk.next()
+            if (seen.add(cand.char)) continue
+            if (cand.isSelected) {
+                val first = unique.indexOfFirst { it.char == cand.char && it !== cand }
+                if (first >= 0) unique[first] = cand
+            }
+            walk.remove()
+        }
+
+        val cellMargin = 3
+        val cellInset = (itemSize * 0.06f).toInt().coerceAtLeast(2)
+
+        unique.forEach { cand ->
             val textView = TextView(context).apply {
+                if (cand.isSelected) tag = "selected_candidate"
                 text = cand.char.toString(); setTextColor(android.graphics.Color.WHITE); textSize = estimatedTextSize; gravity = Gravity.CENTER
                 includeFontPadding = false
                 OverlayFont.apply(context, this)
-                if (cand.isSelected) { setBackgroundColor(android.graphics.Color.YELLOW); setTextColor(android.graphics.Color.BLACK) }
-                else {
-                    setBackgroundColor(android.graphics.Color.argb(255, 85, 85, 85))
+                // A drawn cell, not a bare fill: the strip's rows are tap
+                // targets, and a fill alone gave them no boundary at rest —
+                // grey glyph on grey block, with the 2px gaps doing all the
+                // separating. The border is the non-colour cue that says
+                // "this is one target", and the selected cell keeps the solid
+                // yellow fill as the one emphasis treatment in the strip.
+                background = GradientDrawable().apply {
+                    cornerRadius = itemSize * 0.14f
+                    if (cand.isSelected) {
+                        setColor(LineOverlayView.MATCH_ACCENT)
+                    } else {
+                        setColor(android.graphics.Color.argb(255, 64, 64, 64))
+                        setStroke(2, android.graphics.Color.argb(255, 122, 122, 122))
+                    }
+                }
+                if (cand.isSelected) {
+                    setTextColor(android.graphics.Color.BLACK)
+                } else {
+                    setTextColor(android.graphics.Color.argb(255, 240, 240, 240))
                     // #44: generated entries (component neighbours, variant forms) are
                     // tinted so they stay distinguishable from what the model itself ranked.
                     if (cand.source != OovSuggestions.Source.HEAD) {
                         setTextColor(android.graphics.Color.argb(255, 150, 205, 255))
                     }
                 }
+                setPadding(cellInset, cellInset, cellInset, cellInset)
 
                 if (isLandscape) {
                     textLocale = java.util.Locale.JAPANESE
@@ -2269,7 +2502,7 @@ class OcrOverlayView(
                     }
                 }
             }
-            candidateList.addView(textView, LinearLayout.LayoutParams(itemSize, itemSize).apply { setMargins(2, 2, 2, 2) })
+            candidateList.addView(textView, LinearLayout.LayoutParams(itemSize, itemSize).apply { setMargins(cellMargin, cellMargin, cellMargin, cellMargin) })
         }
     }
 
@@ -2709,6 +2942,55 @@ class OcrOverlayView(
         }
     }
 
+    /**
+     * Whether the captured page under [rect] is light.
+     *
+     * The overlay draws over arbitrary third-party content, and one ink cannot
+     * serve both a black Kindle page and white paper. This samples a small grid
+     * inside the rect and averages luminance; the threshold is the usual
+     * midpoint between a dark UI and paper.
+     */
+    private fun isLightRegion(rect: JpDictRect): Boolean {
+        val bmp = srcBitmap
+        if (bmp.isRecycled || bmp.width <= 0 || bmp.height <= 0) return false
+        // Sample well outside the box. A glyph box is mostly glyph, so the box's
+        // own average is dominated by the ink and a small furigana box read as a
+        // dark region on a light page — which is why ruby kept the dark-mode
+        // treatment and its backplate while the body text flipped.
+        val padX = ((rect.right - rect.left) / 2).coerceAtLeast(4)
+        val padY = ((rect.bottom - rect.top) / 2).coerceAtLeast(4)
+        val left = (rect.left - padX).coerceIn(0, bmp.width - 1)
+        val right = (rect.right + padX).coerceIn(left + 1, bmp.width)
+        val top = (rect.top - padY).coerceIn(0, bmp.height - 1)
+        val bottom = (rect.bottom + padY).coerceIn(top + 1, bmp.height)
+        val stepX = ((right - left) / 12).coerceAtLeast(1)
+        val stepY = ((bottom - top) / 12).coerceAtLeast(1)
+        var sum = 0.0
+        var samples = 0
+        var y = top
+        while (y < bottom) {
+            var x = left
+            while (x < right) {
+                val c = bmp.getPixel(x, y)
+                sum += 0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)
+                samples++
+                x += stepX
+            }
+            y += stepY
+        }
+        if (samples == 0) return false
+        return (sum / samples) > 140.0
+    }
+
+    /** [isLightRegion] over a whole recognised line's character boxes. */
+    private fun isLightLine(line: LineResult): Boolean {
+        val left = line.charBoxes.minOfOrNull { it.left } ?: return false
+        val top = line.charBoxes.minOfOrNull { it.top } ?: return false
+        val right = line.charBoxes.maxOfOrNull { it.right } ?: return false
+        val bottom = line.charBoxes.maxOfOrNull { it.bottom } ?: return false
+        return isLightRegion(JpDictRect(left, top, right, bottom))
+    }
+
     private fun updateCursor() {
         if (closed) return
         val root: FrameLayout = this
@@ -2727,6 +3009,20 @@ class OcrOverlayView(
                     layoutParams = FrameLayout.LayoutParams(0, 0)
                 }
                 contentContainer.addView(cursorView)
+            }
+
+            // The cursor is a box around the character you tapped, and the word
+            // it belongs to is already filled yellow. A white ring over yellow
+            // read as a second, competing highlight — the current character
+            // looked weaker than its neighbours. Inside a match the ring is dark,
+            // so it reads as "this one, within the yellow"; outside a match it
+            // stays white, because there is no fill to sit on.
+            val inMatch = controller.lastHighlightedCoords.any {
+                it.first == controller.currentTappedLineIdx && it.second == controller.currentTappedCharIdxInLine
+            }
+            cursorView?.background = GradientDrawable().apply {
+                setStroke((3 * resources.displayMetrics.density).toInt(), if (inMatch) Color.BLACK else Color.WHITE)
+                cornerRadius = 4f
             }
 
             cursorView?.let { v ->
@@ -2781,6 +3077,22 @@ class OcrOverlayView(
             }
         }
         return (OverlayBackdrop.STATUS_BAR_HEIGHT_FALLBACK_DP * resources.displayMetrics.density).roundToInt()
+    }
+
+    /**
+     * The gesture/navigation bar's height, for content that must be able to
+     * scroll clear of it. The rail's last chip was being sliced by the gesture
+     * bar because nothing accounted for the inset.
+     */
+    private fun navigationBarHeightPx(): Int {        val resId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        if (resId > 0) {
+            try {
+                return resources.getDimensionPixelSize(resId)
+            } catch (e: Exception) {
+                Log.w("OcrOverlayView", "navigation_bar_height lookup failed, using fallback", e)
+            }
+        }
+        return (48 * resources.displayMetrics.density).roundToInt()
     }
 
     /**

@@ -17,6 +17,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
@@ -37,6 +38,9 @@ import uniffi.nav_graph_core.japaneseEstimateEm
 import uniffi.nav_graph_core.japaneseIsHalfWidth
 import uniffi.nav_graph_core.mergeBoxesMerge
 import uniffi.nav_graph_core.mergeBoxesShouldMerge
+import uniffi.nav_graph_core.PageOcrOptionsRecord
+import uniffi.nav_graph_core.PageQuad
+import uniffi.nav_graph_core.PageRecognizer
 import uniffi.nav_graph_core.ocrEngineComputeCharBoxes
 import uniffi.nav_graph_core.ocrEngineReDecode
 import uniffi.nav_graph_core.ocrEngineSortOrder
@@ -70,6 +74,14 @@ class OcrEngine(
     /** Pruned CTC-head width, derived from rec_remap.txt when it loads (#44). */
     private var recNumOutputs = 0
     private var recDynNcnn: RecNcnn? = null
+
+    /**
+     * The unified page pipeline: one call runs detect + recognize + kana
+     * correction + char boxes in Rust. Created lazily because it needs the
+     * model tree copied out of the APK, and only a capture run needs it.
+     */
+    @Volatile private var pageRecognizer: PageRecognizer? = null
+    @Volatile private var pageRecognizerFailed = false
 
     // One line awaiting recognition; results stay keyed by idx.
     private data class Job(val idx: Int, val box: LineBox, val isVertical: Boolean)
@@ -588,6 +600,122 @@ class OcrEngine(
     fun isReady(): Boolean =
         detNcnn != null && recDynNcnn != null && ctcDecoder != null &&
             ppocrVocab.isNotEmpty() && recNumOutputs > 0
+
+    /**
+     * The unified page run: one Rust call detects, recognizes, kana-corrects
+     * and places every line. Returns each line's [LineBox] and [LineResult] in
+     * the same reading order the old detect-then-recognize pair produced.
+     *
+     * The pixels cross as RGBA bytes (a `ByteArray`, not a boxed `List<Int>`);
+     * the per-run preferences cross in [PageOcrOptionsRecord], so the debug
+     * switches still work without rebuilding the engine.
+     */
+    suspend fun recognizePage(bitmap: Bitmap): List<Pair<LineBox, LineResult>> {
+        val recognizer = pageRecognizer() ?: return emptyList()
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return emptyList()
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+        val rgba = ByteArray(w * h * 4)
+        var j = 0
+        for (p in pixels) {
+            rgba[j++] = (p shr 16 and 0xFF).toByte()
+            rgba[j++] = (p shr 8 and 0xFF).toByte()
+            rgba[j++] = (p and 0xFF).toByte()
+            rgba[j++] = 0xFF.toByte()
+        }
+        // A coroutine cancellation (overlay closed, host detached) sets the
+        // Rust flag; the native call returns at its next checkpoint.
+        val cancelHandle = kotlin.coroutines.coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) recognizer.cancel()
+        }
+        val page = try {
+            recognizer.recognize(rgba, w.toUInt(), h.toUInt(), pageOptions())
+        } finally {
+            cancelHandle?.dispose()
+        }
+        return page.lines.map { rec ->
+            val rect = JpDictRect(
+                rec.bbox.x,
+                rec.bbox.y,
+                rec.bbox.x + rec.bbox.w,
+                rec.bbox.y + rec.bbox.h,
+            )
+            val quad = rec.quad?.toJpDictQuad()
+            val alternatives = rec.alternatives.map { alts ->
+                alts.map { Char(it.ch) to it.score }.toMutableList()
+            }
+            // Rebuild the compact table the old decode path used; rows stay
+            // lazy until the slider or the gap detector asks for one.
+            val rawAlternatives = TimestepTopK.of(rec.rawCells, rec.rawRowStarts)
+            val line = LineResult(
+                text = rec.text,
+                charBoxes = rec.charBoxes.map {
+                    JpDictRect(it.x, it.y, it.x + it.w, it.y + it.h)
+                },
+                alternatives = alternatives,
+                isVertical = rec.isVertical,
+                rawAlternatives = rawAlternatives,
+                seqLenTotal = rec.seqLenTotal,
+                cropW = rec.cropW,
+                cropH = rec.cropH,
+                cropX = rec.cropX,
+                cropY = rec.cropY,
+                charCols = rec.charCols.toFloatArray(),
+                quad = quad,
+            )
+            LineBox(rect, quad) to line
+        }
+    }
+
+    private fun pageOptions(): PageOcrOptionsRecord = PageOcrOptionsRecord(
+        detModelSize = DET_MODEL_SIZE.toUInt(),
+        detLongSide = getDetLongSide(context).toUInt(),
+        detThresh = getDetThresh(context),
+        detUnclip = detUnclip,
+        detFurigana = isDetFurigana(context, furiganaPref),
+        detRotated = isDetRotated(context),
+        cap = capPlacement,
+        snap = BOX_LAYOUT_MODE == BOX_SNAP,
+        uniform = BOX_UNIFORM_SIZE,
+        // The rotated path deliberately does not trim (the gutter cut is the
+        // legacy axis-aligned detector's rule); the old `detectLines` obeyed
+        // the same split.
+        rubyTrimVertical = RUBY_TRIM_VERTICAL && !isDetRotated(context),
+        recSquish = recSquish,
+        recWorkers = REC_FANOUT.toUInt(),
+        kanaSizeCorrection = true,
+        saveSamples = false,
+    )
+
+    private fun PageQuad.toJpDictQuad(): JpDictQuad = JpDictQuad(
+        QuadPoint(c0.x, c0.y),
+        QuadPoint(c1.x, c1.y),
+        QuadPoint(c2.x, c2.y),
+        QuadPoint(c3.x, c3.y),
+    )
+
+    private fun pageRecognizer(): PageRecognizer? {
+        pageRecognizer?.let { return it }
+        if (pageRecognizerFailed) return null
+        synchronized(this) {
+            pageRecognizer?.let { return it }
+            if (pageRecognizerFailed) return null
+            return try {
+                val dir = materialisePageOcrModelDir(context)
+                    ?: error("page OCR models could not be materialised")
+                PageRecognizer(dir.absolutePath, REC_BATCH_SIZE.toUInt()).also {
+                    pageRecognizer = it
+                    Log.d(TAG, "PageRecognizer loaded: $it")
+                }
+            } catch (e: Throwable) {
+                pageRecognizerFailed = true
+                Log.e(TAG, "PageRecognizer failed", e)
+                null
+            }
+        }
+    }
 
     /**
      * MEASUREMENT SEAM — hand the engine a different detector than the shipped
@@ -2603,6 +2731,9 @@ class OcrEngine(
     }
 
     fun close() {
+        try { pageRecognizer?.cancel() } catch (_: Exception) {}
+        try { pageRecognizer?.destroy() } catch (_: Exception) {}
+        pageRecognizer = null
         try { ctcDecoder?.close() } catch (_: Exception) {}
         try { detNcnn?.close() } catch (_: Exception) {}
         try { recDynNcnn?.close() } catch (_: Exception) {}
