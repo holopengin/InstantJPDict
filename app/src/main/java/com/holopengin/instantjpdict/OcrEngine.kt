@@ -626,7 +626,9 @@ class OcrEngine(
             rgba[j++] = 0xFF.toByte()
         }
         // A coroutine cancellation (overlay closed, host detached) sets the
-        // Rust flag; the native call returns at its next checkpoint.
+        // Rust flag; the native call returns at its next checkpoint. Bail
+        // before registering if this capture was already cancelled.
+        kotlin.coroutines.coroutineContext.ensureActive()
         val cancelHandle = kotlin.coroutines.coroutineContext[Job]?.invokeOnCompletion { cause ->
             if (cause != null) recognizer.cancel()
         }

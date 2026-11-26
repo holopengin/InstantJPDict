@@ -112,6 +112,10 @@ pub struct PageOcrOptionsRecord {
 pub struct PageRecognizer {
     #[cfg(target_os = "android")]
     inner: Mutex<jpdict_core::page_ocr::PageOcr>,
+    /// Kept outside `inner` on purpose: `cancel()` must not wait for the
+    /// in-flight `recognize()` to release the engine lock.
+    #[cfg(target_os = "android")]
+    cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[uniffi::export]
@@ -128,8 +132,10 @@ impl PageRecognizer {
                 batch_size.max(1) as usize,
             )
             .map_err(engine_err)?;
+            let cancel = page.cancel_handle();
             Ok(Arc::new(Self {
                 inner: Mutex::new(page),
+                cancel,
             }))
         }
         #[cfg(not(target_os = "android"))]
@@ -193,9 +199,8 @@ impl PageRecognizer {
     pub fn cancel(&self) {
         #[cfg(target_os = "android")]
         {
-            if let Ok(page) = self.inner.lock() {
-                page.cancel();
-            }
+            self.cancel
+                .store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
 }

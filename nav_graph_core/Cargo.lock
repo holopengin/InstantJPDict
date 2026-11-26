@@ -761,7 +761,7 @@ dependencies = [
 [[package]]
 name = "jpdict-core"
 version = "0.1.0"
-source = "git+https://github.com/holopengin/InstantJPDictPC.git?rev=cff1f32cad1fef7cf11b9fe6db61b5ca826c615c#cff1f32cad1fef7cf11b9fe6db61b5ca826c615c"
+source = "git+https://github.com/holopengin/InstantJPDictPC.git?rev=344106ddd6d45c02ff453d58b4d0ec697109684b#344106ddd6d45c02ff453d58b4d0ec697109684b"
 dependencies = [
  "anyhow",
  "cc",
