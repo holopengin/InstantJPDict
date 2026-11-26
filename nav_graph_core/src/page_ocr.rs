@@ -95,6 +95,9 @@ pub struct PageLineRecord {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct PageResultRecord {
     pub lines: Vec<PageLineRecord>,
+    pub detect_ms: u64,
+    pub recognize_ms: u64,
+    pub total_ms: u64,
 }
 
 /// Per-run knobs. The app reads its preferences once per capture and passes
@@ -231,6 +234,9 @@ fn core_options(options: PageOcrOptionsRecord) -> jpdict_core::page_ocr::PageOcr
             v_trim: 1.0,
             ruby_trim_vertical: options.ruby_trim_vertical,
             split_overlap: false,
+            // The page path is the mobile pipeline; use the shared core's
+            // integer-pad letterbox rather than the desktop float blit.
+            mobile_letterbox: true,
         },
         recognize: RecognizeOptions {
             cap: options.cap,
@@ -249,6 +255,9 @@ fn core_options(options: PageOcrOptionsRecord) -> jpdict_core::page_ocr::PageOcr
 fn map_result(result: jpdict_core::page_ocr::PageResult) -> PageResultRecord {
     PageResultRecord {
         lines: result.lines.into_iter().map(map_line).collect(),
+        detect_ms: result.timings.detect_ms,
+        recognize_ms: result.timings.recognize_ms,
+        total_ms: result.timings.total_ms,
     }
 }
 

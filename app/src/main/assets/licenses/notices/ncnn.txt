@@ -1,9 +1,9 @@
 ncnn — vendored neural-network inference library (OCR engine)
 ============================================================
 
-Bundled as   : lib/arm64-v8a/libncnn_jni.so — ncnn is statically linked into the
-               app's JNI library (app/src/main/cpp/CMakeLists.txt), together with
-               the app's own C++ wrappers (DetNcnn / RecNcnn / KanaSizeNcnn).
+Bundled as   : lib/arm64-v8a/libnav_graph_core.so — ncnn is statically linked
+               into the Rust OCR library by jpdict-core's `native` build (the
+               shared PP-OCRv6 C++ core compiled by build.rs).
 Vendored at  : app/src/main/cpp/ncnn/include (headers) and
                app/src/main/cpp/ncnn/lib/arm64-v8a/libncnn.a (Git LFS)
 Licence      : BSD 3-Clause — Copyright (C) 2017 Tencent. All rights reserved.

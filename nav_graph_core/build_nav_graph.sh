@@ -103,12 +103,21 @@ echo "Copied libnav_graph_core.so to $JNILIBS_DIR"
 CXX_SHARED="$TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so"
 if [ -f "$CXX_SHARED" ]; then
     cp "$CXX_SHARED" "$JNILIBS_DIR/"
-    # The NDK runtime ships with symbols (~9 MB); strip both copied libraries
+    # The Rust library also needs the NDK OpenMP runtime; this used to arrive
+    # with the old CMake/JNI target. Ship it beside the Rust .so.
+    OMP_SHARED=$(find "$TOOLCHAIN/lib/clang" -path '*/lib/linux/aarch64/libomp.so' | head -1)
+    if [ -z "$OMP_SHARED" ] || [ ! -f "$OMP_SHARED" ]; then
+        echo "ERROR: libomp.so for aarch64 not found under $TOOLCHAIN/lib/clang" >&2
+        exit 1
+    fi
+    cp "$OMP_SHARED" "$JNILIBS_DIR/"
+    # The NDK runtimes ship with symbols (~9 MB); strip both copied libraries
     # so the APK does not carry them. The 16 KB alignment check above already
     # judged the Rust library's program headers, which stripping preserves.
     "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded \
-        "$JNILIBS_DIR/libnav_graph_core.so" "$JNILIBS_DIR/libc++_shared.so"
-    echo "Copied and stripped libc++_shared.so to $JNILIBS_DIR"
+        "$JNILIBS_DIR/libnav_graph_core.so" "$JNILIBS_DIR/libc++_shared.so" \
+        "$JNILIBS_DIR/libomp.so"
+    echo "Copied and stripped libc++_shared.so / libomp.so to $JNILIBS_DIR"
 else
     echo "ERROR: libc++_shared.so not found at $CXX_SHARED" >&2
     exit 1

@@ -10,8 +10,9 @@ import com.holopengin.instantjpdict.util.Deinflector
 import com.holopengin.instantjpdict.util.GapCandidates
 import com.holopengin.instantjpdict.util.GapDetector
 import com.holopengin.instantjpdict.util.JapaneseUtil
-import com.holopengin.instantjpdict.util.KanaSizeEncoder
-import com.holopengin.instantjpdict.util.KanaSizeFix
+import uniffi.nav_graph_core.KanaSizeScorer
+import uniffi.nav_graph_core.kanaSizeCorrectLines
+import uniffi.nav_graph_core.kanaSizeWindow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -102,8 +103,8 @@ class ConformanceCorpusTest {
      * [MANUAL_IDS], or [androidManualCasesAreExplicit] fails.
      */
     private val ANDROID_MANUAL = mapOf(
-        // Bitmap input + the full detect chain including the native det mask
-        // (DetNcnn .so): android.graphics is stubbed in JVM unit tests and
+        // Bitmap input + the full Rust page detect chain: android.graphics is
+        // stubbed in JVM unit tests and
         // Robolectric is deliberately not added as a dependency. The PC
         // harness pins these from image bytes with the case's explicit
         // det_thresh/det_unclip; the pure-module stages they cover
@@ -488,7 +489,7 @@ class ConformanceCorpusTest {
                     val o = e.asJsonObject
                     val text = o.stringField("text")
                     val index = o.intField("index")
-                    val got = KanaSizeEncoder.window(text, index)
+                    val got = kanaSizeWindow(text, index.toLong())
                     val want = o.getAsJsonArray("expect_window_head").map { it.asInt }
                     assertEquals("${c.id}: window is ${got.size} bytes, expected ${want.size}", want.size, got.size)
                     for (i in want.indices) {
@@ -497,32 +498,27 @@ class ConformanceCorpusTest {
                 }
             }
             body.get("policy")?.takeIf { !it.isJsonNull }?.asJsonObject?.let { p ->
-                val lines = p.getAsJsonArray("lines").map { s ->
-                    val t = s.asString
-                    LineResult(
-                        text = t,
-                        charBoxes = emptyList(),
-                        alternatives = MutableList(t.length) { mutableListOf() },
-                    )
-                }
+                val texts = p.getAsJsonArray("lines").map { it.asString }
                 val logits = p.getAsJsonArray("logits").floats().toFloatArray()
                 val epsilon = p.doubleField("epsilon").toFloat()
-                // Scoring injected: the ε policy runs on the JVM with no native
-                // net, exactly like KanaSizeFixTest.
-                val out = KanaSizeFix.apply(lines, { _, _ -> logits }, epsilon)
+                val scorer = object : KanaSizeScorer {
+                    override fun score(
+                        windows: List<Int>,
+                        bases: List<Int>,
+                    ): List<Float> = logits.toList()
+                }
+                val out = kanaSizeCorrectLines(texts, scorer, epsilon)
                 assertEquals(
                     "${c.id}: corrected text drifted",
-                    p.getAsJsonArray("expect_text").map { it.asString }, out.map { it.text },
+                    p.getAsJsonArray("expect_text").map { it.asString }, out.texts,
                 )
                 val expectFlips = p.getAsJsonArray("expect_flips")
-                val gotFlips = out.flatMapIndexed { li, l ->
-                    l.overrides.map { (index, override) -> Triple(li, index, override.first) }
-                }
+                val gotFlips = out.flips.map { Triple(it.line, it.index, it.to.toChar()) }
                 assertEquals("${c.id}: flip count drifted: $gotFlips", expectFlips.size(), gotFlips.size)
                 for ((got, exp) in gotFlips.zip(expectFlips.map { it.asJsonObject })) {
                     assertEquals(exp.intField("line"), got.first)
                     assertEquals(exp.intField("index"), got.second)
-                    assertEquals("${c.id}: flip source drifted", singleChar(exp.stringField("from")), lines[got.first].text[got.second])
+                    assertEquals("${c.id}: flip source drifted", singleChar(exp.stringField("from")), texts[got.first][got.second])
                     assertEquals("${c.id}: flip target drifted", singleChar(exp.stringField("to")), got.third)
                 }
             }

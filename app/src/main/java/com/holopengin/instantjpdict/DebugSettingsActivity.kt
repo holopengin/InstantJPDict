@@ -182,27 +182,6 @@ class DebugSettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean(OcrEngine.PREF_BOX_PLACEMENT_CAP, checked).apply()
             Log.d(TAG, "box_placement_cap=$checked")
         })
-        // The per-call OCR diagnostics on both sides of the JNI boundary: the
-        // ncnn kernel's own lines (det input/infer/try/extract, one recTopK per
-        // line, the create-time lines) and the Kotlin walk's (per-box ruby
-        // trims, per-line emits, the per-crop shapes). They are what a
-        // model/width mismatch is diagnosed with — and they are off by default
-        // because each one costs a formatted logcat write on the calling thread,
-        // and one of them (the prob-map stats behind `prob_map:`) cost ~4-5 ms a
-        // detect call on its own. Flipping this pushes straight into both
-        // halves; no engine reload, since the flag is process-global.
-        // Deliberately NOT in [DebugTuning.features]: a tuning reset must not
-        // silently turn off a switch someone left on to read a log, exactly as
-        // it leaves the debug-log toggle alone.
-        behaviourBody.addView(ui.switchRow(
-            null,
-            "Verbose OCR logging",
-            "Per-call det/rec detail to logcat; off by default",
-            NcnnVerboseLog.isEnabled(this)
-        ) { checked ->
-            NcnnVerboseLog.setEnabled(this, checked)
-            Log.d(TAG, "ppocr_ncnn_verbose=$checked")
-        })
         // #106: the per-app override's control. Three single-choice rows in the
         // screen's own list-row language, a trailing MaterialRadioButton as the
         // indicator; the service reads the pref per capture, so a selection is

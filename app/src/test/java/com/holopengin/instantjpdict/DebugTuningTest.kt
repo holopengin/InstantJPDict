@@ -1,7 +1,6 @@
 package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.BlankGaps
-import com.holopengin.instantjpdict.util.KanaSizeFix
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,7 +29,6 @@ class DebugTuningTest {
                 OcrEngine.PREF_X_OVERLAP,
                 OcrEngine.PREF_REC_SQUISH,
                 OverlayBackdrop.PREF_SCREENSHOT_ALPHA,
-                KanaSizeFix.PREF_EPSILON,
                 ProtoCrosshairView.PREF_GAP,
             ),
             DebugTuning.rows.map { it.key },

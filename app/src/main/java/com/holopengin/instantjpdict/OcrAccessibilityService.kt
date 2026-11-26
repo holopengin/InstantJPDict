@@ -46,7 +46,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.google.gson.Gson
 import com.holopengin.instantjpdict.util.BlankGaps
-import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.CharLm
 import com.holopengin.instantjpdict.util.InferLog
 import com.holopengin.instantjpdict.util.Deinflector

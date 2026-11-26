@@ -10,10 +10,9 @@ private const val TAG = "PageOcrModels"
  * Materialise the model files the Rust page engine loads from disk.
  *
  * The engine takes a directory (it opens `PP-OCRv6_small_ncnn/…` and
- * `kana_size/…` itself), so unlike the old flat DetNcnn/RecNcnn cache this
- * keeps the asset tree intact. The copy is keyed to the installed APK and
- * reused by every later process; a partial copy is never visible because each
- * file is written to a temp and renamed.
+ * `kana_size/…` itself), so the asset tree stays intact. The copy is keyed to
+ * the installed APK and reused by every later process; a partial copy is never
+ * visible because each file is written to a temp and renamed.
  *
  * Returns null when an asset cannot be copied; the caller then keeps the old
  * path (and reports "not ready") rather than crashing.

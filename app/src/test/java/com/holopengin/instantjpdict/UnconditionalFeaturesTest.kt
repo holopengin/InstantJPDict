@@ -1,7 +1,6 @@
 package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.ComponentTable
-import com.holopengin.instantjpdict.util.KanaSizeFix
 import com.holopengin.instantjpdict.util.OovCandidates
 import com.holopengin.instantjpdict.util.OovSuggestions
 import org.junit.Assert.assertEquals
@@ -76,37 +75,15 @@ class UnconditionalFeaturesTest {
         assertTrue(state.candidates.all { it.source == OovSuggestions.Source.HEAD })
     }
 
-    // ————— the kana size correction —————
-
-    /**
-     * The page correction has no setting left to consult: the call the overlay makes — the
-     * policy with its shipped defaults — rewrites a page the model is sure about. There is
-     * deliberately no way to express "off".
-     */
-    @Test
-    fun the_kana_policy_corrects_off_the_shipped_defaults_with_no_setting_read() {
-        val line = LineResult(
-            text = "かっき",
-            charBoxes = emptyList(),
-            alternatives = "かっき".map { mutableListOf(it to 1f) },
-        )
-        val out = KanaSizeFix.apply(listOf(line), score = { _, bases -> FloatArray(bases.size) { 10f } })
-        assertEquals("the sure position must be flipped", "かつき", out[0].text)
-    }
-
     // ————— no enable toggle left to read —————
 
     @Test
-    fun neither_feature_exposes_an_enable_toggle_a_stored_preference_could_reach() {
-        // The names, not a scan of the sources: if a preference gate is reintroduced under the
-        // old shape, it has to come back as one of these, and the requirement is that it cannot.
+    fun the_component_suggestions_expose_no_enable_toggle() {
         val banned = setOf("isEnabled", "setEnabled", "getEnabled", "isEnabledOrDefault")
-        for (feature in listOf("OovSuggestions" to OovSuggestions, "KanaSizeFix" to KanaSizeFix)) {
-            val names = feature.second.javaClass.methods.map { it.name }.toSet()
-            assertFalse(
-                "${feature.first} grew a preference gate back: ${names intersect banned}",
-                names.any { it in banned },
-            )
-        }
+        val names = OovSuggestions.javaClass.methods.map { it.name }.toSet()
+        assertFalse(
+            "OovSuggestions grew a preference gate back: ${names intersect banned}",
+            names.any { it in banned },
+        )
     }
 }

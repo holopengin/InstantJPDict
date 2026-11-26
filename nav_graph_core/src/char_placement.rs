@@ -150,6 +150,45 @@ fn to_core_options(o: &PlaceOptions) -> jpdict_core::char_placement::Options {
     core
 }
 
+fn from_core_options(c: &jpdict_core::char_placement::Options) -> PlaceOptions {
+    PlaceOptions {
+        ink_max_pull_em: c.ink_max_pull_em as f32,
+        window_em: c.window_em as f32,
+        window_stride: c.window_stride as f32,
+        anchor_tol_em: c.anchor_tol_em as f32,
+        anchor_tol_stride: c.anchor_tol_stride as f32,
+        huber_em: c.huber_em as f32,
+        min_mass_frac: c.min_mass_frac as f32,
+        max_spread_em: c.max_spread_em as f32,
+        conf_floor: c.conf_floor as f32,
+        refine_passes: c.refine_passes,
+        final_pass: c.final_pass,
+        extent_pad_px: c.extent_pad_px as f32,
+        extent_floor: c.extent_floor as f32,
+        extent_window_em: c.extent_window_em as f32,
+        extent_grow_frac: c.extent_grow_frac as f32,
+        split_floor_frac: c.split_floor_frac as f32,
+        min_half_px: c.min_half_px as f32,
+        punct_spread_fallback: c.punct_spread_fallback,
+        bimodal_retry: c.bimodal_retry,
+        bimodal_valley_em: c.bimodal_valley_em as f32,
+        bimodal_min_frac: c.bimodal_min_frac as f32,
+        punct_fallback_window_em: c.punct_fallback_window_em as f32,
+        punct_fallback_max_em: c.punct_fallback_max_em as f32,
+        translate_overlap: c.translate_overlap,
+        translate_max_em: c.translate_max_em as f32,
+        translate_passes: c.translate_passes,
+        translate_gate_cut: c.translate_gate_cut,
+    }
+}
+
+/// The crate's shipped placement knobs, so the Kotlin facade does not restate
+/// 27 defaults that could drift from the algorithm they configure.
+#[uniffi::export]
+pub fn char_placement_default_options() -> PlaceOptions {
+    from_core_options(&jpdict_core::char_placement::Options::default())
+}
+
 /// Place one line's characters (mobile `CharPlacement.place`).
 ///
 /// Delegates to `jpdict_core::char_placement::place_with`; see its docs for

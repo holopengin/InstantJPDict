@@ -1064,6 +1064,8 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1262,6 +1264,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_nav_graph_core_fn_func_char_placement_blank(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    fun uniffi_nav_graph_core_fn_func_char_placement_default_options(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_placement_ink_spec(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_placement_place(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`pixels`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1589,6 +1593,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_char_lm_max_order(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_blank(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_default_options(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_ink_spec(
     ): Short
@@ -1937,6 +1943,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_blank() != 48053.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_default_options() != 6004.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_ink_spec() != 58440.toShort()) {
@@ -2437,6 +2446,29 @@ public object FfiConverterInt: FfiConverter<Int, Int> {
 
     override fun write(value: Int, buf: ByteBuffer) {
         buf.putInt(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
     }
 }
 
@@ -7751,7 +7783,10 @@ public object FfiConverterTypePageQuad: FfiConverterRustBuffer<PageQuad> {
 
 
 data class PageResultRecord (
-    var `lines`: List<PageLineRecord>
+    var `lines`: List<PageLineRecord>, 
+    var `detectMs`: kotlin.ULong, 
+    var `recognizeMs`: kotlin.ULong, 
+    var `totalMs`: kotlin.ULong
 ) {
     
     companion object
@@ -7764,15 +7799,24 @@ public object FfiConverterTypePageResultRecord: FfiConverterRustBuffer<PageResul
     override fun read(buf: ByteBuffer): PageResultRecord {
         return PageResultRecord(
             FfiConverterSequenceTypePageLineRecord.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
         )
     }
 
     override fun allocationSize(value: PageResultRecord) = (
-            FfiConverterSequenceTypePageLineRecord.allocationSize(value.`lines`)
+            FfiConverterSequenceTypePageLineRecord.allocationSize(value.`lines`) +
+            FfiConverterULong.allocationSize(value.`detectMs`) +
+            FfiConverterULong.allocationSize(value.`recognizeMs`) +
+            FfiConverterULong.allocationSize(value.`totalMs`)
     )
 
     override fun write(value: PageResultRecord, buf: ByteBuffer) {
             FfiConverterSequenceTypePageLineRecord.write(value.`lines`, buf)
+            FfiConverterULong.write(value.`detectMs`, buf)
+            FfiConverterULong.write(value.`recognizeMs`, buf)
+            FfiConverterULong.write(value.`totalMs`, buf)
     }
 }
 
@@ -10484,6 +10528,19 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
             return FfiConverterInt.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_blank(
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The crate's shipped placement knobs, so the Kotlin facade does not restate
+         * 27 defaults that could drift from the algorithm they configure.
+         */ fun `charPlacementDefaultOptions`(): PlaceOptions {
+            return FfiConverterTypePlaceOptions.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_default_options(
         _status)
 }
     )

@@ -405,12 +405,11 @@ class ShareImageActivity : AppCompatActivity(), OcrOverlayView.Host {
             surfaceWidth = container.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
             surfaceHeight = container.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
             overlayScope.launch {
-                // A8/#86: the engine is built here, off the main thread. Its constructor
-                // copies the model assets (once per installed APK now, see
-                // [materialiseModelAsset]) and loads two native nets synchronously; on
-                // Main that was startup jank on a screen whose first frame is already
-                // behind the image decode. Nothing reads it before the pass this same
-                // coroutine starts, so it cannot be observed half-built. [onDestroy]
+                // A8/#86: the engine is built here, off the main thread. The page
+                // engine materialises the model tree (once per installed APK, see
+                // [materialisePageOcrModelDir]) and loads its native nets lazily on
+                // the first capture; building it on Main was startup jank on a screen
+                // whose first frame is already behind the image decode. [onDestroy]
                 // waits for this construction before closing, so a build that outlives
                 // the activity is not leaked.
                 engineConstruction = launch(Dispatchers.IO) {

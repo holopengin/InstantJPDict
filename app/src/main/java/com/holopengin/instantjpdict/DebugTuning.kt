@@ -1,7 +1,6 @@
 package com.holopengin.instantjpdict
 
 import com.holopengin.instantjpdict.util.BlankGaps
-import com.holopengin.instantjpdict.util.KanaSizeFix
 
 /**
  * G1/#86: the debug screen's tuning surface as data.
@@ -14,9 +13,8 @@ import com.holopengin.instantjpdict.util.KanaSizeFix
  * every control, which is the part structure cannot say on its own.
  *
  * Deliberately not here: `OverlayFont.PREF_FACE` (the overlay typeface),
- * `PitchAccent.PREF_PITCH_ENABLED` (moved to the home screen), the debug-log
- * toggle and `NcnnVerboseLog.PREF_VERBOSE` (the native kernel's verbose
- * logging) — those are switches you turn on to read something, not tunables a
+ * `PitchAccent.PREF_PITCH_ENABLED` (moved to the home screen) and the debug-log
+ * toggle — those are switches you turn on to read something, not tunables a
  * reset should flip back mid-session, so a tuning reset leaves them alone.
  * Every constant referenced below is a `const val`, so this file (and its test)
  * stay Android-free.
@@ -49,10 +47,6 @@ internal object DebugTuning {
             "OVERLAY_SCREENSHOT_ALPHA",
             OverlayBackdrop.PREF_SCREENSHOT_ALPHA, OverlayBackdrop.DEF_SCREENSHOT_ALPHA, 0.3f, 1.0f, 0.05f,
         ),
-        // Certainty required before the kana size model may rewrite a character. The measured
-        // tradeoff over 7,620 confusable bench positions: 0.01 -> 12 fixed / 4 broken,
-        // 0.03 -> 22/12, 0.10 -> 29/24.
-        TuningRow("KANA_SIZE_EPSILON", KanaSizeFix.PREF_EPSILON, KanaSizeFix.DEF_EPSILON, 0.005f, 0.50f, 0.005f),
         TuningRow("CROSSHAIR_GAP", ProtoCrosshairView.PREF_GAP, ProtoCrosshairView.DEF_GAP, 0.005f, 0.10f, 0.005f),
     )
 

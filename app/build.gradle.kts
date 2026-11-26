@@ -192,8 +192,8 @@ android {
         applicationId = "com.holopengin.instantjpdict"
         minSdk = 30
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.0.0-rc13"
+        versionCode = 14
+        versionName = "1.0.0-rc14"
 
         // The label follows the namespace decision above: two installs sitting
         // side by side must be told apart in the launcher, not just in Settings.
@@ -260,19 +260,11 @@ android {
             matchingFallbacks += listOf("release")
         }
     }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
     packaging {
         jniLibs {
-            // libncnn_jni.so carries ~34 MB of DWARF, which this glob kept in
-            // every APK (the #90 size report: 74 MB release, 38 MB stripped).
-            // Symbols are stripped by default, including release; pass
-            // -PkeepNativeDebugSymbols to keep them for local native-crash
-            // triage. The unstripped .so stays in the CMake intermediates.
+            // The Rust/OCR libraries are stripped by build_nav_graph.sh before
+            // packaging; pass -PkeepNativeDebugSymbols to keep the symbols
+            // Gradle can still see for local native-crash triage.
             if (providers.gradleProperty("keepNativeDebugSymbols").isPresent) {
                 keepDebugSymbols += "*/arm64-v8a/*.so"
             }

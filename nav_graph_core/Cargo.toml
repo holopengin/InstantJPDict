@@ -20,14 +20,14 @@ uniffi = { version = "0.28", features = ["cli"] }
 # consumes (the shim's tests fail first if the pinned rev drifts).
 # Nav-only surface: no native inference stack, no C++ toolchain, no install
 # prefix.
-jpdict-core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "55e86c96d41f68a06c702d2bc71f900d1f28917b", default-features = false }
+jpdict-core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "66f728fc095c7a7cfde710edf93e150de5741959", default-features = false }
 
 # The unified page OCR path compiles the shared ncnn core into this shim on
 # Android. The host build stays nav-only: JVM unit tests cannot load an Android
 # `.so` and do not need the model stack, so `PageRecognizer` reports a clear
 # "not built for host" error there.
 [target.'cfg(target_os = "android")'.dependencies]
-jpdict-core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "55e86c96d41f68a06c702d2bc71f900d1f28917b", default-features = false, features = ["native"] }
+jpdict-core = { git = "https://github.com/holopengin/InstantJPDictPC.git", rev = "66f728fc095c7a7cfde710edf93e150de5741959", default-features = false, features = ["native"] }
 # PageRecognizer builds a DynamicImage from the app's ARGB pixels.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
