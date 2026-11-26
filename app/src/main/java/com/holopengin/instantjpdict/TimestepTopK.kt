@@ -57,7 +57,10 @@ import uniffi.nav_graph_core.GapCell
  * which is why it is a plain array rather than a `ConcurrentHashMap`.
  */
 class TimestepTopK private constructor(
-    private val cells: List<GapCell>,
+    /** UTF-16 code unit per cell; stored as primitives so the page boundary
+     *  does not allocate a `GapCell` plus a boxed score for every cell. */
+    private val chars: IntArray,
+    private val scores: FloatArray,
     private val rowStart: IntArray,
     /** `topChars[2i]`, `topChars[2i + 1]` — the row's first two code units. */
     private val topChars: IntArray,
@@ -91,8 +94,7 @@ class TimestepTopK private constructor(
         val to = rowStart[index + 1]
         val row = ArrayList<Pair<Char, Float>>(to - from)
         for (k in from until to) {
-            val cell = cells[k]
-            row.add(Char(cell.ch) to cell.score)
+            row.add(Char(chars[k]) to scores[k])
         }
         cache[index] = row
         built++
@@ -148,7 +150,7 @@ class TimestepTopK private constructor(
                 // character straight out of the flat list: the placement walk
                 // never reads it, but keeping the real one means a future reader
                 // cannot be handed a placeholder.
-                add(CharPlacement.Step(Char(cells[rowStart[i] + 1].ch), secondScore(i)))
+                add(CharPlacement.Step(Char(chars[rowStart[i] + 1]), secondScore(i)))
             }
         }
     }
@@ -187,8 +189,8 @@ class TimestepTopK private constructor(
             out.add(
                 when (rowStart[i + 1] - from) {
                     0 -> emptyList()
-                    1 -> listOf(cells[from])
-                    else -> listOf(cells[from], cells[from + 1])
+                    1 -> listOf(cell(from))
+                    else -> listOf(cell(from), cell(from + 1))
                 },
             )
         }
@@ -204,8 +206,10 @@ class TimestepTopK private constructor(
     fun gapCellRows(): List<List<GapCell>> = List(size) { i ->
         val from = rowStart[i]
         val to = rowStart[i + 1]
-        ArrayList<GapCell>(to - from).apply { for (k in from until to) add(cells[k]) }
+        ArrayList<GapCell>(to - from).apply { for (k in from until to) add(cell(k)) }
     }
+
+    private fun cell(k: Int): GapCell = GapCell(chars[k], scores[k])
 
     companion object {
         /** What [topChar] reports for a timestep the decoder emitted no cell for. */
@@ -216,7 +220,7 @@ class TimestepTopK private constructor(
          * `emptyList()` every hand-built line passes.
          */
         val EMPTY: TimestepTopK = TimestepTopK(
-            emptyList(), intArrayOf(0), IntArray(0), FloatArray(0), emptyArray(),
+            IntArray(0), FloatArray(0), intArrayOf(0), IntArray(0), FloatArray(0), emptyArray(),
         )
 
         /** The decoder's top-K width; only sizes the [of] copy below. */
@@ -249,6 +253,53 @@ class TimestepTopK private constructor(
          * boundaries inside the cell list. One pass fills the top-2 table.
          */
         private fun of(cells: List<GapCell>, rowStart: IntArray): TimestepTopK {
+            val chars = IntArray(cells.size) { cells[it].ch }
+            val scores = FloatArray(cells.size) { cells[it].score }
+            return of(chars, scores, rowStart)
+        }
+
+        /**
+         * The page boundary: packed little-endian UTF-16 units and little-endian
+         * f32 scores. No `GapCell` and no boxed score is created on the way in;
+         * only the compact rows a reader actually asks for are materialised.
+         */
+        fun of(
+            chars: ByteArray,
+            scores: ByteArray,
+            rowStart: List<Long>,
+        ): TimestepTopK {
+            check(rowStart.isNotEmpty()) { "compact CTC result has no row boundaries" }
+            check(chars.size % 2 == 0) { "odd packed char byte count ${chars.size}" }
+            check(scores.size % 4 == 0) { "packed score byte count ${scores.size} is not 4-aligned" }
+            val cellCount = chars.size / 2
+            check(scores.size / 4 == cellCount) {
+                "packed chars ${chars.size / 2} != scores ${scores.size / 4}"
+            }
+            val starts = IntArray(rowStart.size)
+            for (i in rowStart.indices) {
+                val at = rowStart[i]
+                check(at in 0..cellCount.toLong()) {
+                    "compact CTC row boundary $at outside 0..$cellCount"
+                }
+                if (i > 0) check(at >= starts[i - 1]) { "compact CTC row boundaries descend at $i" }
+                starts[i] = at.toInt()
+            }
+            val unpackedChars = IntArray(cellCount) { i ->
+                (chars[i * 2].toInt() and 0xFF) or ((chars[i * 2 + 1].toInt() and 0xFF) shl 8)
+            }
+            val unpackedScores = FloatArray(cellCount)
+            java.nio.ByteBuffer.wrap(scores)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .asFloatBuffer()
+                .get(unpackedScores)
+            return of(unpackedChars, unpackedScores, starts)
+        }
+
+        private fun of(
+            chars: IntArray,
+            scores: FloatArray,
+            rowStart: IntArray,
+        ): TimestepTopK {
             val n = rowStart.size - 1
             val topChars = IntArray(n * 2)
             val topScores = FloatArray(n * 2)
@@ -256,15 +307,15 @@ class TimestepTopK private constructor(
                 val from = rowStart[i]
                 val to = rowStart[i + 1]
                 if (from < to) {
-                    topChars[i * 2] = cells[from].ch
-                    topScores[i * 2] = cells[from].score
+                    topChars[i * 2] = chars[from]
+                    topScores[i * 2] = scores[from]
                 }
                 if (to - from >= 2) {
-                    topChars[i * 2 + 1] = cells[from + 1].ch
-                    topScores[i * 2 + 1] = cells[from + 1].score
+                    topChars[i * 2 + 1] = chars[from + 1]
+                    topScores[i * 2 + 1] = scores[from + 1]
                 }
             }
-            return TimestepTopK(cells, rowStart, topChars, topScores, arrayOfNulls(n))
+            return TimestepTopK(chars, scores, rowStart, topChars, topScores, arrayOfNulls(n))
         }
 
         /**

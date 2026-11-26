@@ -28,6 +28,7 @@ clap_derive	MIT OR Apache-2.0	4.6.1	licenses/texts/rust/anstream-LICENSE-APACHE,
 clap_lex	MIT OR Apache-2.0	1.1.0	licenses/texts/rust/anstream-LICENSE-APACHE,licenses/texts/rust/anstream-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 colorchoice	MIT OR Apache-2.0	1.0.5	licenses/texts/rust/anstream-LICENSE-APACHE,licenses/texts/rust/anstream-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 equivalent	Apache-2.0 OR MIT	1.0.2	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/equivalent-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
+fast_image_resize	MIT OR Apache-2.0	6.2.0	licenses/texts/rust/anyhow-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 fs-err	MIT/Apache-2.0	2.11.0	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/anyhow-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 glob	MIT OR Apache-2.0	0.3.3	licenses/texts/rust/camino-LICENSE-APACHE,licenses/texts/rust/glob-LICENSE-MIT	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock
 goblin	MIT	0.8.2	licenses/texts/rust/goblin-LICENSE	-	cargo metadata --locked --filter-platform aarch64-linux-android over nav_graph_core/Cargo.lock

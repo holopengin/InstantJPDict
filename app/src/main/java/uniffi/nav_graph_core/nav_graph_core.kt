@@ -7575,11 +7575,15 @@ data class PageLineRecord (
     var `charBoxes`: List<BoundingBox>, 
     var `alternatives`: List<List<GapCell>>, 
     /**
-     * The raw top-K table flattened: `raw_cells` is every row concatenated,
-     * `raw_row_starts` its `rows + 1` boundaries. Kotlin rebuilds the compact
-     * `TimestepTopK` from these without materialising a nested list first.
+     * The raw top-K table, packed as primitives: `raw_chars` is two
+     * little-endian bytes per UTF-16 unit, `raw_scores` four little-endian
+     * bytes per score, and `raw_row_starts` its `rows + 1` boundaries. This
+     * avoids one `GapCell` object plus one boxed Float per cell across the
+     * boundary; Kotlin rebuilds primitive arrays and the compact
+     * `TimestepTopK` from them.
      */
-    var `rawCells`: List<GapCell>, 
+    var `rawChars`: kotlin.ByteArray, 
+    var `rawScores`: kotlin.ByteArray, 
     var `rawRowStarts`: List<kotlin.Long>, 
     var `charCols`: List<kotlin.Float>, 
     var `seqLenTotal`: kotlin.Int, 
@@ -7604,7 +7608,8 @@ public object FfiConverterTypePageLineRecord: FfiConverterRustBuffer<PageLineRec
             FfiConverterString.read(buf),
             FfiConverterSequenceTypeBoundingBox.read(buf),
             FfiConverterSequenceSequenceTypeGapCell.read(buf),
-            FfiConverterSequenceTypeGapCell.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
             FfiConverterSequenceLong.read(buf),
             FfiConverterSequenceFloat.read(buf),
             FfiConverterInt.read(buf),
@@ -7622,7 +7627,8 @@ public object FfiConverterTypePageLineRecord: FfiConverterRustBuffer<PageLineRec
             FfiConverterString.allocationSize(value.`text`) +
             FfiConverterSequenceTypeBoundingBox.allocationSize(value.`charBoxes`) +
             FfiConverterSequenceSequenceTypeGapCell.allocationSize(value.`alternatives`) +
-            FfiConverterSequenceTypeGapCell.allocationSize(value.`rawCells`) +
+            FfiConverterByteArray.allocationSize(value.`rawChars`) +
+            FfiConverterByteArray.allocationSize(value.`rawScores`) +
             FfiConverterSequenceLong.allocationSize(value.`rawRowStarts`) +
             FfiConverterSequenceFloat.allocationSize(value.`charCols`) +
             FfiConverterInt.allocationSize(value.`seqLenTotal`) +
@@ -7639,7 +7645,8 @@ public object FfiConverterTypePageLineRecord: FfiConverterRustBuffer<PageLineRec
             FfiConverterString.write(value.`text`, buf)
             FfiConverterSequenceTypeBoundingBox.write(value.`charBoxes`, buf)
             FfiConverterSequenceSequenceTypeGapCell.write(value.`alternatives`, buf)
-            FfiConverterSequenceTypeGapCell.write(value.`rawCells`, buf)
+            FfiConverterByteArray.write(value.`rawChars`, buf)
+            FfiConverterByteArray.write(value.`rawScores`, buf)
             FfiConverterSequenceLong.write(value.`rawRowStarts`, buf)
             FfiConverterSequenceFloat.write(value.`charCols`, buf)
             FfiConverterInt.write(value.`seqLenTotal`, buf)

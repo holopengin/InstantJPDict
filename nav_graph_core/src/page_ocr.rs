@@ -78,10 +78,14 @@ pub struct PageLineRecord {
     pub text: String,
     pub char_boxes: Vec<BoundingBox>,
     pub alternatives: Vec<Vec<GapCell>>,
-    /// The raw top-K table flattened: `raw_cells` is every row concatenated,
-    /// `raw_row_starts` its `rows + 1` boundaries. Kotlin rebuilds the compact
-    /// `TimestepTopK` from these without materialising a nested list first.
-    pub raw_cells: Vec<GapCell>,
+    /// The raw top-K table, packed as primitives: `raw_chars` is two
+    /// little-endian bytes per UTF-16 unit, `raw_scores` four little-endian
+    /// bytes per score, and `raw_row_starts` its `rows + 1` boundaries. This
+    /// avoids one `GapCell` object plus one boxed Float per cell across the
+    /// boundary; Kotlin rebuilds primitive arrays and the compact
+    /// `TimestepTopK` from them.
+    pub raw_chars: Vec<u8>,
+    pub raw_scores: Vec<u8>,
     pub raw_row_starts: Vec<i64>,
     pub char_cols: Vec<f32>,
     pub seq_len_total: i32,
@@ -283,15 +287,26 @@ fn map_line(line: jpdict_core::page_ocr::PageLine) -> PageLineRecord {
             })
             .collect(),
         alternatives: map_alts(line.alternatives),
-        raw_cells: line
-            .raw_alternatives
-            .iter()
-            .flat_map(|row| row.iter())
-            .map(|&(ch, score)| GapCell {
-                ch: to_kotlin_char(ch),
-                score,
-            })
-            .collect(),
+        raw_chars: {
+            let cells: usize = line.raw_alternatives.iter().map(Vec::len).sum();
+            let mut out = Vec::with_capacity(cells * 2);
+            for row in &line.raw_alternatives {
+                for &(ch, _) in row {
+                    out.extend_from_slice(&(to_kotlin_char(ch) as u16).to_le_bytes());
+                }
+            }
+            out
+        },
+        raw_scores: {
+            let cells: usize = line.raw_alternatives.iter().map(Vec::len).sum();
+            let mut out = Vec::with_capacity(cells * 4);
+            for row in &line.raw_alternatives {
+                for &(_, score) in row {
+                    out.extend_from_slice(&score.to_le_bytes());
+                }
+            }
+            out
+        },
         raw_row_starts: {
             let mut starts = Vec::with_capacity(line.raw_alternatives.len() + 1);
             starts.push(0i64);

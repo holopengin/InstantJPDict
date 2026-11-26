@@ -188,16 +188,15 @@ class OcrEngine(
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return emptyList()
-        val pixels = IntArray(w * h)
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-        val rgba = ByteArray(w * h * 4)
-        var j = 0
-        for (p in pixels) {
-            rgba[j++] = (p shr 16 and 0xFF).toByte()
-            rgba[j++] = (p shr 8 and 0xFF).toByte()
-            rgba[j++] = (p and 0xFF).toByte()
-            rgba[j++] = 0xFF.toByte()
+        // ARGB_8888's raw buffer is RGBA byte order on the Pixel 7a (pinned by
+        // PageOcrDeviceTest.bitmapCopyPixelsToBufferIsRgbaOnThisDevice), so the
+        // bytes go straight to Rust without a per-pixel Kotlin swizzle.
+        check(bitmap.byteCount == w * h * 4) {
+            "unexpected ARGB_8888 byte count ${bitmap.byteCount} for ${w}x$h"
         }
+        val buffer = java.nio.ByteBuffer.allocate(w * h * 4)
+        bitmap.copyPixelsToBuffer(buffer)
+        val rgba = buffer.array()
         val prepareMs = (System.nanoTime() - totalStart) / 1_000_000
         kotlin.coroutines.coroutineContext.ensureActive()
         val cancelHandle = kotlin.coroutines.coroutineContext[Job]?.invokeOnCompletion { cause ->
@@ -222,7 +221,7 @@ class OcrEngine(
             val alternatives = rec.alternatives.map { alts ->
                 alts.map { Char(it.ch) to it.score }.toMutableList()
             }
-            val rawAlternatives = TimestepTopK.of(rec.rawCells, rec.rawRowStarts)
+            val rawAlternatives = TimestepTopK.of(rec.rawChars, rec.rawScores, rec.rawRowStarts)
             val line = LineResult(
                 text = rec.text,
                 charBoxes = rec.charBoxes.map {

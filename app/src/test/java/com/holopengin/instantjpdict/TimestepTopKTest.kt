@@ -285,11 +285,13 @@ class TimestepTopKTest {
                 stepRows[t].map { GapCell(it.char.code, it.score) },
                 cellRows[t],
             )
-            // The cells are the table's, not copies: a 1-cell and a 2-cell row
-            // both hand over the very objects the flat list holds.
-            for (k in cellRows[t].indices) {
-                assertSame("timestep $t cell $k is the flat list's own", cells[starts[t].toInt() + k], cellRows[t][k])
-            }
+            // The compact table stores primitives now, so these rows are
+            // materialised on demand; the values must match the flat list.
+            assertEquals(
+                "timestep $t materialised cells",
+                cells.subList(starts[t].toInt(), starts[t].toInt() + cellRows[t].size),
+                cellRows[t],
+            )
         }
         // An empty row is the shared `emptyList()` and a one-cell row a
         // singleton: neither allocates a backing array, so the only row shape
