@@ -1054,6 +1054,8 @@ internal open class UniffiVTableCallbackInterfaceKanaSizeScorer(
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1251,6 +1253,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_fn_func_char_placement_place_profile(`text`: RustBuffer.ByValue,`charCols`: RustBuffer.ByValue,`seqLenTotal`: Long,`cropW`: Int,`cropH`: Int,`vertical`: Byte,`bgLight`: Byte,`band`: RustBuffer.ByValue,`steps`: RustBuffer.ByValue,`options`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_char_placement_profile_band(`borderRgb`: RustBuffer.ByValue,`crossDark`: RustBuffer.ByValue,`crossLight`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nav_graph_core_fn_func_char_placement_trailing_punct(`text`: RustBuffer.ByValue,`boxes`: RustBuffer.ByValue,`vertical`: Byte,`cropW`: Int,`cropH`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_nav_graph_core_fn_func_definition_format_parse(`glossaryJson`: RustBuffer.ByValue,`separator`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1577,6 +1581,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nav_graph_core_checksum_func_char_placement_place_profile(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_char_placement_profile_band(
+    ): Short
+    fun uniffi_nav_graph_core_checksum_func_char_placement_trailing_punct(
     ): Short
     fun uniffi_nav_graph_core_checksum_func_definition_format_parse(
     ): Short
@@ -1922,6 +1928,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_char_placement_profile_band() != 47454.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nav_graph_core_checksum_func_char_placement_trailing_punct() != 34948.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nav_graph_core_checksum_func_definition_format_parse() != 30188.toShort()) {
@@ -9829,6 +9838,23 @@ public object FfiConverterSequenceSequenceTypeGapCell: FfiConverterRustBuffer<Li
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_profile_band(
         FfiConverterByteArray.lower(`borderRgb`),FfiConverterByteArray.lower(`crossDark`),FfiConverterByteArray.lower(`crossLight`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Android CAP post-pass over `jpdict_core::char_boxes::place_trailing_punct_cell`.
+         *
+         * The three `char_placement_place*` entries deliberately stay the Python
+         * reference with no post-pass. The desktop `compute_char_boxes_line_with`
+         * applies this step after CAP, and the mobile page path does the same through
+         * this export; the parity tests call the raw entries and stay bit-identical.
+         */ fun `charPlacementTrailingPunct`(`text`: kotlin.String, `boxes`: List<PlaceBox>, `vertical`: kotlin.Boolean, `cropW`: kotlin.UInt, `cropH`: kotlin.UInt): List<PlaceBox> {
+            return FfiConverterSequenceTypePlaceBox.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_nav_graph_core_fn_func_char_placement_trailing_punct(
+        FfiConverterString.lower(`text`),FfiConverterSequenceTypePlaceBox.lower(`boxes`),FfiConverterBoolean.lower(`vertical`),FfiConverterUInt.lower(`cropW`),FfiConverterUInt.lower(`cropH`),_status)
 }
     )
     }

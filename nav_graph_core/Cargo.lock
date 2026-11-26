@@ -292,7 +292,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "jpdict-core"
 version = "0.1.0"
-source = "git+https://github.com/holopengin/InstantJPDictPC.git?rev=330c3de416a647d4280a7376d324ddea51845cab#330c3de416a647d4280a7376d324ddea51845cab"
+source = "git+https://github.com/holopengin/InstantJPDictPC.git?rev=289726330a00de76a54b58925df7e539ef51206e#289726330a00de76a54b58925df7e539ef51206e"
 dependencies = [
  "anyhow",
  "cc",

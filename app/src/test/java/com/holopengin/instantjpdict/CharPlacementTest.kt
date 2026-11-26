@@ -98,7 +98,10 @@ class CharPlacementTest {
         )
     }
 
-    private fun place(f: Fixture): List<CharPlacement.Box> = CharPlacement.place(
+    private fun place(
+        f: Fixture,
+        trailingPunct: Boolean = true,
+    ): List<CharPlacement.Box> = CharPlacement.place(
         text = f.text,
         charCols = f.charCols,
         seqLenTotal = f.seqLenTotal,
@@ -107,12 +110,16 @@ class CharPlacementTest {
         isVertical = f.orientation == "v",
         pixels = f.pixels,
         steps = f.steps,
+        trailingPunct = trailingPunct,
     )
 
     @Test
     fun kotlinPortMatchesPythonReference() {
         for (f in loadFixtures()) {
-            val boxes = place(f)
+            // The raw placement is the Python reference; the line-ending
+            // closing-mark advance-cell post-pass is a deliberate departure
+            // and is tested separately below.
+            val boxes = place(f, trailingPunct = false)
             assertEquals("${f.id}: box count", f.expected.size, boxes.size)
             var worst = 0f
             for (i in boxes.indices) {
@@ -126,6 +133,36 @@ class CharPlacementTest {
                 )
             }
             assertTrue("${f.id}: worst edge delta $worst px (limit 1.5)", worst <= 1.5f)
+        }
+    }
+
+    @Test
+    fun trailingClosingMarkTakesTheCellAfterItsPredecessor() {
+        val closing = "。．、，）〕〉》」』】〙〗〟’”］"
+        for (f in loadFixtures()) {
+            val last = f.text.lastOrNull() ?: continue
+            if (last !in closing) continue
+
+            val raw = place(f, trailingPunct = false)
+            val adjusted = place(f, trailingPunct = true)
+            assertEquals("${f.id}: box count", raw.size, adjusted.size)
+
+            // The post-pass only touches the final pair.
+            for (i in 0 until raw.size - 2) {
+                assertEquals("${f.id}[$i]: untouched by the post-pass", raw[i], adjusted[i])
+            }
+
+            val prev = adjusted[adjusted.size - 2]
+            val lastBox = adjusted.last()
+            if (f.orientation == "v") {
+                assertEquals("${f.id}: vertical tile boundary", prev.bottom, lastBox.top, 0.01f)
+            } else {
+                assertEquals("${f.id}: horizontal tile boundary", prev.right, lastBox.left, 0.01f)
+            }
+            assertTrue(
+                "${f.id}: the trailing mark should take its advance cell, not the raw ink box",
+                lastBox != raw.last(),
+            )
         }
     }
 

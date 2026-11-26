@@ -442,6 +442,42 @@ pub fn char_placement_blank() -> i32 {
     jpdict_core::char_placement::BLANK as i32
 }
 
+/// Android CAP post-pass over `jpdict_core::char_boxes::place_trailing_punct_cell`.
+///
+/// The three `char_placement_place*` entries deliberately stay the Python
+/// reference with no post-pass. The desktop `compute_char_boxes_line_with`
+/// applies this step after CAP, and the mobile page path does the same through
+/// this export; the parity tests call the raw entries and stay bit-identical.
+#[uniffi::export]
+pub fn char_placement_trailing_punct(
+    text: String,
+    boxes: Vec<PlaceBox>,
+    vertical: bool,
+    crop_w: u32,
+    crop_h: u32,
+) -> Vec<PlaceBox> {
+    let mut core: Vec<[f64; 4]> = boxes
+        .iter()
+        .map(|b| {
+            [
+                b.left as f64,
+                b.top as f64,
+                b.right as f64,
+                b.bottom as f64,
+            ]
+        })
+        .collect();
+    jpdict_core::char_boxes::place_trailing_punct_cell(&text, &mut core, vertical, crop_w, crop_h);
+    core.into_iter()
+        .map(|b| PlaceBox {
+            left: b[0] as f32,
+            top: b[1] as f32,
+            right: b[2] as f32,
+            bottom: b[3] as f32,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     //! Mirror of the PC `jpdict_core::char_placement` tests, run through the
@@ -1191,5 +1227,48 @@ mod tests {
             jpdict_core::char_placement::BLANK as i32
         );
         assert_eq!(char_placement_blank(), '\u{3000}' as i32);
+    }
+
+    /// The boundary export applies the same post-pass as the desktop
+    /// `compute_char_boxes_line_with`; the raw `place` entries stay untouched.
+    #[test]
+    fn trailing_punct_post_pass_wraps_the_core() {
+        let text = "日本語を勉強しています。";
+        let mut boxes: Vec<PlaceBox> = (0..11)
+            .map(|i| {
+                let a = i as f32 * 43.0;
+                PlaceBox {
+                    left: a,
+                    top: 0.0,
+                    right: a + 43.0,
+                    bottom: 35.0,
+                }
+            })
+            .collect();
+        boxes.push(PlaceBox {
+            left: 461.0,
+            top: 0.0,
+            right: 480.0,
+            bottom: 35.0,
+        });
+        let out = char_placement_trailing_punct(text.to_string(), boxes, false, 483, 35);
+        assert_eq!(
+            out[10],
+            PlaceBox {
+                left: 430.0,
+                top: 0.0,
+                right: 473.0,
+                bottom: 35.0
+            }
+        );
+        assert_eq!(
+            out[11],
+            PlaceBox {
+                left: 473.0,
+                top: 0.0,
+                right: 516.0,
+                bottom: 35.0
+            }
+        );
     }
 }

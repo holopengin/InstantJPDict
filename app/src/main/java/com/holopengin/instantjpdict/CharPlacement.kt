@@ -8,6 +8,7 @@ import uniffi.nav_graph_core.charPlacementBlank
 import uniffi.nav_graph_core.charPlacementInkSpec
 import uniffi.nav_graph_core.charPlacementPlace
 import uniffi.nav_graph_core.charPlacementPlaceEvidence
+import uniffi.nav_graph_core.charPlacementTrailingPunct
 import uniffi.nav_graph_core.ocrEngineComputeCharBoxes
 import uniffi.nav_graph_core.ocrEngineComputeCharBoxesEvidence
 import uniffi.nav_graph_core.ocrEngineSnapSpec
@@ -141,6 +142,9 @@ internal object CharPlacement {
         pixels: IntArray? = null,
         steps: List<List<Step>>? = null,
         options: Options = Options(),
+        /** Apply the line-ending closing-mark advance-cell post-pass. False is
+         *  the raw Python-reference placement (`CharPlacementTest` parity). */
+        trailingPunct: Boolean = true,
     ): List<Box> = placeCells(
         text = text,
         charCols = charCols,
@@ -153,6 +157,7 @@ internal object CharPlacement {
         // cannot be, so the conversion allocates — by design, and only here.
         cells = steps?.map { alts -> alts.map { GapCell(ch = it.char.code, score = it.score) } },
         options = options,
+        trailingPunct = trailingPunct,
     )
 
     /**
@@ -181,6 +186,10 @@ internal object CharPlacement {
         pixels: IntArray? = null,
         cells: List<List<GapCell>>? = null,
         options: Options = Options(),
+        /** Apply the line-ending closing-mark advance-cell post-pass (the same
+         *  step desktop `compute_char_boxes_line_with` runs after CAP). The raw
+         *  placement is the Python reference; the page path wants the pass. */
+        trailingPunct: Boolean = true,
     ): List<Box> {
         val opts = options.toRust()
         // The evidence path when the crop reduces; the pixel path otherwise.
@@ -211,7 +220,12 @@ internal object CharPlacement {
                 options = opts,
             )
         }
-        return raw.map { Box(it.left, it.top, it.right, it.bottom) }
+        val placed = if (trailingPunct) {
+            charPlacementTrailingPunct(text, raw, isVertical, cropW.toUInt(), cropH.toUInt())
+        } else {
+            raw
+        }
+        return placed.map { Box(it.left, it.top, it.right, it.bottom) }
     }
 
     private fun Options.toRust(): PlaceOptions = PlaceOptions(
